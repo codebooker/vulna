@@ -43,3 +43,6 @@ class EnrollResponse(BaseModel):
     ca_certificate_pem: str = Field(description="Orchestrator CA certificate (PEM)")
     certificate_fingerprint: str
     certificate_expires_at: datetime
+    signing_public_key_b64: str = Field(
+        description="Base64 raw Ed25519 public key used to verify jobs and policy"
+    )

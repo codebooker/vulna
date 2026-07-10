@@ -65,6 +65,7 @@ type enrollResponse struct {
 	CACertificatePEM       string `json:"ca_certificate_pem"`
 	CertificateFingerprint string `json:"certificate_fingerprint"`
 	CertificateExpiresAt   string `json:"certificate_expires_at"`
+	SigningPublicKeyB64    string `json:"signing_public_key_b64"`
 }
 
 // Enroll generates a key pair, submits a CSR with the given token, and persists
@@ -130,11 +131,12 @@ func Enroll(
 	}
 
 	state = storage.State{
-		ProbeID:     er.ProbeID,
-		SiteID:      er.SiteID,
-		Fingerprint: er.CertificateFingerprint,
-		EnrolledAt:  time.Now().UTC().Format(time.RFC3339),
-		ServerURL:   strings.TrimRight(serverURL, "/"),
+		ProbeID:          er.ProbeID,
+		SiteID:           er.SiteID,
+		Fingerprint:      er.CertificateFingerprint,
+		EnrolledAt:       time.Now().UTC().Format(time.RFC3339),
+		ServerURL:        strings.TrimRight(serverURL, "/"),
+		SigningPublicKey: er.SigningPublicKeyB64,
 	}
 	if err := store.SaveState(state); err != nil {
 		return state, err

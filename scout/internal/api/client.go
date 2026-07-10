@@ -108,12 +108,21 @@ type HeartbeatRequest struct {
 	PolicyHash      string         `json:"policy_hash,omitempty"`
 }
 
+// PolicyStatus is the policy section of a heartbeat response.
+type PolicyStatus struct {
+	Version         int    `json:"version"`
+	Hash            string `json:"hash"`
+	UpdateAvailable bool   `json:"update_available"`
+}
+
 // HeartbeatResponse captures the fields the agent acts on.
 type HeartbeatResponse struct {
-	ServerTime               string `json:"server_time"`
-	ProbeStatus              string `json:"probe_status"`
-	HeartbeatIntervalSeconds int    `json:"heartbeat_interval_seconds"`
-	PendingJobCount          int    `json:"pending_job_count"`
+	ServerTime               string       `json:"server_time"`
+	ProbeStatus              string       `json:"probe_status"`
+	HeartbeatIntervalSeconds int          `json:"heartbeat_interval_seconds"`
+	PendingJobCount          int          `json:"pending_job_count"`
+	Cancellations            []string     `json:"cancellations"`
+	Policy                   PolicyStatus `json:"policy"`
 }
 
 // ErrRejected indicates the orchestrator refused the probe (revoked/disabled).
@@ -121,6 +130,89 @@ type ErrRejected struct{ Status int }
 
 func (e ErrRejected) Error() string {
 	return fmt.Sprintf("orchestrator rejected probe (status %d): revoked or disabled", e.Status)
+}
+
+// FetchPolicy retrieves the probe's signed local policy document (raw JSON).
+func (c *Client) FetchPolicy(ctx context.Context) ([]byte, error) {
+	url := fmt.Sprintf("%s/api/v1/probes/%s/policy", c.serverURL, c.probeID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("fetch policy: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
+	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusUnauthorized {
+		return nil, ErrRejected{Status: resp.StatusCode}
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("fetch policy: status %d: %s", resp.StatusCode, string(body))
+	}
+	return body, nil
+}
+
+// PollJob polls for the next signed job envelope. It returns (envelope, true,
+// nil) when a job is available, (nil, false, nil) when none is (HTTP 204), and
+// an error otherwise.
+func (c *Client) PollJob(ctx context.Context) ([]byte, bool, error) {
+	url := fmt.Sprintf("%s/api/v1/probes/%s/jobs/next", c.serverURL, c.probeID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
+	if err != nil {
+		return nil, false, err
+	}
+	req.Header.Set("Accept", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, false, fmt.Errorf("poll job: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
+	switch {
+	case resp.StatusCode == http.StatusOK:
+		return body, true, nil
+	case resp.StatusCode == http.StatusNoContent:
+		return nil, false, nil
+	case resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusUnauthorized:
+		return nil, false, ErrRejected{Status: resp.StatusCode}
+	default:
+		return nil, false, fmt.Errorf("poll job: status %d: %s", resp.StatusCode, string(body))
+	}
+}
+
+// JobStatusReport is a status update a probe sends about a job.
+type JobStatusReport struct {
+	Status       string         `json:"status"`
+	ErrorCode    string         `json:"error_code,omitempty"`
+	ErrorMessage string         `json:"error_message,omitempty"`
+	Summary      map[string]any `json:"summary,omitempty"`
+}
+
+// ReportJobStatus reports a job's status back to the orchestrator.
+func (c *Client) ReportJobStatus(ctx context.Context, jobID string, report JobStatusReport) error {
+	payload, err := json.Marshal(report)
+	if err != nil {
+		return fmt.Errorf("encode status: %w", err)
+	}
+	url := fmt.Sprintf("%s/api/v1/probes/%s/jobs/%s/status", c.serverURL, c.probeID, jobID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("report status: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
+		return fmt.Errorf("report status: status %d: %s", resp.StatusCode, string(body))
+	}
+	return nil
 }
 
 // Heartbeat sends a heartbeat and returns the server's response.

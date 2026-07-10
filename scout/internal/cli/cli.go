@@ -16,10 +16,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/codebooker/vulna/scout/internal/agent"
 	"github.com/codebooker/vulna/scout/internal/api"
 	"github.com/codebooker/vulna/scout/internal/buildinfo"
 	"github.com/codebooker/vulna/scout/internal/config"
 	"github.com/codebooker/vulna/scout/internal/enrollment"
+	"github.com/codebooker/vulna/scout/internal/executor"
+	"github.com/codebooker/vulna/scout/internal/policy"
 	"github.com/codebooker/vulna/scout/internal/selftest"
 	"github.com/codebooker/vulna/scout/internal/storage"
 )
@@ -258,47 +261,110 @@ func runRun(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
+	pubkey, err := policy.ParsePublicKey(state.SigningPublicKey)
+	if err != nil {
+		fmt.Fprintln(stderr, "signing key (re-enroll to obtain it):", err)
+		return 1
+	}
+	scout := agent.New(client, store, pubkey, executor.NewTestWorker(time.Second))
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	if err := scout.SyncPolicy(ctx); err != nil {
+		fmt.Fprintln(stderr, "vulnascout: initial policy sync failed:", err)
+	} else {
+		fmt.Fprintln(stdout, "vulnascout: local policy synced")
+	}
+
 	interval := time.Duration(cfg.HeartbeatIntervalSeconds) * time.Second
-	fmt.Fprintf(
-		stdout, "vulnascout: heartbeating %s as probe %s every %s\n",
-		cfg.ServerURL, state.ProbeID, interval,
-	)
+	fmt.Fprintf(stdout, "vulnascout: running as probe %s against %s\n", state.ProbeID, cfg.ServerURL)
 
 	hb := buildHeartbeat()
+	var running *agent.RunningJob
 	for {
+		hb.PolicyHash = scout.PolicyHash()
 		resp, hbErr := client.Heartbeat(ctx, hb)
-		switch {
-		case hbErr == nil:
-			if resp.HeartbeatIntervalSeconds > 0 {
-				interval = time.Duration(resp.HeartbeatIntervalSeconds) * time.Second
-			}
-			fmt.Fprintf(
-				stdout, "vulnascout: heartbeat ok (status=%s, pending_jobs=%d)\n",
-				resp.ProbeStatus, resp.PendingJobCount,
-			)
-		default:
+		if hbErr != nil {
 			var rejected api.ErrRejected
 			if errors.As(hbErr, &rejected) {
 				fmt.Fprintln(stderr, "vulnascout: rejected by orchestrator (revoked/disabled); stopping")
+				if running != nil {
+					running.Cancel()
+				}
 				return 1
 			}
 			if ctx.Err() != nil {
-				fmt.Fprintln(stdout, "vulnascout: shutting down")
-				return 0
+				break
 			}
 			fmt.Fprintln(stderr, "vulnascout: heartbeat error:", hbErr)
+		} else {
+			if resp.HeartbeatIntervalSeconds > 0 {
+				interval = time.Duration(resp.HeartbeatIntervalSeconds) * time.Second
+			}
+			if resp.Policy.UpdateAvailable {
+				if err := scout.SyncPolicy(ctx); err != nil {
+					fmt.Fprintln(stderr, "vulnascout: policy sync failed:", err)
+				} else {
+					fmt.Fprintln(stdout, "vulnascout: local policy updated")
+				}
+			}
+			if running != nil {
+				for _, id := range resp.Cancellations {
+					if id == running.JobID {
+						fmt.Fprintf(stdout, "vulnascout: cancelling job %s\n", id)
+						running.Cancel()
+					}
+				}
+			} else if started, perr := scout.PollAndStart(ctx); perr != nil {
+				var rejected api.ErrRejected
+				if errors.As(perr, &rejected) {
+					fmt.Fprintln(stderr, "vulnascout: rejected by orchestrator; stopping")
+					return 1
+				}
+				fmt.Fprintln(stderr, "vulnascout: poll error:", perr)
+			} else if started != nil {
+				running = started
+				fmt.Fprintf(stdout, "vulnascout: started job %s\n", started.JobID)
+			}
+		}
+
+		// Poll faster while a job runs so cancellation is responsive; finalize
+		// the job as soon as the worker finishes.
+		tick := interval
+		if running != nil {
+			tick = time.Second
+			select {
+			case res := <-running.Done():
+				outcome := "completed"
+				if res.Cancelled {
+					outcome = "cancelled"
+				}
+				if err := scout.Finalize(ctx, running, res); err != nil {
+					fmt.Fprintln(stderr, "vulnascout: finalize error:", err)
+				}
+				fmt.Fprintf(
+					stdout, "vulnascout: job %s %s (%d/%d stages)\n",
+					running.JobID, outcome, res.StagesRun, res.StagesTotal,
+				)
+				running = nil
+			default:
+			}
 		}
 
 		select {
 		case <-ctx.Done():
-			fmt.Fprintln(stdout, "vulnascout: shutting down")
-			return 0
-		case <-time.After(interval):
+			if running != nil {
+				running.Cancel()
+			}
+		case <-time.After(tick):
+		}
+		if ctx.Err() != nil {
+			break
 		}
 	}
+	fmt.Fprintln(stdout, "vulnascout: shutting down")
+	return 0
 }
 
 func buildHeartbeat() api.HeartbeatRequest {

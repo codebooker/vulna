@@ -107,6 +107,17 @@ class Settings(BaseSettings):
     # proxy can reach it. See docs/threat-model.md.
     probe_cert_fingerprint_header: str = "x-vulna-client-cert-fingerprint"
 
+    # ---- Job / policy signing (Ed25519) ------------------------------------
+    # Key pair used to sign job envelopes and local policy documents. Probes
+    # hold only the public key and reject unsigned or altered jobs/policies.
+    # Generated on first use if missing; keep the private key secret and backed
+    # up.
+    job_signing_key_path: str = "/var/lib/vulna/keys/job_signing_ed25519"
+    job_signing_pubkey_path: str = "/var/lib/vulna/keys/job_signing_ed25519.pub"
+    # Default job time window (minutes) applied when a request omits explicit
+    # not_before/expires_at.
+    job_default_ttl_minutes: int = 240
+
     @property
     def version(self) -> str:
         """The running application version."""

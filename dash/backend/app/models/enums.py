@@ -42,3 +42,29 @@ class ProbeStatus(StrEnum):
     DISABLED = "disabled"
     REVOKED = "revoked"
 
+
+class JobMode(StrEnum):
+    """Assessment mode of a scan job (build plan Section 1.2–1.4).
+
+    Phase 3 supports vulnerability assessment only; controlled pentest and
+    full-spectrum modes are reserved for later phases.
+    """
+
+    VULNERABILITY_ASSESSMENT = "vulnerability_assessment"
+    CONTROLLED_PENTEST = "controlled_pentest"
+    FULL_SPECTRUM = "full_spectrum"
+
+
+class JobStatus(StrEnum):
+    """Scan-job lifecycle status (subset of build plan Section 9.8 for Phase 3)."""
+
+    QUEUED = "queued"  # signed and waiting to be offered to the probe
+    OFFERED = "offered"  # delivered to the probe via jobs/next
+    ACCEPTED = "accepted"  # probe accepted the job
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    EXPIRED = "expired"
+    REJECTED_BY_PROBE = "rejected_by_probe"
+

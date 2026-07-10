@@ -17,11 +17,13 @@ from pathlib import Path
 # value and is never used outside the suite.
 os.environ.setdefault("VULNA_SECRET_KEY", "test-only-secret-do-not-use-in-production")
 
-# Point the internal CA at a writable temp directory so enrollment tests can
-# issue certificates without touching /var/lib/vulna.
+# Point the internal CA and job-signing key at a writable temp directory so
+# enrollment/signing tests do not touch /var/lib/vulna.
 _CA_DIR = Path(tempfile.gettempdir()) / "vulna-test-ca"
 os.environ.setdefault("VULNA_CA_KEY_PATH", str(_CA_DIR / "ca_key.pem"))
 os.environ.setdefault("VULNA_CA_CERT_PATH", str(_CA_DIR / "ca_cert.pem"))
+os.environ.setdefault("VULNA_JOB_SIGNING_KEY_PATH", str(_CA_DIR / "job_signing"))
+os.environ.setdefault("VULNA_JOB_SIGNING_PUBKEY_PATH", str(_CA_DIR / "job_signing.pub"))
 
 import app.models  # noqa: F401  (register models on the metadata)
 import pytest

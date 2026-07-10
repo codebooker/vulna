@@ -19,6 +19,7 @@ from typing import Annotated
 
 from cryptography.hazmat.primitives import serialization
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,8 +29,9 @@ from app.auth.dependencies import CurrentUser, require_admin
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
 from app.models.enrollment_token import EnrollmentToken
-from app.models.enums import ActorType, ProbeStatus
+from app.models.enums import ActorType, JobStatus, ProbeStatus
 from app.models.probe import Probe
+from app.models.scan_job import ScanJob
 from app.models.site import Site
 from app.models.user import User
 from app.schemas.common import Page
@@ -39,6 +41,7 @@ from app.schemas.enrollment import (
     EnrollRequest,
     EnrollResponse,
 )
+from app.schemas.job import JobStatusUpdate
 from app.schemas.probe import (
     CertificateStatus,
     HeartbeatRequest,
@@ -50,6 +53,8 @@ from app.schemas.probe import (
 from app.services.audit import record_audit
 from app.services.ca import CertificateAuthorityError, certificate_fingerprint, get_ca
 from app.services.enrollment import generate_token, hash_token
+from app.services.policy import build_policy_document
+from app.services.signing import document_hash, get_signer
 
 router = APIRouter(prefix="/probes", tags=["probes"])
 
@@ -223,6 +228,7 @@ async def enroll_probe(
         ca_certificate_pem=ca.cert_pem.decode("utf-8"),
         certificate_fingerprint=fingerprint,
         certificate_expires_at=cert_expires,
+        signing_public_key_b64=get_signer().public_key_raw_b64,
     )
 
 
@@ -408,6 +414,7 @@ async def heartbeat(
     payload: HeartbeatRequest,
     probe: CurrentProbe,
     session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> HeartbeatResponse:
     """Record a probe heartbeat and return server directives.
 
@@ -437,37 +444,149 @@ async def heartbeat(
         probe.policy_hash = payload.policy_hash
     await session.flush()
 
+    # Advertise the current policy so the probe can detect a stale local policy.
+    policy_payload = await build_policy_document(session, probe, settings)
+    current_hash = document_hash(policy_payload)
+    policy_status = PolicyStatus(
+        version=policy_payload["policy_version"],
+        hash=current_hash,
+        update_available=payload.policy_hash != current_hash,
+    )
+
+    # Jobs the probe should stop (cancellation requested while still active).
+    cancel_result = await session.execute(
+        select(ScanJob.id).where(
+            ScanJob.probe_id == probe.id,
+            ScanJob.cancel_requested_at.is_not(None),
+            ScanJob.status.in_([JobStatus.OFFERED, JobStatus.ACCEPTED, JobStatus.RUNNING]),
+        )
+    )
+    cancellations = [row[0] for row in cancel_result.all()]
+    pending = await session.scalar(
+        select(func.count())
+        .select_from(ScanJob)
+        .where(ScanJob.probe_id == probe.id, ScanJob.status == JobStatus.QUEUED)
+    )
+
     return HeartbeatResponse(
         server_time=now,
         probe_status=probe.status,
         certificate=_certificate_status(probe, now),
-        policy=PolicyStatus(),
+        policy=policy_status,
         agent_update=None,
-        pending_job_count=0,
-        cancellations=[],
+        pending_job_count=pending or 0,
+        cancellations=cancellations,
         heartbeat_interval_seconds=_HEARTBEAT_INTERVAL_SECONDS,
     )
 
 
+@router.get(
+    "/{probe_id}/policy",
+    summary="Fetch the signed local policy",
+)
+async def get_policy(
+    probe_id: uuid.UUID,
+    probe: CurrentProbe,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> dict[str, object]:
+    """Return the probe's signed local policy document (client-cert authenticated)."""
+    if probe.id != probe_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Certificate does not match the requested probe",
+        )
+    payload = await build_policy_document(session, probe, settings)
+    return get_signer().sign_document(payload)
+
+
 @router.post(
     "/{probe_id}/jobs/next",
-    status_code=status.HTTP_204_NO_CONTENT,
     response_model=None,
     summary="Poll for the next job",
 )
 async def poll_next_job(
     probe_id: uuid.UUID,
     probe: CurrentProbe,
+    session: Annotated[AsyncSession, Depends(get_session)],
 ) -> Response:
-    """Return the next signed job for the probe, or 204 when none is available.
+    """Return the next signed job envelope for the probe, or 204 when none.
 
-    Job delivery lands in Phase 3; for now this always returns 204. Revoked or
-    disabled probes are rejected by certificate authentication before reaching
-    here, satisfying "a revoked probe cannot poll jobs".
+    Revoked or disabled probes are rejected by certificate authentication before
+    reaching here, satisfying "a revoked probe cannot poll jobs".
     """
     if probe.id != probe_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Certificate does not match the requested probe",
         )
+
+    now = datetime.now(UTC)
+    result = await session.execute(
+        select(ScanJob)
+        .where(
+            ScanJob.probe_id == probe.id,
+            ScanJob.status == JobStatus.QUEUED,
+            ScanJob.cancel_requested_at.is_(None),
+        )
+        .order_by(ScanJob.created_at.asc())
+    )
+    for job in result.scalars():
+        expires = job.expires_at if job.expires_at.tzinfo else job.expires_at.replace(tzinfo=UTC)
+        not_before = job.not_before if job.not_before.tzinfo else job.not_before.replace(tzinfo=UTC)
+        if expires <= now:
+            job.status = JobStatus.EXPIRED
+            job.finished_at = now
+            continue
+        if not_before > now:
+            continue  # not yet eligible; leave queued
+        job.status = JobStatus.OFFERED
+        job.offered_at = now
+        return JSONResponse(content=job.envelope_json)
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/{probe_id}/jobs/{job_id}/status",
+    response_model=None,
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Report job status",
+)
+async def report_job_status(
+    probe_id: uuid.UUID,
+    job_id: uuid.UUID,
+    payload: JobStatusUpdate,
+    probe: CurrentProbe,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> Response:
+    """A probe reports progress/outcome for a job it was offered."""
+    if probe.id != probe_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Certificate does not match the requested probe",
+        )
+    job = await session.get(ScanJob, job_id)
+    if job is None or job.probe_id != probe.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+
+    now = datetime.now(UTC)
+    job.status = payload.status
+    if payload.status == JobStatus.ACCEPTED:
+        job.accepted_at = now
+    elif payload.status == JobStatus.RUNNING:
+        job.started_at = job.started_at or now
+    elif payload.status in (
+        JobStatus.COMPLETED,
+        JobStatus.FAILED,
+        JobStatus.CANCELLED,
+        JobStatus.REJECTED_BY_PROBE,
+    ):
+        job.finished_at = now
+        if payload.error_code is not None:
+            job.error_code = payload.error_code
+        if payload.error_message is not None:
+            job.error_message = payload.error_message
+        if payload.summary is not None:
+            job.summary_json = payload.summary
     return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 3: Signed jobs and local policy
+
+Ed25519-signed job envelopes and local policy, verified and enforced
+independently by the probe.
+
+Orchestrator (VulnaDash):
+
+- Ed25519 signing service over a canonical JSON form (sorted keys, compact, no
+  HTML escaping, integer fidelity) shared by policy and job envelopes.
+- Signed local-policy builder (approved CIDRs, allowed modes/plugins, limits
+  from a probe's scopes); client-cert-authenticated `/policy` endpoint; signing
+  public key delivered at enrollment; heartbeat advertises the policy hash.
+- `ScanJob` model + migration; operator job creation that validates targets
+  against approved scopes and signs the job envelope (stored verbatim for
+  byte-identical delivery); `/jobs/next` delivery (expiring stale jobs); probe
+  status reporting; cancellation (immediate for queued jobs, advertised via
+  heartbeat for active ones).
+
+VulnaScout agent (Go):
+
+- `policy` package independently verifies signatures and enforces scope, mode,
+  and job expiry — rejecting altered, expired, not-yet-valid, out-of-scope, and
+  wrong-key jobs.
+- Cancellable test worker (the kill switch until real scanners land in Phase 4).
+- `agent` package orchestrates policy sync, job polling/verification, worker
+  execution, cancellation, and status reporting; wired into the `run` loop.
+- Enrollment stores the signing public key; policy and signing key persisted
+  locally.
+
+Cross-language proofs: Python-signed policy and job vectors verify in the Go
+probe, and the Go/Python document hashes agree (byte-identical canonicalization).
+ADR 0004 records the signing design.
+
 ### Added — Phase 2: VulnaScout enrollment and heartbeat
 
 Orchestrator (VulnaDash):

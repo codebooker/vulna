@@ -14,19 +14,21 @@ import (
 )
 
 const (
-	keyFile   = "client_key.pem"
-	certFile  = "client_cert.pem"
-	caFile    = "ca_cert.pem"
-	stateFile = "state.json"
+	keyFile    = "client_key.pem"
+	certFile   = "client_cert.pem"
+	caFile     = "ca_cert.pem"
+	stateFile  = "state.json"
+	policyFile = "policy.json"
 )
 
 // State is the persisted enrollment state.
 type State struct {
-	ProbeID     string `json:"probe_id"`
-	SiteID      string `json:"site_id"`
-	Fingerprint string `json:"certificate_fingerprint"`
-	EnrolledAt  string `json:"enrolled_at"`
-	ServerURL   string `json:"server_url"`
+	ProbeID          string `json:"probe_id"`
+	SiteID           string `json:"site_id"`
+	Fingerprint      string `json:"certificate_fingerprint"`
+	EnrolledAt       string `json:"enrolled_at"`
+	ServerURL        string `json:"server_url"`
+	SigningPublicKey string `json:"signing_public_key,omitempty"`
 }
 
 // Store manages on-disk VulnaScout state under a base directory.
@@ -97,6 +99,16 @@ func (s *Store) LoadState() (State, error) {
 		return st, fmt.Errorf("parse state: %w", err)
 	}
 	return st, nil
+}
+
+// SavePolicy persists the raw signed local-policy document.
+func (s *Store) SavePolicy(raw []byte) error {
+	return writeFile(s.path(policyFile), raw, 0o600)
+}
+
+// LoadPolicy reads the raw signed local-policy document, if present.
+func (s *Store) LoadPolicy() ([]byte, error) {
+	return os.ReadFile(s.path(policyFile))
 }
 
 func writeFile(path string, data []byte, perm os.FileMode) error {
