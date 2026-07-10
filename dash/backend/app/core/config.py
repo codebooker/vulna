@@ -132,6 +132,12 @@ class Settings(BaseSettings):
     # EPSS probability at/above which a change crossing it raises an event.
     epss_alert_threshold: float = 0.5
 
+    # ---- Reports (Phase 8) --------------------------------------------------
+    # Directory where generated report artifacts (PDF/CSV/JSON) are stored.
+    reports_dir: str = "/var/lib/vulna/reports"
+    # Generated reports are considered downloadable until this many days pass.
+    report_ttl_days: int = 90
+
     @property
     def version(self) -> str:
         """The running application version."""

@@ -172,6 +172,35 @@ class MatchConfidence(StrEnum):
     LOW = "low"
 
 
+class ReportType(StrEnum):
+    """A report/export artifact type (build plan Section 16)."""
+
+    EXECUTIVE_PDF = "executive_pdf"
+    TECHNICAL_PDF = "technical_pdf"
+    FINDINGS_CSV = "findings_csv"
+    ASSETS_CSV = "assets_csv"
+    SERVICES_CSV = "services_csv"
+    CVE_EXPOSURE_CSV = "cve_exposure_csv"
+    JSON_BUNDLE = "json_bundle"
+
+
+class ReportFormat(StrEnum):
+    """Serialized format of a report artifact."""
+
+    PDF = "pdf"
+    CSV = "csv"
+    JSON = "json"
+
+
+class ReportStatus(StrEnum):
+    """Lifecycle of a report artifact (build plan Section 9.18)."""
+
+    PENDING = "pending"
+    GENERATING = "generating"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
 class Severity(StrEnum):
     """Finding severity."""
 

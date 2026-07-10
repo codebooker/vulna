@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vulna.dev/schemas/report-bundle.schema.json",
+  "title": "Vulna Report Bundle",
+  "description": "Versioned JSON export of a scan's reporting snapshot (VulnaReport, build plan Section 16.3). The bundle wraps an immutable snapshot so a stored report is reproducible even if the database changes later.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["bundle_version", "generated_at", "snapshot"],
+  "properties": {
+    "bundle_version": { "type": "integer", "const": 1 },
+    "generated_at": { "type": ["string", "null"] },
+    "snapshot": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "summary",
+        "scan_job",
+        "assets",
+        "services",
+        "findings",
+        "cve_exposure",
+        "changes"
+      ],
+      "properties": {
+        "schema_version": { "type": "integer" },
+        "generated_at": { "type": ["string", "null"] },
+        "organization": { "type": ["object", "null"] },
+        "site": { "type": ["object", "null"] },
+        "scan_job": { "type": "object" },
+        "summary": {
+          "type": "object",
+          "properties": {
+            "severity_counts": { "type": "object" },
+            "kev_count": { "type": "integer" },
+            "exploitable_count": { "type": "integer" },
+            "asset_count": { "type": "integer" },
+            "service_count": { "type": "integer" },
+            "finding_count": { "type": "integer" },
+            "change_count": { "type": "integer" }
+          }
+        },
+        "assets": { "type": "array", "items": { "type": "object" } },
+        "services": { "type": "array", "items": { "type": "object" } },
+        "findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "title", "severity", "finding_type", "cve_ids"],
+            "properties": {
+              "id": { "type": "string" },
+              "title": { "type": "string" },
+              "severity": {
+                "type": "string",
+                "enum": ["critical", "high", "medium", "low", "info"]
+              },
+              "finding_type": { "type": "string" },
+              "cve_ids": { "type": "array", "items": { "type": "string" } },
+              "known_exploited": { "type": "boolean" }
+            }
+          }
+        },
+        "cve_exposure": { "type": "array", "items": { "type": "object" } },
+        "changes": { "type": "array", "items": { "type": "object" } }
+      }
+    }
+  }
+}

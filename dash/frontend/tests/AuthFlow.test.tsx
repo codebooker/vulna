@@ -28,6 +28,9 @@ function installFetchMock() {
     if (url.endsWith('/api/v1/feeds/health')) {
       return jsonResponse([]);
     }
+    if (url.includes('/api/v1/reports')) {
+      return jsonResponse({ items: [], total: 0, limit: 50, offset: 0 });
+    }
     if (url.endsWith('/health')) {
       return jsonResponse({ status: 'ok', service: 'VulnaDash', version: '0.1.0' });
     }

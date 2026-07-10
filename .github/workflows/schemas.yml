@@ -51,4 +51,8 @@ jobs:
           validate("shared/examples/job.example.json", "shared/schemas/job.schema.json")
           validate("shared/examples/policy.example.json", "shared/schemas/policy.schema.json")
           validate("shared/schemas/nmap.plugin.example.yaml", "shared/schemas/plugin.schema.json")
+          validate(
+              "shared/examples/report-bundle.example.json",
+              "shared/schemas/report-bundle.schema.json",
+          )
           PY

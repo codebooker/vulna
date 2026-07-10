@@ -1,0 +1,160 @@
+{
+  "bundle_version": 1,
+  "generated_at": "2026-07-10T12:00:00+00:00",
+  "snapshot": {
+    "assets": [
+      {
+        "asset_type": "server",
+        "canonical_name": "web01",
+        "critical_finding_count": 1,
+        "first_seen_at": null,
+        "high_finding_count": 0,
+        "hostnames": [
+          "web01.example.com"
+        ],
+        "id": "a1",
+        "ip_addresses": [
+          "10.0.0.5"
+        ],
+        "last_assessed_at": null,
+        "last_seen_at": null,
+        "mac_addresses": [
+          "00:11:22:33:44:55"
+        ],
+        "manufacturer": null,
+        "open_port_count": 1,
+        "operating_system": "Linux",
+        "status": "active",
+        "tags": [
+          "prod"
+        ]
+      }
+    ],
+    "changes": [
+      {
+        "after": {},
+        "asset_id": "a1",
+        "before": {},
+        "event_type": "new_finding",
+        "scan_job_id": "j1",
+        "severity": "critical",
+        "site_id": "s1",
+        "summary": "New critical finding: Log4Shell",
+        "timestamp": "2026-07-10T11:00:00+00:00"
+      }
+    ],
+    "cve_exposure": [
+      {
+        "asset_id": "a1",
+        "asset_name": "web01",
+        "confidence": 80,
+        "cve_id": "CVE-2021-44228",
+        "cvss": 10.0,
+        "epss": 0.975,
+        "epss_percentile": 0.999,
+        "finding_id": "f1",
+        "first_detected": null,
+        "in_local_db": true,
+        "kev": true,
+        "kev_date_added": "2021-12-10",
+        "ransomware": true,
+        "remediation_status": "new",
+        "validation_status": "unvalidated"
+      }
+    ],
+    "findings": [
+      {
+        "asset_id": "a1",
+        "asset_name": "web01",
+        "confidence": 80,
+        "cve_ids": [
+          "CVE-2021-44228"
+        ],
+        "cvss_score": 10.0,
+        "cvss_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H",
+        "cwe_ids": [
+          "CWE-502"
+        ],
+        "description": "Remote code execution via JNDI \u2014 patch now.",
+        "epss_percentile": 0.999,
+        "epss_score": 0.975,
+        "finding_type": "vulnerability",
+        "first_seen_at": null,
+        "id": "f1",
+        "known_exploited": true,
+        "last_seen_at": null,
+        "references": [
+          "https://logging.apache.org/"
+        ],
+        "remediation": "Upgrade Log4j to 2.17+.",
+        "scanner_name": "nuclei",
+        "service_id": "sv1",
+        "severity": "critical",
+        "status": "new",
+        "title": "Log4Shell \u2014 RCE \u2713",
+        "validation_status": "unvalidated"
+      }
+    ],
+    "generated_at": "2026-07-10T12:00:00+00:00",
+    "organization": {
+      "id": "o1",
+      "name": "Acme",
+      "slug": "acme"
+    },
+    "scan_job": {
+      "created_at": null,
+      "finished_at": "2026-07-10T10:30:00+00:00",
+      "id": "j1",
+      "mode": "vulnerability_assessment",
+      "started_at": "2026-07-10T10:00:00+00:00",
+      "status": "completed",
+      "targets": [
+        "10.0.0.0/24"
+      ],
+      "workflow": [
+        {
+          "plugin": "nmap",
+          "stage": "discovery"
+        }
+      ]
+    },
+    "schema_version": 1,
+    "services": [
+      {
+        "asset_id": "a1",
+        "asset_name": "web01",
+        "cpe": null,
+        "first_seen_at": null,
+        "id": "sv1",
+        "ip_address": "10.0.0.5",
+        "last_seen_at": null,
+        "port": 443,
+        "product": "nginx",
+        "service_name": "https",
+        "state": "open",
+        "transport": "tcp",
+        "version": "1.18.0"
+      }
+    ],
+    "site": {
+      "code": "HQ",
+      "id": "s1",
+      "name": "HQ"
+    },
+    "summary": {
+      "asset_count": 1,
+      "change_count": 1,
+      "exploitable_count": 0,
+      "finding_count": 1,
+      "kev_count": 1,
+      "service_count": 1,
+      "severity_counts": {
+        "critical": 1,
+        "high": 0,
+        "info": 0,
+        "low": 0,
+        "medium": 0
+      }
+    }
+  }
+}

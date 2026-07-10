@@ -13,6 +13,7 @@ from app.api.v1 import (
     jobs,
     organizations,
     probes,
+    reports,
     scopes,
     sites,
     system,
@@ -33,4 +34,5 @@ api_router.include_router(changes.router)
 api_router.include_router(findings.router)
 api_router.include_router(feeds.router)
 api_router.include_router(cve.router)
+api_router.include_router(reports.router)
 api_router.include_router(audit.router)

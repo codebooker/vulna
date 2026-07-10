@@ -43,9 +43,11 @@ scout/bin/
 vendor/
 
 # ---- Runtime data / artifacts ----
+# Anchored to the repo root so they only match runtime output dirs, not source
+# packages such as app/services/reports/.
 /data/
-reports/
-evidence/
+/reports/
+/evidence/
 *.db
 *.sqlite
 *.sqlite3

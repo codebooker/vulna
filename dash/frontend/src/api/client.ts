@@ -1,6 +1,7 @@
 import type { CurrentUser, TokenResponse } from '../types/auth';
 import type { ChangeEvent, NetworkScope, NewScope, NewSite, Page, Site } from '../types/inventory';
 import type { FeedHealth, SyncResult } from '../types/intelligence';
+import type { Report } from '../types/report';
 import type { HealthResponse, SystemInfoResponse } from '../types/system';
 
 // In development, Vite proxies /api to the backend (see vite.config.ts).
@@ -93,6 +94,18 @@ export const api = {
       method: 'POST',
       token,
     });
+  },
+  listReports(token: string, limit = 50): Promise<Page<Report>> {
+    return request<Page<Report>>(`/api/v1/reports?limit=${limit}`, { token });
+  },
+  async downloadReport(token: string, id: string): Promise<Blob> {
+    const response = await fetch(`${API_BASE}/api/v1/reports/${encodeURIComponent(id)}/download`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) {
+      throw new ApiError(response.status, response.statusText);
+    }
+    return response.blob();
   },
 };
 

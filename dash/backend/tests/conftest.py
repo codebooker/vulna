@@ -25,6 +25,11 @@ os.environ.setdefault("VULNA_CA_CERT_PATH", str(_CA_DIR / "ca_cert.pem"))
 os.environ.setdefault("VULNA_JOB_SIGNING_KEY_PATH", str(_CA_DIR / "job_signing"))
 os.environ.setdefault("VULNA_JOB_SIGNING_PUBKEY_PATH", str(_CA_DIR / "job_signing.pub"))
 
+# Write generated report artifacts under a temp directory, never /var/lib/vulna.
+os.environ.setdefault(
+    "VULNA_REPORTS_DIR", str(Path(tempfile.gettempdir()) / "vulna-test-reports")
+)
+
 import app.models  # noqa: F401  (register models on the metadata)
 import pytest
 import pytest_asyncio

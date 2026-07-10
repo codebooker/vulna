@@ -23,6 +23,9 @@ from app.models.enums import (
     JobStatus,
     MatchConfidence,
     ProbeStatus,
+    ReportFormat,
+    ReportStatus,
+    ReportType,
     ServiceState,
     ServiceTransport,
     Severity,
@@ -34,6 +37,7 @@ from app.models.finding import Finding
 from app.models.network_scope import NetworkScope
 from app.models.organization import Organization
 from app.models.probe import Probe
+from app.models.report import Report
 from app.models.scan_artifact import ScanArtifact
 from app.models.scan_job import ScanJob
 from app.models.service import Service
@@ -65,6 +69,10 @@ __all__ = [
     "Organization",
     "Probe",
     "ProbeStatus",
+    "Report",
+    "ReportFormat",
+    "ReportStatus",
+    "ReportType",
     "ScanArtifact",
     "ScanJob",
     "Service",

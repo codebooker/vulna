@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 8: Reports
+
+Every completed scan can be exported to PDF, CSV, and JSON (VulnaReport).
+
+- `Report` model (+ migration) with type/format/status, storage path, SHA-256,
+  size, and a parameters snapshot.
+- A single point-in-time snapshot builder feeds every format, so artifacts are
+  internally consistent and a stored report is reproducible even if the database
+  changes afterward.
+- Executive and technical PDFs (fpdf2, pure-Python, no system libraries;
+  Latin-1-safe); findings/assets/services/CVE-exposure CSVs with stable,
+  documented columns; and a versioned JSON bundle with a published JSON Schema.
+- Generation renders each artifact, stores it with a SHA-256 checksum, and
+  records a `Report`. API: `POST /reports`, `GET /reports`, `GET /reports/{id}`,
+  and `GET /reports/{id}/download`, all organization-scoped so an unauthorized or
+  cross-organization caller cannot download a report.
+- Frontend Reports panel listing reports with authenticated downloads.
+
+Verified: a completed scan produces all requested formats; PDFs render with
+every section; CSVs use stable columns; a report is byte-identical when
+re-downloaded after the underlying data changes; and cross-organization or
+unauthenticated download is rejected. ADR 0009 records the design.
+
+### Changed
+
+- `httpx` moved from a dev-only to a runtime dependency (Phase 7's feed fetchers
+  import it at runtime).
+- `.gitignore` runtime-artifact rules (`/data/`, `/reports/`, `/evidence/`) are
+  now anchored to the repository root so they no longer shadow source packages.
+
 ### Added — Phase 7: VulnaWatch CVE intelligence
 
 Continuous vulnerability-intelligence monitoring: the server maintains a local

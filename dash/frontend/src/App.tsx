@@ -3,6 +3,7 @@ import { ChangesPage } from './pages/ChangesPage';
 import { FeedsPage } from './pages/FeedsPage';
 import { HealthPage } from './pages/HealthPage';
 import { LoginPage } from './pages/LoginPage';
+import { ReportsPage } from './pages/ReportsPage';
 import { SitesPage } from './pages/SitesPage';
 
 export function App() {
@@ -35,6 +36,7 @@ export function App() {
           <SitesPage />
           <ChangesPage />
           <FeedsPage />
+          <ReportsPage />
         </>
       ) : (
         <LoginPage />
