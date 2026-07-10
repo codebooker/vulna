@@ -42,6 +42,7 @@ Use the following names consistently in source code, documentation, release arti
 | **Vulna** | Overall project, product family, and GitHub organization/repository identity |
 | **VulnaDash** | Self-hosted web application, API, scheduler, findings database, reporting controls, and central orchestration |
 | **VulnaScout** | Remote assessment appliance deployed as a VM, mini PC, Raspberry Pi-class device, container, or Linux service |
+| **VulnaRelay** | Optional thin tunnel/relay mode for constrained sites: a minimal authenticated relay (no scanners) through which a central scanner reaches the site. Opt-in; the smart VulnaScout probe remains the default |
 | **VulnaWatch** | CVE, CISA KEV, EPSS, advisory, and vulnerability-intelligence synchronization and matching |
 | **VulnaVerify** | Remediation workflow, targeted rescanning, resolution confirmation, reopen detection, and risk acceptance |
 | **VulnaForge** | Scanner plugin SDK, adapter manifests, parser contracts, and community integration framework |
@@ -3329,6 +3330,38 @@ Acceptance criteria:
 - Restore test succeeds
 - Documentation covers authorized use and safety
 - Release artifacts are signed and checksummed
+
+### Phase 16 — VulnaRelay (optional tunnel/relay mode)
+
+**Optional and not the default.** VulnaRelay is a thin-appliance mode for
+constrained sites: instead of running scanners locally, the site runs a minimal
+authenticated relay (e.g. WireGuard) and a central scanner reaches the target
+network through that tunnel — the "thin dropbox" model. The smart VulnaScout
+probe (which runs scanners at the edge and enforces its signed scope/kill-switch
+locally) remains the default and recommended deployment. VulnaRelay trades that
+local cryptographic scope/kill-switch boundary for lighter site hardware, so it
+is only for deliberate central origination or ultra-constrained sites, and scope
+must instead be enforced at the central egress. Depends on Phase 13 (appliance
+packaging); build only when there is demand.
+
+Deliver:
+
+- Relay appliance image with no scanners installed (tunnel endpoint only)
+- Authenticated, encrypted, probe-initiated outbound site tunnel (e.g. WireGuard)
+- Central-side scanner egress routed through the correct per-site tunnel
+- Per-relay scope enforcement at the central egress (approved CIDRs only)
+- Relay enrollment reusing the existing enrollment-token + mTLS control channel
+- Relay heartbeat, health, and kill switch (tearing the tunnel stops all scanning)
+- Documentation of the trade-offs versus the default smart probe
+
+Acceptance criteria:
+
+- A relay site with no scanners installed can be assessed end to end
+- Scan traffic egresses only within the site's approved scope; out-of-scope
+  destinations are blocked at the egress
+- Tearing down the tunnel (kill switch) immediately stops all scanning at the site
+- The relay never receives scanner credentials or job-signing private keys
+- The default deployment remains the smart probe; VulnaRelay is strictly opt-in
 
 ---
 
