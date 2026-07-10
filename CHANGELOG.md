@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 1: Authentication and core inventory
+
+- VulnaDash backend data layer: async SQLAlchemy 2.0 models for organizations,
+  users, sites, network scopes, and audit events; a portable `Base` (works on
+  PostgreSQL and SQLite); Alembic migration environment and the initial schema
+  migration.
+- Local authentication: Argon2id password hashing, JWT access tokens (HS256),
+  `POST /api/v1/auth/login`, and `GET /api/v1/auth/me`.
+- Role-based access control (administrator, security_operator, pentest_approver,
+  remediation_owner, auditor, viewer) enforced via `require_roles` dependencies
+  (401 unauthenticated, 403 unauthorized), with organization scoping on every
+  query.
+- Administrator bootstrap from the environment on startup and via a new `vulna`
+  CLI (`vulna bootstrap-admin`, `vulna version`).
+- REST endpoints for organizations, users, sites, and network scopes (CRUD),
+  plus a read-only audit-log endpoint.
+- Network-scope safety: CIDR normalization, rejection of `0.0.0.0/0` and `::/0`,
+  public-range denial by default, overlap detection, and a `policy_version`
+  bump on every change — implemented as unit-tested pure functions.
+- Append-only audit logging written in-transaction for logins and all
+  site/scope/user/organization mutations.
+- Basic authenticated frontend: auth context with token persistence, a login
+  page, a sites list with an admin-only create form, and sign-out.
+- Tests: 50 backend tests (auth, RBAC negatives, CRUD, scope validation,
+  cross-organization isolation, bootstrap, startup/lifespan) and frontend
+  auth-flow tests; backend CI now checks migration/model drift.
+- ADR 0002 (authentication, RBAC, and the data access layer).
+
 ### Added — Phase 0: Repository foundation
 
 - Monorepo directory structure for VulnaDash, VulnaScout, and supporting

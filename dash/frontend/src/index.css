@@ -110,3 +110,131 @@ body {
   color: var(--muted);
   font-size: 0.8rem;
 }
+
+/* --- Session header --- */
+.session {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.session .who {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.session .who em {
+  color: var(--accent);
+  font-style: normal;
+}
+
+/* --- Forms --- */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.form.inline {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
+}
+
+.form h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--muted);
+}
+
+.form .row {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  flex: 1 1 12rem;
+}
+
+.field span {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.field input {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.6rem 0.7rem;
+  color: var(--text);
+  font-size: 0.95rem;
+}
+
+.field input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.btn {
+  align-self: flex-start;
+  background: var(--brand);
+  color: var(--text);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 0.55rem 1.1rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--accent);
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.btn.ghost {
+  background: transparent;
+  border-color: var(--border);
+  padding: 0.35rem 0.8rem;
+  font-size: 0.8rem;
+}
+
+.error {
+  margin: 0;
+  color: var(--bad);
+  font-size: 0.85rem;
+}
+
+/* --- Tables --- */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.table th,
+.table td {
+  text-align: left;
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.table th {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.table code {
+  color: var(--accent);
+}

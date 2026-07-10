@@ -2,9 +2,11 @@
 
 React + TypeScript + Vite single-page app for the Vulna platform.
 
-**Phase 0 scope:** application shell with a health page that verifies backend
-connectivity by calling `/health` and `/api/v1/system/info`. Full dashboard,
-sites, scans, assets, findings, and other pages arrive in later phases.
+**Current scope (through Phase 1):** an authenticated shell with a login page,
+a JWT-backed auth context (token persisted in `localStorage`, session restore on
+reload), a sites list with an admin-only create form, sign-out, and the health
+page that verifies backend connectivity. Scans, assets, findings, and the other
+pages arrive in later phases.
 
 ## Development
 

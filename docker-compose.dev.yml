@@ -53,6 +53,18 @@ services:
     environment:
       VULNA_ENV: development
       VULNA_CORS_ORIGINS: http://localhost:5173
+      # Point the API at the bundled Postgres service.
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-vulna}
+      POSTGRES_USER: ${POSTGRES_USER:-vulna}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-vulna_dev_password}
+      # Dev-only secret and schema handling. Override in .env for anything real.
+      VULNA_SECRET_KEY: ${VULNA_SECRET_KEY:-dev-only-insecure-secret-change-me}
+      VULNA_AUTO_CREATE_TABLES: "true"
+      # Seed a first administrator for local use (override in .env).
+      VULNA_ADMIN_EMAIL: ${VULNA_ADMIN_EMAIL:-admin@example.com}
+      VULNA_ADMIN_PASSWORD: ${VULNA_ADMIN_PASSWORD:-changeme-dev-admin}
     command:
       ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     volumes:

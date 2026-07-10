@@ -55,6 +55,18 @@ backend-test: ## Run backend tests
 backend-lint: ## Lint and type-check the backend
 	cd $(BACKEND_DIR) && . .venv/bin/activate && ruff check . && mypy app
 
+.PHONY: backend-migrate
+backend-migrate: ## Apply database migrations (alembic upgrade head)
+	cd $(BACKEND_DIR) && . .venv/bin/activate && alembic upgrade head
+
+.PHONY: backend-revision
+backend-revision: ## Autogenerate a migration (usage: make backend-revision m="message")
+	cd $(BACKEND_DIR) && . .venv/bin/activate && alembic revision --autogenerate -m "$(m)"
+
+.PHONY: backend-bootstrap
+backend-bootstrap: ## Seed the default org and first admin from the environment
+	cd $(BACKEND_DIR) && . .venv/bin/activate && vulna bootstrap-admin
+
 # ---------------------------------------------------------------------------
 # Frontend (VulnaDash UI)
 # ---------------------------------------------------------------------------

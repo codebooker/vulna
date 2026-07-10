@@ -1,0 +1,146 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { App } from '../src/App';
+import { AuthProvider } from '../src/auth/AuthProvider';
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+const adminUser = {
+  id: 'u1',
+  email: 'admin@example.com',
+  full_name: 'Admin',
+  role: 'administrator',
+  organization_id: 'o1',
+  is_active: true,
+};
+
+function installFetchMock() {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    const method = init?.method ?? 'GET';
+    const headers = (init?.headers ?? {}) as Record<string, string>;
+
+    if (url.endsWith('/health')) {
+      return jsonResponse({ status: 'ok', service: 'VulnaDash', version: '0.1.0' });
+    }
+    if (url.endsWith('/api/v1/system/info')) {
+      return jsonResponse({
+        service: 'VulnaDash',
+        version: '0.1.0',
+        environment: 'test',
+        api_version: 'v1',
+      });
+    }
+    if (url.endsWith('/api/v1/auth/login') && method === 'POST') {
+      const creds = JSON.parse(String(init?.body)) as { password: string };
+      if (creds.password === 'right-password') {
+        return jsonResponse({ access_token: 'tok123', token_type: 'bearer', expires_in: 3600 });
+      }
+      return jsonResponse({ detail: 'Invalid email or password' }, 401);
+    }
+    if (url.endsWith('/api/v1/auth/me')) {
+      if (headers.Authorization === 'Bearer tok123') {
+        return jsonResponse(adminUser);
+      }
+      return jsonResponse({ detail: 'Could not validate credentials' }, 401);
+    }
+    if (url.endsWith('/api/v1/sites')) {
+      return jsonResponse({
+        items: [
+          {
+            id: 's1',
+            organization_id: 'o1',
+            name: 'Head Office',
+            code: 'HQ',
+            description: null,
+            address: null,
+            timezone: 'UTC',
+            business_owner: null,
+            technical_owner: null,
+            tags: [],
+            created_at: '2026-07-10T00:00:00Z',
+            updated_at: '2026-07-10T00:00:00Z',
+          },
+        ],
+        total: 1,
+        limit: 50,
+        offset: 0,
+      });
+    }
+    return jsonResponse({ detail: 'not found' }, 404);
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  return fetchMock;
+}
+
+function renderApp() {
+  return render(
+    <AuthProvider>
+      <App />
+    </AuthProvider>,
+  );
+}
+
+describe('Authentication flow', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    installFetchMock();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    localStorage.clear();
+  });
+
+  it('shows the login form when unauthenticated', async () => {
+    renderApp();
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: 'Sign in' })).toBeInTheDocument(),
+    );
+  });
+
+  it('logs in and shows the sites list with an admin create form', async () => {
+    renderApp();
+    await screen.findByRole('heading', { name: 'Sign in' });
+
+    fireEvent.change(screen.getByLabelText('Email'), {
+      target: { value: 'admin@example.com' },
+    });
+    fireEvent.change(screen.getByLabelText('Password'), {
+      target: { value: 'right-password' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    // Authenticated view appears.
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Sites' })).toBeInTheDocument());
+    expect(screen.getByText('Head Office')).toBeInTheDocument();
+    // Admins get the create form and a sign-out control.
+    expect(screen.getByRole('heading', { name: 'Add a site' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
+    // Token persisted for session restore.
+    expect(localStorage.getItem('vulna.token')).toBe('tok123');
+  });
+
+  it('shows an error on invalid credentials', async () => {
+    renderApp();
+    await screen.findByRole('heading', { name: 'Sign in' });
+
+    fireEvent.change(screen.getByLabelText('Email'), {
+      target: { value: 'admin@example.com' },
+    });
+    fireEvent.change(screen.getByLabelText('Password'), {
+      target: { value: 'wrong' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent('Invalid email or password.'),
+    );
+    expect(localStorage.getItem('vulna.token')).toBeNull();
+  });
+});

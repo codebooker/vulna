@@ -1,12 +1,12 @@
-"""Tests for the Phase 0 health and system endpoints."""
+"""Tests for the health and system endpoints."""
 
 from __future__ import annotations
 
-from fastapi.testclient import TestClient
+from httpx import AsyncClient
 
 
-def test_health_ok(client: TestClient) -> None:
-    resp = client.get("/health")
+async def test_health_ok(client: AsyncClient) -> None:
+    resp = await client.get("/health")
     assert resp.status_code == 200
     body = resp.json()
     assert body["status"] == "ok"
@@ -14,14 +14,14 @@ def test_health_ok(client: TestClient) -> None:
     assert body["version"]
 
 
-def test_system_health(client: TestClient) -> None:
-    resp = client.get("/api/v1/system/health")
+async def test_system_health(client: AsyncClient) -> None:
+    resp = await client.get("/api/v1/system/health")
     assert resp.status_code == 200
     assert resp.json()["status"] == "ok"
 
 
-def test_system_info(client: TestClient) -> None:
-    resp = client.get("/api/v1/system/info")
+async def test_system_info(client: AsyncClient) -> None:
+    resp = await client.get("/api/v1/system/info")
     assert resp.status_code == 200
     body = resp.json()
     assert body["service"] == "VulnaDash"
@@ -29,7 +29,7 @@ def test_system_info(client: TestClient) -> None:
     assert "environment" in body
 
 
-def test_openapi_available(client: TestClient) -> None:
-    resp = client.get("/openapi.json")
+async def test_openapi_available(client: AsyncClient) -> None:
+    resp = await client.get("/openapi.json")
     assert resp.status_code == 200
     assert resp.json()["info"]["title"] == "VulnaDash API"

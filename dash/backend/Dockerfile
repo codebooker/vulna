@@ -26,6 +26,9 @@ RUN useradd --create-home --uid 10001 vulna
 COPY --from=deps /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=deps /usr/local/bin /usr/local/bin
 COPY app ./app
+# Ship Alembic config and migrations so `alembic upgrade head` runs in-container.
+COPY alembic.ini ./alembic.ini
+COPY alembic ./alembic
 COPY pyproject.toml README.md ./
 USER vulna
 
