@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `deploy/Caddyfile` probe-mTLS guidance, after live validation against Caddy
+  v2.11: use `client_auth mode require_and_verify` (the previously documented
+  `mode request` neither requires nor verifies the client certificate, proxying
+  no-cert and rogue-CA clients through), and inject the fingerprint with a lone
+  `header_up` set (a delete + set together drop the header and 401 every probe).
+  Confirmed that Caddy's `{http.request.tls.client.fingerprint}` matches the
+  fingerprint the API stores per probe, so the mTLS handoff works end to end.
+
 ### Added — Phase 8: Reports
 
 Every completed scan can be exported to PDF, CSV, and JSON (VulnaReport).

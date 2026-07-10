@@ -20,9 +20,19 @@
 	# internal CA. Terminate mTLS here and forward the verified fingerprint to
 	# the API. Mount the CA cert (VULNA_CA_CERT_PATH) into the Caddy container.
 	#
+	# Validated live against Caddy v2.11: the placeholder
+	# {http.request.tls.client.fingerprint} is the lowercase-hex SHA-256 of the
+	# client-certificate DER, which is exactly the fingerprint the API stores per
+	# probe (app/services/ca.py::certificate_fingerprint). See ADR 0003.
+	#
 	#   tls {$CADDY_TLS} {
 	#       client_auth {
-	#           mode request
+	#           # require_and_verify rejects a client with no certificate or a
+	#           # certificate not issued by the trust pool, at the TLS layer. Do
+	#           # NOT use "request": it neither requires nor verifies the client
+	#           # certificate, so an unauthenticated or rogue-CA client would be
+	#           # proxied through (verified live).
+	#           mode require_and_verify
 	#           trust_pool file /etc/caddy/vulna-ca.pem
 	#       }
 	#   }
@@ -31,11 +41,15 @@
 	@api path /api/* /openapi.json /docs /docs/* /health
 	handle @api {
 		reverse_proxy api:8000 {
-			# Never let a client set the trusted fingerprint header. Strip any
-			# inbound value; in production also set it from the verified client
-			# certificate. The API trusts this header only from the proxy.
+			# The API trusts this header only from the proxy, so a client must
+			# never be able to set it. Without mTLS (local/dev), strip any inbound
+			# value:
 			header_up -X-Vulna-Client-Cert-Fingerprint
-			# Enable together with the mTLS block above:
+			# In production, REPLACE the line above with the line below — do not
+			# keep both. A delete + set together drops the header entirely (Caddy
+			# applies the delete last), which would 401 every probe (verified
+			# live). A lone "set" already overwrites any client-supplied value, so
+			# it both injects the verified fingerprint and defeats spoofing:
 			# header_up X-Vulna-Client-Cert-Fingerprint {http.request.tls.client.fingerprint}
 		}
 	}

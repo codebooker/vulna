@@ -82,3 +82,24 @@ need neither.
 - **Bundling a SQLite driver in the agent:** rejected for Phase 2 to preserve a
   dependency-free, CGO-free static build; revisited when durable job queuing
   lands.
+
+## Live validation (2026-07-10)
+
+The proxy mTLS boundary was validated end-to-end against a real Caddy v2.11 on a
+throwaway VM, since the API side had only ever been exercised with a simulated
+header. Findings, now reflected in `deploy/Caddyfile`:
+
+- **Fingerprint format matches exactly.** Caddy's
+  `{http.request.tls.client.fingerprint}` is the lowercase-hex SHA-256 of the
+  client-certificate DER — byte-for-byte what
+  `app/services/ca.py::certificate_fingerprint` stores per probe. The handoff
+  works with no transformation.
+- **`client_auth mode require_and_verify`** rejects a client with no certificate
+  or a certificate from an untrusted CA at the TLS handshake. The previously
+  documented `mode request` does neither and proxied both through — corrected.
+- **Header injection must be a lone `set`.** A `header_up -X-…` (delete) plus a
+  `header_up X-… {placeholder}` (set) together drop the header entirely (Caddy
+  applies the delete last), which would 401 every probe. A single `set`
+  overwrites any client-supplied value, so it both injects the verified
+  fingerprint and defeats spoofing (verified: a spoofed inbound header is
+  replaced by the real fingerprint).
