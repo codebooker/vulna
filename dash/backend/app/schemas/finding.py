@@ -31,6 +31,9 @@ class FindingRead(BaseModel):
     cve_ids_json: list[str]
     cwe_ids_json: list[str]
     confidence: int
+    known_exploited: bool
+    epss_score: float | None
+    epss_percentile: float | None
     validation_status: ValidationStatus
     evidence_json: dict[str, Any]
     remediation: str | None

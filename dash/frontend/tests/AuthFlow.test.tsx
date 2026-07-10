@@ -25,6 +25,9 @@ function installFetchMock() {
     const method = init?.method ?? 'GET';
     const headers = (init?.headers ?? {}) as Record<string, string>;
 
+    if (url.endsWith('/api/v1/feeds/health')) {
+      return jsonResponse([]);
+    }
     if (url.endsWith('/health')) {
       return jsonResponse({ status: 'ok', service: 'VulnaDash', version: '0.1.0' });
     }

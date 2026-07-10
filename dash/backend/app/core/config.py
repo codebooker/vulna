@@ -118,6 +118,20 @@ class Settings(BaseSettings):
     # not_before/expires_at.
     job_default_ttl_minutes: int = 240
 
+    # ---- VulnaWatch intelligence feeds (Phase 7) ---------------------------
+    # Upstream feed endpoints (overridable, e.g. for an internal mirror). NVD
+    # accepts an optional API key to raise its rate limit; never hard-code it.
+    nvd_api_url: str = "https://services.nvd.nist.gov/rest/json/cves/2.0"
+    nvd_api_key: str | None = None
+    kev_feed_url: str = (
+        "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
+    )
+    epss_feed_url: str = "https://epss.cyentia.com/epss_scores-current.csv.gz"
+    # A feed with no successful sync within this many hours is reported "stale".
+    feed_stale_after_hours: int = 48
+    # EPSS probability at/above which a change crossing it raises an event.
+    epss_alert_threshold: float = 0.5
+
     @property
     def version(self) -> str:
         """The running application version."""

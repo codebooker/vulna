@@ -12,7 +12,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, Enum, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, Enum, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -67,6 +67,14 @@ class Finding(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     cve_ids_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     cwe_ids_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     confidence: Mapped[int] = mapped_column(Integer, nullable=False, default=50)
+
+    # Threat-intelligence enrichment (Phase 7), copied from the matched CVE's
+    # enrichment so findings can be prioritized and reported without a join.
+    known_exploited: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, index=True
+    )
+    epss_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    epss_percentile: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     validation_status: Mapped[ValidationStatus] = mapped_column(
         Enum(ValidationStatus, native_enum=False, length=32, validate_strings=True),

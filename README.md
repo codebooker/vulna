@@ -32,7 +32,8 @@ via a pull request with green CI. Current progress:
 | 4 | Nmap discovery — assets/services, safe discovery profile, XML parsing | ✅ Done |
 | 5 | Change detection — asset/port/version change events, delta view | ✅ Done |
 | 6 | Nuclei vulnerability + testssl.sh TLS scanning — findings model, normalization, dedup, multi-stage workflow | ✅ Done |
-| 7–15 | CVE intelligence, reports, ZAP, remediation, pentest, full-spectrum, appliance, observability, hardening | ⏳ Planned |
+| 7 | VulnaWatch CVE intelligence — NVD/KEV/EPSS sync, feed health, finding enrichment, CVE watch events | ✅ Done |
+| 8–15 | Reports, ZAP, remediation, pentest, full-spectrum, appliance, observability, hardening | ⏳ Planned |
 
 Not yet ready for production use. See the [CHANGELOG](CHANGELOG.md) for details.
 

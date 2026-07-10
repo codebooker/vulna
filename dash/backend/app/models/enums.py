@@ -140,6 +140,36 @@ class ChangeEventType(StrEnum):
     NEW_FINDING = "new_finding"
     FINDING_RESOLVED = "finding_resolved"
     FINDING_REOPENED = "finding_reopened"
+    NEW_VULNERABILITY = "new_vulnerability"
+    CVE_SEVERITY_CHANGED = "cve_severity_changed"
+    CVE_ADDED_TO_KEV = "cve_added_to_kev"
+    EPSS_THRESHOLD_CROSSED = "epss_threshold_crossed"
+
+
+class FeedSource(StrEnum):
+    """A vulnerability-intelligence data source (build plan Section 14.1)."""
+
+    NVD = "nvd"
+    KEV = "kev"
+    EPSS = "epss"
+
+
+class FeedStatus(StrEnum):
+    """Health of an intelligence feed's synchronization (build plan Section 14.7)."""
+
+    OK = "ok"  # last sync succeeded
+    DEGRADED = "degraded"  # succeeded after retries or with partial errors
+    FAILED = "failed"  # last sync failed outright
+    STALE = "stale"  # no successful sync within the expected interval
+    NEVER_SYNCED = "never_synced"
+
+
+class MatchConfidence(StrEnum):
+    """Confidence that a CVE applies to an asset/service (build plan Section 14.3)."""
+
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
 
 
 class Severity(StrEnum):

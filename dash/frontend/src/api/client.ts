@@ -1,5 +1,6 @@
 import type { CurrentUser, TokenResponse } from '../types/auth';
 import type { ChangeEvent, NetworkScope, NewScope, NewSite, Page, Site } from '../types/inventory';
+import type { FeedHealth, SyncResult } from '../types/intelligence';
 import type { HealthResponse, SystemInfoResponse } from '../types/system';
 
 // In development, Vite proxies /api to the backend (see vite.config.ts).
@@ -83,6 +84,15 @@ export const api = {
   },
   listChanges(token: string, limit = 20): Promise<Page<ChangeEvent>> {
     return request<Page<ChangeEvent>>(`/api/v1/changes?limit=${limit}`, { token });
+  },
+  listFeedHealth(token: string): Promise<FeedHealth[]> {
+    return request<FeedHealth[]>('/api/v1/feeds/health', { token });
+  },
+  syncFeed(token: string, source: string): Promise<SyncResult> {
+    return request<SyncResult>(`/api/v1/feeds/${encodeURIComponent(source)}/sync`, {
+      method: 'POST',
+      token,
+    });
   },
 };
 

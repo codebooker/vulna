@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 7: VulnaWatch CVE intelligence
+
+Continuous vulnerability-intelligence monitoring: the server maintains a local
+CVE/KEV/EPSS database and layers those signals onto findings.
+
+- `CveRecord`, `ThreatIntelEnrichment`, and `FeedHealth` models (+ migration),
+  plus `known_exploited`/`epss_score`/`epss_percentile` columns on findings.
+- Defensive parsers for the NVD CVE API 2.0, the CISA KEV catalog, and the FIRST
+  EPSS CSV (gzip-aware); malformed entries are skipped.
+- A fetcher abstraction with bounded exponential-backoff retry, so syncs respect
+  upstream rate limits and survive transient failures.
+- Sync service that upserts intelligence, records per-feed health (including on
+  failure), and enriches existing findings with CVSS/KEV/EPSS. A CVE newly added
+  to KEV raises a `cve_added_to_kev` change event and flags the finding as known
+  exploited; an EPSS score crossing the alert threshold raises
+  `epss_threshold_crossed`.
+- Conservative CPE matching engine assigning high/medium/low confidence.
+- API: feed-health dashboard (`/feeds/health`), admin sync trigger
+  (`/feeds/{source}/sync`), and CVE lookup (`/cve/{id}`). Frontend feed-health
+  panel that surfaces a failing feed and offers an admin "Sync now" control.
+
+Verified: an existing finding receives CVSS/KEV/EPSS enrichment; a simulated KEV
+update raises a change event; a feed failure is recorded and visible; retries
+degrade-but-succeed. ADR 0008 records the design.
+
 ### Added — Phase 6: Nuclei vulnerability and TLS scanning
 
 The assessment workflow gains vulnerability and TLS stages, and the
