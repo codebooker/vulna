@@ -20,8 +20,9 @@ open-source security tools — **not** another vulnerability engine.
 ## Project status
 
 **Pre-release / active development.** Vulna is being built in reviewed, testable
-phases ([build plan §31](VULNA_CODEX_BUILD_PLAN.md)); each phase lands on `main`
-via a pull request with green CI. Current progress:
+phases (see the [build plan for phases 1–16](VULNA_BUILD_PLAN%20Phases%201-16.md)
+and the [self-hoster-first roadmap for phases 17–32](VULNA_SELF_HOSTER_FIRST_ROADMAP_PHASES_17_32.md));
+each phase lands on `main` via a pull request with green CI. Current progress:
 
 | Phase | Scope | Status |
 |---|---|---|
@@ -42,6 +43,7 @@ via a pull request with green CI. Current progress:
 | 14 | VulnaPulse observability — /metrics (no sensitive labels), Prometheus + Grafana + exporters, provisioned dashboards/alerts, monitoring compose profile | ✅ Done |
 | 15 | Hardening & release — dependency scans (clean), SBOMs, backup/restore, signed+checksummed releases, security review checklist, sample lab | ✅ Done |
 | 16 | VulnaRelay — optional thin tunnel/relay mode for constrained sites (opt-in; smart probe stays the default) | 💤 Optional / future |
+| 17 | First-class single-host deployment — one-command stack with an auto-enrolled, scope-gated local Scout, per-component health, migrate-on-start | ✅ Done |
 
 Not yet ready for production use. See the [CHANGELOG](CHANGELOG.md) for details.
 
@@ -109,6 +111,23 @@ Run tests and linters:
 make test    # backend pytest, frontend vitest, go test
 make lint    # ruff + mypy, eslint, go vet
 ```
+
+## Single-host deployment
+
+To run the whole platform — dashboard, database, reverse proxy, **and** a working
+local VulnaScout — on one machine, use the single-host overlay:
+
+```bash
+cp .env.example .env    # set POSTGRES_PASSWORD, VULNA_SECRET_KEY, VULNA_ADMIN_*
+docker compose -f docker-compose.yml -f docker-compose.single-host.yml up -d
+```
+
+The stack migrates its database, seeds an admin and a local site, and
+**auto-enrolls a co-located Scout** over the same mutual-TLS boundary as a remote
+one. The local Scout comes up connected but **scope-gated** — it can scan nothing
+until you approve a network scope. See
+[`deploy/single-host/README.md`](deploy/single-host/README.md) and
+[ADR 0017](docs/adr/0017-single-host-deployment.md).
 
 ## Security
 

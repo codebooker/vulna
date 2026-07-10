@@ -24,7 +24,17 @@ jobs:
                      deploy/probe/smoke_test.sh \
                      deploy/probe/vulna-appliance \
                      deploy/probe/build-packages.sh \
-                     deploy/probe/postinstall.sh
+                     deploy/probe/postinstall.sh \
+                     deploy/single-host/local-scout-entrypoint.sh \
+                     dash/backend/docker-entrypoint.sh
+
+      - name: Validate single-host Compose overlay
+        env:
+          POSTGRES_PASSWORD: ci-validate
+          VULNA_SECRET_KEY: ci-validate
+        run: |
+          docker compose -f docker-compose.yml \
+                         -f docker-compose.single-host.yml config >/dev/null
 
       - name: Update/rollback smoke test (identity + policy preserved)
         run: bash deploy/probe/smoke_test.sh

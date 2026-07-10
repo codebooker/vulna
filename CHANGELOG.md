@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 17: First-class single-host deployment
+
+A one-command, self-contained deployment on a single machine, with a co-located
+VulnaScout that just works — while staying scope-gated and least-privileged.
+
+- A single-host Compose overlay (`docker-compose.single-host.yml`) that layers a
+  co-located **local Scout** onto the base stack. It auto-enrolls over the same
+  mutual-TLS boundary as a remote Scout and comes up **connected but idle** — no
+  approved network scope, so it can scan nothing until the operator approves one.
+- First-run bootstrap, gated by `VULNA_BOOTSTRAP_LOCAL_SCOUT`, ensures a default
+  site and mints a **single-use, auto-approve** enrollment token written to a
+  0600 file on an internal volume (never the API, UI, or logs). A new
+  `auto_approve` flag on enrollment tokens yields an *enrolled* (not
+  pending-approval) probe on redemption, without ever approving a scope or
+  weakening signing/scope checks.
+- A `GET /system/component-health` endpoint distinguishing application, database,
+  local-Scout, scanner-capability, and intelligence-feed health, so an operator
+  can see *which* component needs attention.
+- The single-host Caddy config enables probe mTLS with `verify_if_given` (certless
+  enrollment still works; rogue certs are rejected). The Scout **verifies** the
+  orchestrator's TLS via Caddy's public internal root CA, published to the shared
+  volume by a one-shot init — the CA private key is never shared with the Scout.
+- The local-Scout image bundles the standard safe scanner pack (Nmap, Nuclei,
+  testssl.sh), pinned and integrity-checked.
+- The API container now applies database migrations (`alembic upgrade head`,
+  idempotent) before serving, so a fresh stack starts with no manual step
+  (opt out with `VULNA_RUN_MIGRATIONS=false`).
+
+### Fixed
+
+- Frontend container health check used `localhost`, which busybox `wget` resolves
+  to IPv6 while nginx listens IPv4-only, so the frontend never became healthy and
+  blocked the reverse proxy. It now uses `127.0.0.1`.
+- API data directories (`keys`, `bootstrap`, `reports`, `evidence`) are
+  pre-created in the image owned by the non-root user, so empty named volumes
+  mounted onto them are writable.
+
 ### Added — Phase 15: Hardening and public release
 
 Supply-chain, backup, and release-integrity hardening ahead of a public release.

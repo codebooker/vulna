@@ -1,0 +1,101 @@
+# Single-host overlay for the Vulna stack (Phase 17).
+#
+# Layer this on top of the base stack to get a complete, self-contained
+# deployment on ONE machine: VulnaDash plus a co-located "local Scout" that
+# auto-enrolls and starts heartbeating out of the box. No manual token copying,
+# no second machine, no cloud dependency.
+#
+#   cp .env.example .env         # set POSTGRES_PASSWORD, VULNA_SECRET_KEY,
+#                                #     VULNA_ADMIN_EMAIL, VULNA_ADMIN_PASSWORD
+#   docker compose -f docker-compose.yml -f docker-compose.single-host.yml up -d
+#
+# The local Scout comes up ENROLLED but with NO approved scope — it cannot scan
+# anything until you approve a network scope in the UI. Safe defaults stay safe.
+#
+# What this overlay changes vs. the base stack:
+#   * api    — enables local-Scout bootstrap; persists the internal CA/keys so
+#              probe certificates survive restarts, and shares the bootstrap
+#              token directory with the Scout.
+#   * caddy  — swaps in a Caddyfile with probe mTLS ENABLED (same security
+#              boundary as a remote Scout) and a stable internal name.
+#   * local-scout — new: the probe binary + nmap/nuclei/testssl, auto-enrolling.
+
+name: vulna
+
+services:
+  api:
+    environment:
+      VULNA_ENV: production
+      VULNA_BOOTSTRAP_LOCAL_SCOUT: "true"
+      VULNA_BOOTSTRAP_DIR: /var/lib/vulna/bootstrap
+    volumes:
+      - keys:/var/lib/vulna/keys
+      - bootstrap:/var/lib/vulna/bootstrap
+
+  caddy:
+    volumes:
+      - ./deploy/single-host/Caddyfile:/etc/caddy/Caddyfile:ro
+      - keys:/etc/caddy/keys:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      default:
+        aliases:
+          - vulna-dash
+
+  # One-shot: publish Caddy's *public* internal root CA (which Caddy stores
+  # root-only at 0600) to the shared bootstrap volume, world-readable, so the
+  # non-root local Scout can verify the orchestrator's TLS. Only the public cert
+  # is copied — never Caddy's CA private key.
+  scout-ca-export:
+    image: alpine:3.21
+    restart: "no"
+    volumes:
+      - caddy_data:/caddy-data:ro
+      - bootstrap:/out
+    depends_on:
+      caddy:
+        condition: service_started
+    command:
+      - sh
+      - -c
+      - |
+        src=/caddy-data/caddy/pki/authorities/local/root.crt
+        i=0
+        while [ ! -s "$$src" ]; do
+          [ "$$i" -ge 60 ] && { echo "scout-ca-export: timed out waiting for $$src" >&2; exit 1; }
+          echo "scout-ca-export: waiting for Caddy root CA ..."; sleep 2; i=$$((i+1))
+        done
+        install -m 0644 "$$src" /out/orchestrator-ca.crt
+        echo "scout-ca-export: published orchestrator-ca.crt"
+
+  local-scout:
+    build:
+      context: .
+      dockerfile: deploy/single-host/local-scout.Dockerfile
+    restart: unless-stopped
+    environment:
+      VULNA_SERVER_URL: https://vulna-dash
+      VULNA_STATE_DIR: /var/lib/vulna
+      VULNA_ENROLL_TOKEN_FILE: /var/lib/vulna/bootstrap/local-scout-enroll.token
+      VULNA_SERVER_CA: /var/lib/vulna/bootstrap/orchestrator-ca.crt
+    volumes:
+      - scout_state:/var/lib/vulna
+      - bootstrap:/var/lib/vulna/bootstrap:ro
+    depends_on:
+      api:
+        condition: service_healthy
+      caddy:
+        condition: service_started
+      scout-ca-export:
+        condition: service_completed_successfully
+    # Nmap uses TCP connect scans (no raw sockets), so no elevated capabilities.
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  keys:
+  bootstrap:
+  scout_state:

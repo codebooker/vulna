@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -35,6 +35,11 @@ class EnrollmentToken(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     # Suggested probe identity, applied when the token is consumed.
     probe_name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+
+    # Auto-approve the resulting probe on enrollment (the internal single-host
+    # local Scout). Never set for admin-minted tokens; the enrolled Scout still
+    # gets no network scope until the operator approves one.
+    auto_approve: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True

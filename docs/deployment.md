@@ -1,5 +1,10 @@
 # VulnaScout appliance deployment
 
+> Just want everything on one machine? See
+> [`../deploy/single-host/README.md`](../deploy/single-host/README.md) for the
+> single-host deployment, which brings up VulnaDash **and** an auto-enrolled local
+> Scout with one command. This document covers deploying a *remote* Scout.
+
 VulnaScout is the remote assessment probe. It deploys as a Docker container, a
 Debian package (amd64 or arm64 / Raspberry Pi-class), or a VM image, and enrolls
 with VulnaDash over mutual TLS. Its identity and signed policy live in

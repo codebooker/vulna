@@ -200,17 +200,21 @@ async def enroll_probe(
     fingerprint = certificate_fingerprint(cert)
     cert_expires = cert.not_valid_after_utc
 
+    # The internal single-host local Scout is auto-approved on enrollment; every
+    # other probe is pending until an administrator approves it. Either way the
+    # probe has no approved network scope until one is explicitly authorized.
     probe = Probe(
         id=probe_id,
         organization_id=token.organization_id,
         site_id=token.site_id,
         name=token.probe_name,
         description=token.description,
-        status=ProbeStatus.PENDING_ENROLLMENT,
+        status=ProbeStatus.ENROLLED if token.auto_approve else ProbeStatus.PENDING_ENROLLMENT,
         certificate_fingerprint=fingerprint,
         certificate_serial=format(cert.serial_number, "x"),
         certificate_expires_at=cert_expires,
         enrolled_at=now,
+        approved_at=now if token.auto_approve else None,
     )
     session.add(probe)
 

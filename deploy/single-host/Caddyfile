@@ -1,0 +1,81 @@
+# Caddy reverse proxy for the single-host Vulna deployment (Phase 17).
+#
+# Unlike the base deploy/Caddyfile (which leaves mTLS commented out for the
+# operator to enable), this file has probe mutual-TLS ENABLED, because the
+# single-host profile ships a co-located "local Scout" that must authenticate
+# exactly like any remote VulnaScout — same security boundary (see ADR 0017 and
+# app/api/probe_auth.py). Nothing here is single-host-specific except that the
+# trust and the internal name are wired up for you.
+#
+# Two site addresses share one behavior:
+#   {$VULNA_DOMAIN:localhost}  — how the operator's browser reaches the UI
+#   https://vulna-dash         — a stable internal name (a Docker network alias
+#                                for this container) so the co-located Scout has
+#                                a constant SNI to pin the mTLS handshake against
+#
+# client_auth mode is "verify_if_given", NOT "require_and_verify": enrollment
+# (POST /api/v1/probes/enroll) is certless by design — a fresh probe has no
+# certificate yet — so requiring a client cert at the TLS layer would make
+# enrollment impossible. verify_if_given still *verifies* any presented
+# certificate against the internal CA (a rogue or self-signed cert is rejected
+# at the handshake), and heartbeat/poll endpoints reject a certless request at
+# the application layer because no fingerprint header is set. Do NOT use "request"
+# — it does not verify at all.
+
+{
+	email {$CADDY_TLS}
+}
+
+# Shared behavior: mTLS-verified fingerprint forwarding + API/SPA routing.
+(vulna_site) {
+	# API and docs to the backend.
+	@api path /api/* /openapi.json /docs /docs/* /health
+	handle @api {
+		reverse_proxy api:8000 {
+			# Overwrite any client-supplied value with the fingerprint of the
+			# certificate Caddy verified. For a certless request (enrollment) the
+			# placeholder is empty, which the API treats as "no probe identity".
+			# A lone "set" both injects the verified value and defeats spoofing;
+			# do NOT add a matching "-delete", which would drop the header entirely.
+			header_up X-Vulna-Client-Cert-Fingerprint {http.request.tls.client.fingerprint}
+		}
+	}
+
+	# Everything else to the frontend SPA.
+	handle {
+		reverse_proxy frontend:8080
+	}
+
+	encode gzip
+
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy no-referrer
+		-Server
+	}
+}
+
+# Operator-facing site. tls uses {$CADDY_TLS} so a real domain + email gets
+# Let's Encrypt; the default (localhost / "internal") uses Caddy's internal CA.
+{$VULNA_DOMAIN:localhost} {
+	import vulna_site
+	tls {$CADDY_TLS} {
+		client_auth {
+			mode verify_if_given
+			trust_pool file /etc/caddy/keys/ca_cert.pem
+		}
+	}
+}
+
+# Internal name for the co-located local Scout. Always the internal CA (this
+# name is never public), with the same probe mTLS trust.
+https://vulna-dash {
+	import vulna_site
+	tls internal {
+		client_auth {
+			mode verify_if_given
+			trust_pool file /etc/caddy/keys/ca_cert.pem
+		}
+	}
+}

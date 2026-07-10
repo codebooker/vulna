@@ -83,6 +83,18 @@ class Settings(BaseSettings):
     default_org_name: str = "Default Organization"
     default_org_slug: str = "default"
 
+    # ---- Single-host deployment (Phase 17) ---------------------------------
+    # When enabled (set by the single-host Compose profile), first-run bootstrap
+    # also ensures a default site and mints a one-time, auto-approve enrollment
+    # token for the co-located local Scout, written to bootstrap_dir for the
+    # Scout container to consume. Off for distributed deployments.
+    bootstrap_local_scout: bool = False
+    bootstrap_dir: str = "/var/lib/vulna/bootstrap"
+    default_site_name: str = "Local Site"
+    default_site_code: str = "LOCAL"
+    local_scout_name: str = "local-scout"
+    local_scout_token_ttl_minutes: int = 60
+
     # When true, create database tables from the ORM metadata at startup
     # instead of relying on Alembic migrations. Useful for local/dev and tests;
     # production should run migrations and leave this disabled.
