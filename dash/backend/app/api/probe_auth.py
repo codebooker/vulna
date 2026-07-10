@@ -40,6 +40,15 @@ async def get_current_probe(
     Raises 401 if no/unknown certificate is presented and 403 if the probe has
     been revoked or disabled.
     """
+    # The fingerprint header is only meaningful from the mTLS-terminating proxy.
+    # Reject it from any peer outside the trusted-proxy list so an untrusted peer
+    # that reaches the API directly cannot spoof a probe identity via the header.
+    from app.services.networking import is_trusted_peer
+
+    peer = request.client.host if request.client else None
+    if not is_trusted_peer(peer, settings.trusted_proxy_networks):
+        raise _UNAUTHENTICATED
+
     fingerprint = request.headers.get(settings.probe_cert_fingerprint_header)
     if not fingerprint:
         raise _UNAUTHENTICATED

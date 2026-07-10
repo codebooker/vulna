@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 23: Networking, URL, TLS, and reverse-proxy assistant
+
+Eliminate one of the most common self-hosting failure points: reaching the
+application securely from the intended network.
+
+- Five supported **access modes** (localhost, private LAN, public DNS with
+  automatic TLS, existing reverse proxy, manual certificate), each with settings,
+  warnings, and a documented recovery path in `docs/networking.md`.
+- **Trusted-proxy hardening** (security): the API honors `X-Forwarded-For` and the
+  Scout client-cert fingerprint header **only** from a peer in
+  `VULNA_TRUSTED_PROXIES` (default: loopback + RFC1918/ULA). An untrusted peer that
+  reaches the API directly cannot spoof the source address or a Scout identity —
+  the headers are ignored (`app/api/context.py`, `app/api/probe_auth.py`).
+- A **networking assistant** (`/networking/validate`, `/test-browser`,
+  `/test-scout`, `/proxy-snippet`): validates hostname, certificate chain/expiry
+  (public parts only), and name match, and detects split-DNS / NAT-loopback, mixed
+  HTTP/HTTPS, clock skew, and certificate-name mismatch with plain-language
+  remediation. Private key material is never accepted or returned.
+- A **safe URL-change plan** (`/networking/url-change`): returns the exact `VULNA_*`
+  values plus rollback, without mutating live config; the prior URL keeps working
+  until applied. Application TLS is kept separate from VulnaScout mutual TLS, so a
+  browser-certificate change never invalidates an enrolled Scout.
+- A generated **reverse-proxy snippet** for advanced users, and confirmation that
+  no PostgreSQL/Redis/metrics/internal ports are exposed by default.
+- A frontend Networking & access panel, ADR 0023, and backend + frontend tests
+  (including that an untrusted peer cannot spoof a probe identity).
+
 ### Added — Phase 22: Everyday UX for homelabs and small teams
 
 Make the product useful to people who do not read CVEs or scanner output all day,

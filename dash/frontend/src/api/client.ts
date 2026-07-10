@@ -16,6 +16,7 @@ import type {
 } from '../types/onboarding';
 import type { DashboardSummary, SearchResults } from '../types/dashboard';
 import type { Finding, Page as FindingPage } from '../types/finding';
+import type { BrowserTest, NetworkStatus, ValidateResult } from '../types/networking';
 import type { Preset, PresetPreview } from '../types/presets';
 import type { EnrollmentCommand } from '../types/remote';
 import type { Report } from '../types/report';
@@ -182,6 +183,20 @@ export const api = {
       token,
       body: { probe_id: probeId, targets, mode: 'vulnerability_assessment' },
     });
+  },
+
+  // --- Networking assistant (Phase 23) ---
+  networkingStatus(token: string): Promise<NetworkStatus> {
+    return request<NetworkStatus>('/api/v1/networking/status', { token });
+  },
+  validateNetworking(
+    token: string,
+    body: { mode: string; hostname: string; scheme: string; certificate_pem?: string },
+  ): Promise<ValidateResult> {
+    return request<ValidateResult>('/api/v1/networking/validate', { method: 'POST', token, body });
+  },
+  testBrowser(token: string): Promise<BrowserTest> {
+    return request<BrowserTest>('/api/v1/networking/test-browser', { token });
   },
 
   // --- Everyday UX (Phase 22) ---

@@ -8,6 +8,7 @@ settings are given defaults here; anything sensitive must be supplied explicitly
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Any
 
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -88,6 +89,16 @@ class Settings(BaseSettings):
     # when unset.
     public_base_url: str | None = None
 
+    # Networks (comma-separated IPs/CIDRs) whose forwarded headers the API trusts.
+    # The mTLS-terminating proxy always sits on the internal/private network, so
+    # the default trusts loopback + RFC1918/ULA. Forwarding headers (X-Forwarded-*,
+    # the probe fingerprint) from any other peer are ignored, so an untrusted peer
+    # cannot spoof the source address or TLS/mTLS state. Set to your proxy's exact
+    # address behind an existing reverse proxy.
+    trusted_proxies: str = (
+        "127.0.0.1/32,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,fc00::/7"
+    )
+
     # ---- Single-host deployment (Phase 17) ---------------------------------
     # When enabled (set by the single-host Compose profile), first-run bootstrap
     # also ensures a default site and mints a one-time, auto-approve enrollment
@@ -166,6 +177,13 @@ class Settings(BaseSettings):
     def cors_origin_list(self) -> list[str]:
         """CORS origins parsed into a list, ignoring blanks."""
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def trusted_proxy_networks(self) -> list[Any]:
+        """Trusted-proxy networks parsed from ``trusted_proxies``."""
+        from app.services.networking import parse_trusted_proxies
+
+        return parse_trusted_proxies(self.trusted_proxies)
 
     @property
     def sqlalchemy_database_uri(self) -> str:

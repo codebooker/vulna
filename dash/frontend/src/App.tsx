@@ -9,6 +9,7 @@ import { FindingsPage } from './pages/FindingsPage';
 import { HealthPage } from './pages/HealthPage';
 import { HomeDashboard } from './pages/HomeDashboard';
 import { LoginPage } from './pages/LoginPage';
+import { NetworkingPage } from './pages/NetworkingPage';
 import { OnboardingWizard } from './pages/OnboardingWizard';
 import { PresetsPage } from './pages/PresetsPage';
 import { ReportsPage } from './pages/ReportsPage';
@@ -79,6 +80,7 @@ export function App() {
           <SitesPage />
           <PresetsPage />
           <AddScoutPage />
+          <NetworkingPage />
           <ChangesPage />
           <FeedsPage />
           <ReportsPage />

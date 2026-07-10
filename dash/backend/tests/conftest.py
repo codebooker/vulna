@@ -103,7 +103,32 @@ async def client(
                 raise
 
     application.dependency_overrides[get_session] = override_get_session
-    transport = ASGITransport(app=application)
+    # Present as loopback so trusted-proxy checks (Phase 23) treat the test client
+    # like the mTLS-terminating proxy on the internal network.
+    transport = ASGITransport(app=application, client=("127.0.0.1", 50000))
+    async with AsyncClient(transport=transport, base_url="http://test") as http_client:
+        yield http_client
+
+
+@pytest_asyncio.fixture
+async def untrusted_client(
+    sessionmaker: async_sessionmaker[AsyncSession],
+) -> AsyncIterator[AsyncClient]:
+    """An HTTP client whose peer address is a public IP (an untrusted proxy peer),
+    used to prove that forwarded/fingerprint headers are ignored from it."""
+    application = create_app()
+
+    async def override_get_session() -> AsyncIterator[AsyncSession]:
+        async with sessionmaker() as session:
+            try:
+                yield session
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
+
+    application.dependency_overrides[get_session] = override_get_session
+    transport = ASGITransport(app=application, client=("203.0.113.7", 40000))
     async with AsyncClient(transport=transport, base_url="http://test") as http_client:
         yield http_client
 
