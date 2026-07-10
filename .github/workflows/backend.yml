@@ -40,5 +40,12 @@ jobs:
       - name: Mypy (type check)
         run: mypy app
 
+      - name: Alembic migrations match models
+        env:
+          VULNA_DATABASE_URL: sqlite+aiosqlite:///./ci_migration_check.db
+        run: |
+          alembic upgrade head
+          alembic check
+
       - name: Pytest
         run: pytest
