@@ -40,7 +40,7 @@ via a pull request with green CI. Current progress:
 | 12 | Full-spectrum workflow — multi-stage engine, conditional stages, approval pause, safe continuation on denial/failure, combined report, audit trail | ✅ Done |
 | 13 | Appliance packaging — Docker probe, Debian/ARM64 packages, cloud-init, appliance console, update/rollback (identity & policy preserved) | ✅ Done |
 | 14 | VulnaPulse observability — /metrics (no sensitive labels), Prometheus + Grafana + exporters, provisioned dashboards/alerts, monitoring compose profile | ✅ Done |
-| 15 | Hardening & public release | ⏳ Planned |
+| 15 | Hardening & release — dependency scans (clean), SBOMs, backup/restore, signed+checksummed releases, security review checklist, sample lab | ✅ Done |
 | 16 | VulnaRelay — optional thin tunnel/relay mode for constrained sites (opt-in; smart probe stays the default) | 💤 Optional / future |
 
 Not yet ready for production use. See the [CHANGELOG](CHANGELOG.md) for details.

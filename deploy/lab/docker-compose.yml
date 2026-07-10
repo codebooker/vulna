@@ -1,0 +1,33 @@
+# VulnaLab — an isolated, intentionally-vulnerable target environment for
+# demonstrating and testing Vulna assessments.
+#
+# ⚠️  FOR ISOLATED LAB USE ONLY. These services are deliberately vulnerable and
+#     out of date. Never run this on a network reachable from production or the
+#     internet. Bring it up on an isolated bridge and point a VulnaScout probe
+#     (enrolled with a scope covering this network) at it.
+#
+#   docker compose -f deploy/lab/docker-compose.yml up -d
+name: vulna-lab
+
+networks:
+  lab:
+    driver: bridge
+
+services:
+  # Classic deliberately-vulnerable web application (SQLi, XSS, etc.) — a target
+  # for the ZAP web-assessment and Nuclei stages.
+  dvwa:
+    image: vulnerables/web-dvwa:latest
+    restart: unless-stopped
+    networks: [lab]
+    ports:
+      - "127.0.0.1:8081:80"
+
+  # An intentionally old web server with a known-old banner — a target for
+  # discovery/service fingerprinting and CVE matching.
+  legacy-web:
+    image: httpd:2.4.49
+    restart: unless-stopped
+    networks: [lab]
+    ports:
+      - "127.0.0.1:8082:80"

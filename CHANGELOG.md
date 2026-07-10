@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 15: Hardening and public release
+
+Supply-chain, backup, and release-integrity hardening ahead of a public release.
+
+- Dependency scanning is clean: `pip-audit` (backend), `npm audit --audit-level=high`
+  (frontend), and `govulncheck` (probe) all report no known vulnerabilities, run
+  by a new `security` CI workflow.
+- Backup/restore scripts (`deploy/backup/`) that archive the database dump and
+  data directory into a single checksummed tar.gz, verify the SHA-256 before
+  restoring, and refuse a tampered archive — proven by a smoke test.
+- Release signing (`deploy/release/`): a `SHA256SUMS` manifest with an Ed25519
+  detached signature; `verify.sh` checks authenticity then integrity and rejects
+  a tampered artifact or a wrong-key signature — proven by a smoke test.
+- SBOM generation for all three components (`deploy/sbom/generate-sbom.sh`); an
+  external security-review checklist (`docs/security-review-checklist.md`); a
+  release-verification section in `SECURITY.md`; and an isolated, intentionally-
+  vulnerable sample lab (`deploy/lab/`).
+
+### Changed
+
+- Backend dependencies bumped to advisory-clean versions (cryptography 49,
+  starlette 1.3.1 pinned explicitly, pytest 9, fastapi 0.139); all 193 tests pass
+  on the new versions.
+
 ### Added — Phase 14: VulnaPulse observability
 
 Operational monitoring for the stack, with a strict no-sensitive-data guarantee.

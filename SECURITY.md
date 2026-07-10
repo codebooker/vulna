@@ -61,3 +61,17 @@ their default configurations. Out of scope: vulnerabilities in third-party
 scanner tools (Nmap, Nuclei, ZAP, testssl.sh, Metasploit) — report those to
 their respective projects — and issues that require already-compromised
 credentials or physical access beyond the documented threat model.
+
+## Release verification
+
+Release artifacts are checksummed and signed with an Ed25519 release key. Verify
+a download before trusting it:
+
+```sh
+VULNA_RELEASE_PUBKEY=release_ed25519.pub deploy/release/verify.sh dist/
+```
+
+This checks the signature over `SHA256SUMS` (authenticity) and then every
+artifact's checksum (integrity); it fails if either does not match. Dependency
+audits (`pip-audit`, `npm audit`, `govulncheck`), the backup/restore round-trip,
+and release signing run in the `security` CI workflow.
