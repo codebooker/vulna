@@ -233,7 +233,11 @@ func (c *Client) UploadResults(
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", "application/xml")
+	contentType := "application/json"
+	if scanner == "nmap" {
+		contentType = "application/xml"
+	}
+	req.Header.Set("Content-Type", contentType)
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return fmt.Errorf("upload results: %w", err)

@@ -174,7 +174,10 @@ type stubRunner struct{ raw []byte }
 
 func (s stubRunner) Run(_ context.Context, job *policy.Job) (executor.Result, error) {
 	return executor.Result{
-		JobID: job.JobID, RawOutput: s.raw, Scanner: "nmap", Stage: "discovery",
+		JobID: job.JobID,
+		Outputs: []executor.StageOutput{
+			{Stage: "discovery", Scanner: "nmap", Raw: s.raw},
+		},
 		StagesRun: 1, StagesTotal: 1,
 	}, nil
 }

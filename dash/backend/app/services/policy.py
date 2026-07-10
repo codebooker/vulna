@@ -17,10 +17,10 @@ from app.core.config import Settings
 from app.models.network_scope import NetworkScope
 from app.models.probe import Probe
 
-# Modes and plugins permitted in Phase 3. Vulnerability assessment with Nmap
-# discovery is the baseline; more are unlocked in later phases.
+# Modes and plugins permitted for non-intrusive assessment: Nmap discovery,
+# Nuclei vulnerability checks, and testssl.sh TLS analysis.
 _DEFAULT_ALLOWED_MODES = ["vulnerability_assessment"]
-_DEFAULT_ALLOWED_PLUGINS = ["nmap"]
+_DEFAULT_ALLOWED_PLUGINS = ["nmap", "nuclei", "testssl"]
 
 _DEFAULT_LIMITS = {
     "max_hosts": 256,

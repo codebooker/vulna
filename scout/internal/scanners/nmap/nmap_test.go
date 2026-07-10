@@ -77,18 +77,18 @@ func TestWorkerRunAgainstLoopback(t *testing.T) {
 	w := NewWorker()
 	w.Profile.TopPorts = 200
 	job := &policy.Job{JobID: "loopback", Targets: []string{"127.0.0.1"}}
-	res, err := w.Run(context.Background(), job)
+	xml, err := w.Run(context.Background(), job)
 	if err != nil {
 		t.Fatalf("real nmap run failed: %v", err)
 	}
-	if !bytes.Contains(res.RawOutput, []byte("<nmaprun")) {
-		t.Fatalf("output is not nmap XML: %.120s", res.RawOutput)
+	if !bytes.Contains(xml, []byte("<nmaprun")) {
+		t.Fatalf("output is not nmap XML: %.120s", xml)
 	}
-	if res.Scanner != "nmap" || res.StagesRun != 1 {
-		t.Errorf("unexpected result: %+v", res)
+	if w.Stage() != "discovery" || w.Name() != "nmap" {
+		t.Errorf("unexpected stage/name: %s/%s", w.Stage(), w.Name())
 	}
 	if out := os.Getenv("VULNASCOUT_NMAP_OUT"); out != "" {
-		if err := os.WriteFile(out, res.RawOutput, 0o644); err != nil {
+		if err := os.WriteFile(out, xml, 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -97,11 +97,11 @@ func TestWorkerRunAgainstLoopback(t *testing.T) {
 func TestWorkerRunFailsWithMissingBinary(t *testing.T) {
 	w := &Worker{Binary: "definitely-not-a-real-binary-xyz", Profile: SafeDiscoveryProfile()}
 	job := &policy.Job{JobID: "j1", Targets: []string{"10.20.0.5"}}
-	res, err := w.Run(context.Background(), job)
+	out, err := w.Run(context.Background(), job)
 	if err == nil {
 		t.Fatal("expected an error when the nmap binary is missing")
 	}
-	if res.Cancelled {
-		t.Error("missing-binary failure should not be reported as cancelled")
+	if out != nil {
+		t.Errorf("expected no output on failure, got %d bytes", len(out))
 	}
 }

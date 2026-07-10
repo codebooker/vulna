@@ -1,6 +1,6 @@
 // Package executor runs assessment jobs. It provides a cancellable test worker
-// (simulation) and, via the Nmap adapter, real discovery scans. Both satisfy
-// the JobRunner interface and honor context cancellation (the kill switch).
+// (simulation) and, via scanner adapters, real multi-stage scans. Runners
+// satisfy the JobRunner interface and honor context cancellation (kill switch).
 package executor
 
 import (
@@ -10,17 +10,22 @@ import (
 	"github.com/codebooker/vulna/scout/internal/policy"
 )
 
+// StageOutput is raw output produced by one workflow stage, to be uploaded.
+type StageOutput struct {
+	Stage   string
+	Scanner string
+	Raw     []byte
+}
+
 // Result summarizes a job run.
 type Result struct {
-	JobID           string
-	StagesRun       int
-	StagesTotal     int
-	Cancelled       bool
-	CompletedStages []string
-	// RawOutput is the scanner's raw output to upload (empty for the simulation).
-	RawOutput []byte
-	Scanner   string
-	Stage     string
+	JobID       string
+	StagesRun   int
+	StagesTotal int
+	Cancelled   bool
+	// Outputs holds the raw output of each completed stage (empty for the
+	// simulation worker, which contacts nothing).
+	Outputs []StageOutput
 }
 
 // JobRunner executes a verified job and returns its result. Implementations
@@ -31,8 +36,7 @@ type JobRunner interface {
 
 // TestWorker simulates executing a job by stepping through its workflow stages,
 // pausing StepDelay between each. It never touches the network. Cancellation via
-// the context stops it promptly — this is what exercises the kill switch until
-// real scanners exist.
+// the context stops it promptly — this exercises the kill switch in tests.
 type TestWorker struct {
 	StepDelay time.Duration
 }
@@ -42,21 +46,16 @@ func NewTestWorker(step time.Duration) *TestWorker {
 	return &TestWorker{StepDelay: step}
 }
 
-// Run executes the job's workflow stages, honoring context cancellation. It
-// returns a Result describing how far it got; Cancelled is true if the context
-// was cancelled before all stages completed.
+// Run steps through the job's workflow stages, honoring context cancellation.
 func (w *TestWorker) Run(ctx context.Context, job *policy.Job) (Result, error) {
-	stages := job.Workflow
-	res := Result{JobID: job.JobID, StagesTotal: len(stages)}
-	for _, stage := range stages {
+	res := Result{JobID: job.JobID, StagesTotal: len(job.Workflow)}
+	for range job.Workflow {
 		select {
 		case <-ctx.Done():
 			res.Cancelled = true
 			return res, ctx.Err()
 		case <-time.After(w.StepDelay):
-			name, _ := stage["stage"].(string)
 			res.StagesRun++
-			res.CompletedStages = append(res.CompletedStages, name)
 		}
 	}
 	return res, nil

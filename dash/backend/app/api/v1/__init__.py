@@ -7,6 +7,7 @@ from app.api.v1 import (
     audit,
     auth,
     changes,
+    findings,
     jobs,
     organizations,
     probes,
@@ -27,4 +28,5 @@ api_router.include_router(probes.router)
 api_router.include_router(jobs.router)
 api_router.include_router(assets.router)
 api_router.include_router(changes.router)
+api_router.include_router(findings.router)
 api_router.include_router(audit.router)

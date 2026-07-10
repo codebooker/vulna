@@ -22,7 +22,10 @@ import (
 	"github.com/codebooker/vulna/scout/internal/config"
 	"github.com/codebooker/vulna/scout/internal/enrollment"
 	"github.com/codebooker/vulna/scout/internal/policy"
+	"github.com/codebooker/vulna/scout/internal/scanners"
 	"github.com/codebooker/vulna/scout/internal/scanners/nmap"
+	"github.com/codebooker/vulna/scout/internal/scanners/nuclei"
+	"github.com/codebooker/vulna/scout/internal/scanners/testssl"
 	"github.com/codebooker/vulna/scout/internal/selftest"
 	"github.com/codebooker/vulna/scout/internal/storage"
 )
@@ -266,7 +269,8 @@ func runRun(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "signing key (re-enroll to obtain it):", err)
 		return 1
 	}
-	scout := agent.New(client, store, pubkey, nmap.NewWorker())
+	workflow := scanners.NewWorkflow(nmap.NewWorker(), nuclei.NewWorker(), testssl.NewWorker())
+	scout := agent.New(client, store, pubkey, workflow)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

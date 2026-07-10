@@ -23,10 +23,13 @@ from app.services.policy import build_policy_document
 from app.services.scopes import ScopeValidationError, normalize_cidr
 from app.services.signing import get_signer
 
-# Phase 3 supports a single, non-intrusive discovery workflow.
+# The non-intrusive assessment workflow: discovery, then vulnerability and TLS
+# stages. A probe skips any stage whose scanner it does not have installed.
 _SUPPORTED_MODES = {JobMode.VULNERABILITY_ASSESSMENT}
 _DEFAULT_WORKFLOW: list[dict[str, Any]] = [
     {"stage": "discovery", "plugin": "nmap", "config": {}},
+    {"stage": "vulnerability", "plugin": "nuclei", "config": {}},
+    {"stage": "tls", "plugin": "testssl", "config": {}},
 ]
 
 

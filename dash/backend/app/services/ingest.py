@@ -41,6 +41,31 @@ class IngestSummary:
     change_events: int = 0
 
 
+def store_scan_artifact(
+    session: AsyncSession,
+    *,
+    job: ScanJob,
+    probe_id: uuid.UUID | None,
+    stage: str,
+    scanner: str,
+    raw: bytes,
+    content_type: str,
+) -> None:
+    """Persist raw scanner output verbatim as a scan artifact."""
+    session.add(
+        ScanArtifact(
+            scan_job_id=job.id,
+            probe_id=probe_id,
+            stage=stage,
+            scanner_name=scanner,
+            content_type=content_type,
+            sha256=hashlib.sha256(raw).hexdigest(),
+            size_bytes=len(raw),
+            raw_output=raw.decode("utf-8", errors="replace"),
+        )
+    )
+
+
 async def _find_asset_by_identifier(
     session: AsyncSession,
     org_id: uuid.UUID,
@@ -272,19 +297,10 @@ async def ingest_nmap_result(
     scanner: str = "nmap",
 ) -> IngestSummary:
     """Retain the raw output, parse it, and upsert assets/services for a job."""
-    session.add(
-        ScanArtifact(
-            scan_job_id=job.id,
-            probe_id=probe_id,
-            stage=stage,
-            scanner_name=scanner,
-            content_type="application/xml",
-            sha256=hashlib.sha256(xml_bytes).hexdigest(),
-            size_bytes=len(xml_bytes),
-            raw_output=xml_bytes.decode("utf-8", errors="replace"),
-        )
+    store_scan_artifact(
+        session, job=job, probe_id=probe_id, stage=stage, scanner=scanner,
+        raw=xml_bytes, content_type="application/xml",
     )
-
     hosts = parse_nmap_xml(xml_bytes)
     now = datetime.now(UTC)
     summary = IngestSummary(hosts_seen=len(hosts))

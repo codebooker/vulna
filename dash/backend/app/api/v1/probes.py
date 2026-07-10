@@ -53,10 +53,13 @@ from app.schemas.probe import (
 from app.services.audit import record_audit
 from app.services.ca import CertificateAuthorityError, certificate_fingerprint, get_ca
 from app.services.enrollment import generate_token, hash_token
-from app.services.ingest import ingest_nmap_result
+from app.services.findings import ingest_findings
+from app.services.ingest import ingest_nmap_result, store_scan_artifact
 from app.services.nmap_parser import NmapParseError
+from app.services.nuclei_parser import parse_nuclei_jsonl
 from app.services.policy import build_policy_document
 from app.services.signing import document_hash, get_signer
+from app.services.testssl_parser import TestsslParseError, parse_testssl_json
 
 # Upper bound on a single result upload (defense against oversized payloads).
 _MAX_RESULT_BYTES = 25 * 1024 * 1024
@@ -612,10 +615,10 @@ async def upload_job_results(
     stage: Annotated[str, Query(max_length=64)] = "discovery",
     scanner: Annotated[str, Query(max_length=64)] = "nmap",
 ) -> ResultIngestSummary:
-    """Ingest a probe's raw Nmap XML for a job into the asset/service inventory.
+    """Ingest a probe's raw scanner output for a job.
 
-    The raw output is retained verbatim, then parsed defensively and normalized
-    into assets and services (deduplicated by identifier).
+    Nmap XML becomes assets/services; Nuclei JSONL and testssl.sh JSON become
+    normalized findings. Raw output is retained verbatim and parsed defensively.
     """
     if probe.id != probe_id:
         raise HTTPException(
@@ -642,26 +645,45 @@ async def upload_job_results(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Result upload too large"
         )
 
-    if scanner != "nmap":
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Unsupported scanner '{scanner}'",
-        )
+    now = datetime.now(UTC)
     try:
-        summary = await ingest_nmap_result(
-            session, job=job, xml_bytes=body, probe_id=probe.id, stage=stage, scanner=scanner
-        )
-    except NmapParseError as exc:
+        if scanner == "nmap":
+            nmap_summary = await ingest_nmap_result(
+                session, job=job, xml_bytes=body, probe_id=probe.id, stage=stage, scanner=scanner
+            )
+            result = ResultIngestSummary(
+                hosts_seen=nmap_summary.hosts_seen,
+                assets_created=nmap_summary.assets_created,
+                assets_updated=nmap_summary.assets_updated,
+                services_upserted=nmap_summary.services_upserted,
+                change_events=nmap_summary.change_events,
+            )
+        elif scanner in ("nuclei", "testssl"):
+            store_scan_artifact(
+                session, job=job, probe_id=probe.id, stage=stage, scanner=scanner,
+                raw=body, content_type="application/json",
+            )
+            parsed = (
+                parse_nuclei_jsonl(body) if scanner == "nuclei" else parse_testssl_json(body)
+            )
+            fsummary = await ingest_findings(session, job=job, parsed=parsed, now=now)
+            result = ResultIngestSummary(
+                findings_seen=fsummary.findings_seen,
+                findings_created=fsummary.findings_created,
+                findings_updated=fsummary.findings_updated,
+                findings_reopened=fsummary.findings_reopened,
+                change_events=fsummary.change_events,
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Unsupported scanner '{scanner}'",
+            )
+    except (NmapParseError, TestsslParseError) as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
 
     if job.started_at is None:
-        job.started_at = datetime.now(UTC)
-    return ResultIngestSummary(
-        hosts_seen=summary.hosts_seen,
-        assets_created=summary.assets_created,
-        assets_updated=summary.assets_updated,
-        services_upserted=summary.services_upserted,
-        change_events=summary.change_events,
-    )
+        job.started_at = now
+    return result

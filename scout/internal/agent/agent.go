@@ -115,17 +115,22 @@ func (a *Agent) PollAndStart(ctx context.Context) (*RunningJob, error) {
 	return &RunningJob{JobID: job.JobID, cancel: cancel, done: done}, nil
 }
 
-// Finalize uploads any scanner output and reports the job's terminal status.
+// Finalize uploads each stage's scanner output and reports the terminal status.
 func (a *Agent) Finalize(ctx context.Context, running *RunningJob, res executor.Result) error {
-	if !res.Cancelled && len(res.RawOutput) > 0 {
-		if err := a.client.UploadResults(
-			ctx, running.JobID, res.RawOutput, res.Stage, res.Scanner,
-		); err != nil {
-			return a.client.ReportJobStatus(ctx, running.JobID, api.JobStatusReport{
-				Status:       "failed",
-				ErrorCode:    "upload_failed",
-				ErrorMessage: err.Error(),
-			})
+	if !res.Cancelled {
+		for _, out := range res.Outputs {
+			if len(out.Raw) == 0 {
+				continue
+			}
+			if err := a.client.UploadResults(
+				ctx, running.JobID, out.Raw, out.Stage, out.Scanner,
+			); err != nil {
+				return a.client.ReportJobStatus(ctx, running.JobID, api.JobStatusReport{
+					Status:       "failed",
+					ErrorCode:    "upload_failed",
+					ErrorMessage: err.Error(),
+				})
+			}
 		}
 	}
 	status := "completed"

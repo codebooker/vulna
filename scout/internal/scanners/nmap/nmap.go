@@ -17,7 +17,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/codebooker/vulna/scout/internal/executor"
 	"github.com/codebooker/vulna/scout/internal/policy"
 )
 
@@ -117,16 +116,20 @@ func (w *Worker) timeout() time.Duration {
 	return defaultTimeout
 }
 
+// Stage is the workflow stage this scanner implements.
+func (w *Worker) Stage() string { return "discovery" }
+
+// Name is the plugin name matched against the job workflow.
+func (w *Worker) Name() string { return "nmap" }
+
 // Run scans the job's targets with nmap and returns the raw XML. It honors
 // context cancellation (killing the nmap process) and applies the job's
 // packet-rate limit. Targets are assumed already scope-validated by the agent;
 // they are additionally checked here for argument safety.
-func (w *Worker) Run(ctx context.Context, job *policy.Job) (executor.Result, error) {
-	res := executor.Result{JobID: job.JobID, Scanner: "nmap", Stage: "discovery", StagesTotal: 1}
-
+func (w *Worker) Run(ctx context.Context, job *policy.Job) ([]byte, error) {
 	outFile, err := os.CreateTemp("", "vulnascout-nmap-*.xml")
 	if err != nil {
-		return res, fmt.Errorf("create temp output: %w", err)
+		return nil, fmt.Errorf("create temp output: %w", err)
 	}
 	outPath := outFile.Name()
 	_ = outFile.Close()
@@ -138,7 +141,7 @@ func (w *Worker) Run(ctx context.Context, job *policy.Job) (executor.Result, err
 	}
 	args, err := BuildArgs(profile, outPath, job.Targets)
 	if err != nil {
-		return res, err
+		return nil, err
 	}
 
 	runCtx, cancel := context.WithTimeout(ctx, w.timeout())
@@ -149,16 +152,13 @@ func (w *Worker) Run(ctx context.Context, job *policy.Job) (executor.Result, err
 	runErr := cmd.Run()
 
 	if ctx.Err() != nil {
-		res.Cancelled = true
-		return res, ctx.Err()
+		return nil, ctx.Err()
 	}
-
 	xml, _ := os.ReadFile(outPath)
 	if len(xml) == 0 {
-		return res, fmt.Errorf("nmap produced no output: %v: %s", runErr, strings.TrimSpace(stderr.String()))
+		return nil, fmt.Errorf(
+			"nmap produced no output: %v: %s", runErr, strings.TrimSpace(stderr.String()),
+		)
 	}
-	res.RawOutput = xml
-	res.StagesRun = 1
-	res.CompletedStages = []string{"discovery"}
-	return res, nil
+	return xml, nil
 }

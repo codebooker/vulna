@@ -13,14 +13,19 @@ from app.models.enums import (
     AssetStatus,
     AssetType,
     ChangeEventType,
+    FindingStatus,
+    FindingType,
     IdentifierType,
     JobMode,
     JobStatus,
     ProbeStatus,
     ServiceState,
     ServiceTransport,
+    Severity,
     UserRole,
+    ValidationStatus,
 )
+from app.models.finding import Finding
 from app.models.network_scope import NetworkScope
 from app.models.organization import Organization
 from app.models.probe import Probe
@@ -40,6 +45,9 @@ __all__ = [
     "ChangeEvent",
     "ChangeEventType",
     "EnrollmentToken",
+    "Finding",
+    "FindingStatus",
+    "FindingType",
     "IdentifierType",
     "JobMode",
     "JobStatus",
@@ -52,7 +60,9 @@ __all__ = [
     "Service",
     "ServiceState",
     "ServiceTransport",
+    "Severity",
     "Site",
     "User",
     "UserRole",
+    "ValidationStatus",
 ]

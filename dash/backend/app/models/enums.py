@@ -137,4 +137,61 @@ class ChangeEventType(StrEnum):
     NEW_PORT_OPENED = "new_port_opened"
     PORT_CLOSED = "port_closed"
     SERVICE_VERSION_CHANGED = "service_version_changed"
+    NEW_FINDING = "new_finding"
+    FINDING_RESOLVED = "finding_resolved"
+    FINDING_REOPENED = "finding_reopened"
+
+
+class Severity(StrEnum):
+    """Finding severity."""
+
+    CRITICAL = "critical"
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+    INFO = "info"
+
+
+class FindingType(StrEnum):
+    """Finding classification (build plan Section 9.15)."""
+
+    VULNERABILITY = "vulnerability"
+    MISCONFIGURATION = "misconfiguration"
+    WEAK_PROTOCOL = "weak_protocol"
+    EXPOSED_SERVICE = "exposed_service"
+    DEFAULT_CREDENTIAL = "default_credential"
+    MISSING_PATCH = "missing_patch"
+    UNSUPPORTED_SOFTWARE = "unsupported_software"
+    WEB_APPLICATION_ISSUE = "web_application_issue"
+    CREDENTIALED_CONFIGURATION_ISSUE = "credentialed_configuration_issue"
+    VALIDATED_EXPLOITABILITY = "validated_exploitability"
+    INFORMATIONAL = "informational"
+
+
+class ValidationStatus(StrEnum):
+    """How strongly a finding's exploitability has been validated (Section 9.15)."""
+
+    UNVALIDATED = "unvalidated"
+    LIKELY = "likely"
+    CONFIRMED_NON_EXPLOIT = "confirmed_non_exploit"
+    CONFIRMED_EXPLOITABLE = "confirmed_exploitable"
+    INCONCLUSIVE = "inconclusive"
+    NOT_APPLICABLE = "not_applicable"
+
+
+class FindingStatus(StrEnum):
+    """Finding workflow state (build plan Section 9.15)."""
+
+    NEW = "new"
+    TRIAGE = "triage"
+    VALIDATED = "validated"
+    ASSIGNED = "assigned"
+    REMEDIATION_IN_PROGRESS = "remediation_in_progress"
+    READY_FOR_VERIFICATION = "ready_for_verification"
+    RESOLVED = "resolved"
+    REOPENED = "reopened"
+    RISK_ACCEPTED = "risk_accepted"
+    FALSE_POSITIVE = "false_positive"
+    DUPLICATE = "duplicate"
+    SUPPRESSED = "suppressed"
 

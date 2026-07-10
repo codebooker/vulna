@@ -58,13 +58,12 @@ async def test_upload_discovers_assets_and_services(
     )
     assert resp.status_code == 201
     body = resp.json()
-    assert body == {
-        "hosts_seen": 1,
-        "assets_created": 1,
-        "assets_updated": 0,
-        "services_upserted": 2,
-        "change_events": 1,  # asset_discovered
-    }
+    assert body["hosts_seen"] == 1
+    assert body["assets_created"] == 1
+    assert body["assets_updated"] == 0
+    assert body["services_upserted"] == 2
+    assert body["change_events"] == 1  # asset_discovered
+    assert body["findings_created"] == 0
 
     # The asset and its services are readable via the API.
     listed = await client.get("/api/v1/assets", headers=admin_headers)

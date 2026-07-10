@@ -61,8 +61,12 @@ class JobStatusUpdate(BaseModel):
 class ResultIngestSummary(BaseModel):
     """Summary returned after ingesting a scanner result upload."""
 
-    hosts_seen: int
-    assets_created: int
-    assets_updated: int
-    services_upserted: int
-    change_events: int
+    hosts_seen: int = 0
+    assets_created: int = 0
+    assets_updated: int = 0
+    services_upserted: int = 0
+    change_events: int = 0
+    findings_seen: int = 0
+    findings_created: int = 0
+    findings_updated: int = 0
+    findings_reopened: int = 0

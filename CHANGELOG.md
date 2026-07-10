@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 6: Nuclei vulnerability and TLS scanning
+
+The assessment workflow gains vulnerability and TLS stages, and the
+orchestrator normalizes their output into a deduplicated findings database.
+
+- `Finding` model (+ severity/type/validation/status enums + migration) with a
+  canonical finding key (`org|asset|service|scanner|weakness`) for dedup.
+- Defensive parsers: Nuclei JSONL and testssl.sh JSON are mapped to a
+  scanner-agnostic finding shape; malformed lines are skipped.
+- Ingestion maps findings to assets/services (by IP + port), deduplicates by
+  the canonical key, and reopens resolved findings that recur — emitting
+  `new_finding` / `finding_resolved` / `finding_reopened` change events.
+- Result-upload endpoint routes by scanner (`nmap` → discovery ingest;
+  `nuclei` / `testssl` → artifact store + finding ingest).
+- Findings read API plus a workflow PATCH (validation/status, operator/admin).
+- VulnaScout: a scanner-plugin interface and Workflow runner dispatch each job
+  stage to the matching adapter, collecting per-stage output. Nuclei and
+  testssl.sh adapters join the refactored Nmap adapter, all using allowlisted,
+  typed arguments and a shared IP/CIDR target validator. Nuclei applies a safe
+  template policy (excludes dos/intrusive/fuzzing/brute-force, limits
+  severities); testssl scans the first single host on 443. A probe skips any
+  stage whose scanner it lacks, and a failing stage does not fail the job.
+
+Verified: a discovery scan followed by Nuclei/testssl uploads produces
+normalized findings; a repeat upload deduplicates; a recurring resolved finding
+reopens. ADR 0007 records the design.
+
 ### Added — Phase 5: Change detection
 
 The orchestrator compares each scan against the current inventory and records
