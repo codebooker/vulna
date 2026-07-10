@@ -4,6 +4,7 @@
 BACKEND_DIR := dash/backend
 FRONTEND_DIR := dash/frontend
 SCOUT_DIR := scout
+CLI_DIR := cli
 
 # Prefer a python3.12+ interpreter for the backend.
 PYTHON ?= python3
@@ -113,16 +114,32 @@ probe-lint: ## Check probe formatting
 	cd $(SCOUT_DIR) && test -z "$$(gofmt -l .)" || (gofmt -l . && exit 1)
 
 # ---------------------------------------------------------------------------
+# Installer CLI
+# ---------------------------------------------------------------------------
+
+.PHONY: cli-build
+cli-build: ## Build the vulna installer CLI into cli/bin
+	cd $(CLI_DIR) && go build -o bin/vulna ./cmd/vulna
+
+.PHONY: cli-test
+cli-test: ## Run installer CLI tests and vet
+	cd $(CLI_DIR) && go vet ./... && go test ./...
+
+.PHONY: cli-lint
+cli-lint: ## Check installer CLI formatting
+	cd $(CLI_DIR) && test -z "$$(gofmt -l .)" || (gofmt -l . && exit 1)
+
+# ---------------------------------------------------------------------------
 # Aggregate
 # ---------------------------------------------------------------------------
 
 .PHONY: test
-test: backend-test frontend-test probe-test ## Run all tests
+test: backend-test frontend-test probe-test cli-test ## Run all tests
 
 .PHONY: lint
-lint: backend-lint frontend-lint probe-lint ## Run all linters / type checks
+lint: backend-lint frontend-lint probe-lint cli-lint ## Run all linters / type checks
 
 .PHONY: clean
 clean: ## Remove build artifacts
-	rm -rf $(SCOUT_DIR)/bin $(FRONTEND_DIR)/dist
+	rm -rf $(SCOUT_DIR)/bin $(CLI_DIR)/bin $(FRONTEND_DIR)/dist
 	find $(BACKEND_DIR) -type d -name __pycache__ -prune -exec rm -rf {} +

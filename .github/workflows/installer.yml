@@ -1,0 +1,113 @@
+name: installer
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "cli/**"
+      - "scripts/install.sh"
+      - "deploy/release/installer_smoke_test.sh"
+      - ".github/workflows/installer.yml"
+  # No path filter on PRs so the check reports on every PR.
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: installer
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cli
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: false
+
+      - name: Formatting (gofmt)
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; echo 'Run gofmt -w .'; exit 1; }
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
+
+      - name: Vulnerability scan (govulncheck)
+        # The CLI is standard-library-only, so a called *dependency* vulnerability
+        # must fail. Go stdlib advisories are a toolchain concern (fixed by
+        # upgrading Go), so they are reported but do not fail CI.
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          "$(go env GOPATH)/bin/govulncheck" -format json ./... > govulncheck.json || true
+          python3 - <<'PY'
+          import json, sys
+          text = open("govulncheck.json").read()
+          dec, i, n = json.JSONDecoder(), 0, len(text)
+          dep, std = set(), set()
+          while i < n:
+              while i < n and text[i] in " \t\r\n":
+                  i += 1
+              if i >= n:
+                  break
+              obj, i = dec.raw_decode(text, i)
+              f = obj.get("finding")
+              if not f:
+                  continue
+              trace = f.get("trace") or []
+              if not trace:
+                  continue
+              module = trace[0].get("module", "")
+              osv = f.get("osv", "")
+              if module in ("stdlib", "toolchain"):
+                  std.add(osv)
+              else:
+                  dep.add((osv, module))
+          if dep:
+              print("FAIL: called dependency vulnerabilities:", sorted(dep))
+              sys.exit(1)
+          if std:
+              print("NOTE: Go stdlib advisories in the current toolchain:", sorted(std))
+          print("OK: no called dependency vulnerabilities (cli is stdlib-only).")
+          PY
+
+      - name: Shellcheck bootstrap script
+        working-directory: ${{ github.workspace }}
+        run: |
+          sudo apt-get update && sudo apt-get install -y shellcheck
+          shellcheck scripts/install.sh
+
+      - name: Bootstrap verify smoke test (good vs tampered)
+        working-directory: ${{ github.workspace }}
+        run: bash deploy/release/installer_smoke_test.sh
+
+  cross-build:
+    name: installer-cross-build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cli
+    strategy:
+      matrix:
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: false
+
+      - name: Build linux/${{ matrix.goarch }}
+        env:
+          CGO_ENABLED: "0"
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
+        run: go build -o bin/vulna-linux-${{ matrix.goarch }} ./cmd/vulna

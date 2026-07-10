@@ -44,6 +44,7 @@ each phase lands on `main` via a pull request with green CI. Current progress:
 | 15 | Hardening & release — dependency scans (clean), SBOMs, backup/restore, signed+checksummed releases, security review checklist, sample lab | ✅ Done |
 | 16 | VulnaRelay — optional thin tunnel/relay mode for constrained sites (opt-in; smart probe stays the default) | 💤 Optional / future |
 | 17 | First-class single-host deployment — one-command stack with an auto-enrolled, scope-gated local Scout, per-component health, migrate-on-start | ✅ Done |
+| 18 | Safe installer & environment preflight — signed `vulna` CLI, verifying bootstrap, preflight checks, generated secrets, idempotent install, dry-run, clean uninstall | ✅ Done |
 
 Not yet ready for production use. See the [CHANGELOG](CHANGELOG.md) for details.
 
@@ -67,6 +68,7 @@ Not yet ready for production use. See the [CHANGELOG](CHANGELOG.md) for details.
 vulna/
 ├── dash/        # VulnaDash — FastAPI backend + React/TS frontend
 ├── scout/       # VulnaScout — Go probe agent, plugins, packaging
+├── cli/         # vulna — host installer & administration CLI (Go)
 ├── watch/       # VulnaWatch — CVE/KEV/EPSS intelligence workers
 ├── verify/      # VulnaVerify — remediation & correlation logic
 ├── forge/       # VulnaForge — plugin SDK and schemas
@@ -114,15 +116,28 @@ make lint    # ruff + mypy, eslint, go vet
 
 ## Single-host deployment
 
-To run the whole platform — dashboard, database, reverse proxy, **and** a working
-local VulnaScout — on one machine, use the single-host overlay:
+The supported way to install Vulna on one host is the `vulna` installer CLI. It
+runs environment preflight, generates strong secrets, and materializes the
+deployment; it is safe to re-run, dry-run, and uninstall without deleting data.
+
+```bash
+# Verified bootstrap: downloads a pinned, signed release and checks it before running.
+curl -fsSLO https://github.com/codebooker/vulna/releases/latest/download/install.sh
+less install.sh                       # review it first
+VULNA_VERSION=v1.0.0 sh install.sh -- install
+```
+
+See [`docs/installation/`](docs/installation/README.md) for the manual
+(no-pipeline) path and [ADR 0018](docs/adr/0018-installer-and-preflight.md).
+
+Under the hood this brings up the single-host overlay directly if you prefer:
 
 ```bash
 cp .env.example .env    # set POSTGRES_PASSWORD, VULNA_SECRET_KEY, VULNA_ADMIN_*
 docker compose -f docker-compose.yml -f docker-compose.single-host.yml up -d
 ```
 
-The stack migrates its database, seeds an admin and a local site, and
+Either way, the stack migrates its database, seeds an admin and a local site, and
 **auto-enrolls a co-located Scout** over the same mutual-TLS boundary as a remote
 one. The local Scout comes up connected but **scope-gated** — it can scan nothing
 until you approve a network scope. See

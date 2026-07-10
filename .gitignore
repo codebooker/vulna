@@ -6,8 +6,10 @@
 *.key
 *.crt
 *.p12
-certificates/
-secrets/
+# Anchor runtime-secret/cert dirs to the repo root so they never shadow source
+# packages (e.g. cli/internal/secrets). Runtime keys live under /var/lib/vulna.
+/certificates/
+/secrets/
 
 # ---- Python / FastAPI backend ----
 __pycache__/
@@ -35,8 +37,9 @@ npm-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# ---- Go / VulnaScout ----
+# ---- Go / VulnaScout + installer CLI ----
 scout/bin/
+cli/bin/
 *.exe
 *.test
 *.out

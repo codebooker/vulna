@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 18: Safe installer and environment preflight
+
+One supported installation workflow that detects problems before changing files
+or starting services, generates strong secrets, and is safe to re-run and
+uninstall.
+
+- A small, statically linked `vulna` installer/administration CLI (`cli/`,
+  stdlib-only Go, linux/amd64 + linux/arm64): `install`, `preflight`,
+  `uninstall`, `version`.
+- A verifying bootstrap (`scripts/install.sh`) that downloads a **pinned** CLI
+  release and verifies its SHA-256 checksum and Ed25519 signature before running
+  it; unverified remote content is never piped into a shell. A smoke test proves
+  it runs a valid release and refuses a tampered artifact or signature.
+- Preflight checks for OS/architecture, container runtime and Compose, CPU /
+  memory / free disk, port conflicts, time synchronization, DNS/outbound
+  reachability, filesystem permissions, and an incompatible existing install.
+  Every non-passing result names the problem, impact, and next step; failures
+  block, warnings need `--force` (loss of connectivity is a warning — Vulna runs
+  offline).
+- Cryptographically strong secret generation into a `0600` env file in a `0700`
+  config directory; secrets are never printed or logged.
+- Idempotent install (existing secrets are never rotated and manual edits are
+  preserved), a faithful `--dry-run` that lists files/dirs/services/ports/
+  capabilities, and a `--non-interactive` mode driven by a versioned answer file.
+- A clean `uninstall` that preserves data volumes; `--purge` must name the data
+  directory to also delete data.
+- ADR 0018, an installation guide with a manual (no-pipeline) path, a new
+  `installer` CI workflow (build, vet, test, cross-build, govulncheck, shellcheck,
+  bootstrap smoke test), and `make cli-build|cli-test|cli-lint` targets.
+
 ### Added — Phase 17: First-class single-host deployment
 
 A one-command, self-contained deployment on a single machine, with a co-located
