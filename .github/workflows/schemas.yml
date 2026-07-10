@@ -6,16 +6,15 @@ on:
     paths:
       - "shared/**"
       - ".github/workflows/schemas.yml"
+  # No path filter on PRs: required status check must report on every PR.
   pull_request:
-    paths:
-      - "shared/**"
-      - ".github/workflows/schemas.yml"
 
 permissions:
   contents: read
 
 jobs:
   validate:
+    name: schemas
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

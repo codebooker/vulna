@@ -6,10 +6,9 @@ on:
     paths:
       - "dash/backend/**"
       - ".github/workflows/backend.yml"
+  # No path filter on PRs: this is a required status check, so it must report on
+  # every pull request (a skipped workflow leaves a required check stuck pending).
   pull_request:
-    paths:
-      - "dash/backend/**"
-      - ".github/workflows/backend.yml"
 
 permissions:
   contents: read
@@ -20,6 +19,7 @@ defaults:
 
 jobs:
   test:
+    name: backend
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

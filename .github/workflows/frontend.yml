@@ -6,10 +6,8 @@ on:
     paths:
       - "dash/frontend/**"
       - ".github/workflows/frontend.yml"
+  # No path filter on PRs: required status check must report on every PR.
   pull_request:
-    paths:
-      - "dash/frontend/**"
-      - ".github/workflows/frontend.yml"
 
 permissions:
   contents: read
@@ -20,6 +18,7 @@ defaults:
 
 jobs:
   build-and-test:
+    name: frontend
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

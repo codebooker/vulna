@@ -6,10 +6,8 @@ on:
     paths:
       - "scout/**"
       - ".github/workflows/probe.yml"
+  # No path filter on PRs: required status check must report on every PR.
   pull_request:
-    paths:
-      - "scout/**"
-      - ".github/workflows/probe.yml"
 
 permissions:
   contents: read
@@ -20,6 +18,7 @@ defaults:
 
 jobs:
   test:
+    name: probe
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -41,6 +40,7 @@ jobs:
         run: go test ./...
 
   cross-build:
+    name: probe-cross-build
     runs-on: ubuntu-latest
     strategy:
       matrix:
