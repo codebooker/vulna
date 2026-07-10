@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 22: Everyday UX for homelabs and small teams
+
+Make the product useful to people who do not read CVEs or scanner output all day,
+without discarding the formal data.
+
+- A plain-language **priority model** (`app/services/priority.py`): fix now / plan
+  a fix / watch / informational, computed from severity + KEV + EPSS + validation +
+  detection confidence. The security-critical rule: a **low-confidence match is
+  never presented as a confirmed, fix-now vulnerability** — uncertain findings are
+  capped at "watch". Formal severity/CVSS/confidence stay on the record.
+- A **home dashboard** (`GET /dashboard/summary`): what needs attention (by
+  priority), what changed recently, which systems weren't assessed, whether Vulna
+  is healthy, and a single next recommended action.
+- A consistent **seven-section finding layout** (observed → why → confidence →
+  affected → remediation → verify → references/evidence) with plain-language
+  summaries and an expandable technical view; detection confidence and evidence
+  source are always shown. Evidence is **sanitized** for display
+  (`app/services/evidence.py`).
+- **One-click workflows**: *Mark fixed & verify* (does not close the finding until
+  the configured verification succeeds), *False positive*, and *Assign*.
+- **Bulk actions** (`POST /findings/bulk`) that enforce **per-object
+  authorization** (findings outside the caller's org are skipped, never touched)
+  and emit a per-finding audit event.
+- A **global search** (`GET /search`) across assets, findings, sites, scans, and
+  reports, scoped to the organization.
+- Accessible, responsive markup (semantic landmarks, labeled controls, native
+  buttons/`<details>`), a keyboard-only review in `docs/accessibility.md`, ADR
+  0022, and backend + frontend tests.
+
 ### Added — Phase 21: Opinionated scan presets and automatic tuning
 
 A small set of safe, understandable scan *outcomes* instead of scanner flags,

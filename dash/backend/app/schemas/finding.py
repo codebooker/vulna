@@ -51,6 +51,32 @@ class FindingRead(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+    # Everyday-UX fields (Phase 22), computed at serialization time.
+    priority: str = ""
+    priority_rationale: str = ""
+    confidence_label: str = ""
+
+    @classmethod
+    def from_model(cls, finding: Any) -> FindingRead:
+        """Build a read model with the priority bucket, confidence label, and a
+        display-safe (sanitized) copy of the evidence."""
+        from app.services.evidence import sanitize_evidence
+        from app.services.priority import classify, confidence_label
+
+        read = cls.model_validate(finding)
+        priority, rationale = classify(
+            severity=finding.severity,
+            confidence=finding.confidence,
+            known_exploited=finding.known_exploited,
+            epss_score=finding.epss_score,
+            validation_status=finding.validation_status,
+        )
+        read.priority = priority
+        read.priority_rationale = rationale
+        read.confidence_label = confidence_label(finding.confidence)
+        read.evidence_json = sanitize_evidence(finding.evidence_json)
+        return read
+
 
 class FindingUpdate(BaseModel):
     """Workflow/remediation update for a finding."""
@@ -60,6 +86,20 @@ class FindingUpdate(BaseModel):
     owner_user_id: uuid.UUID | None = None
     due_at: datetime | None = None
     false_positive_reason: str | None = None
+
+
+class BulkFindingAction(BaseModel):
+    """Apply one workflow action to several findings at once."""
+
+    finding_ids: list[uuid.UUID] = Field(min_length=1, max_length=200)
+    action: str = Field(description="assign | false_positive | start_remediation | triage")
+    owner_user_id: uuid.UUID | None = None
+    false_positive_reason: str | None = Field(default=None, max_length=2000)
+
+
+class BulkFindingResult(BaseModel):
+    updated: list[uuid.UUID]
+    skipped: int
 
 
 class FindingNoteCreate(BaseModel):

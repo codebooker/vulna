@@ -35,6 +35,8 @@ from app.models.probe import Probe
 from app.models.user import User
 from app.schemas.common import Page
 from app.schemas.finding import (
+    BulkFindingAction,
+    BulkFindingResult,
     FindingNoteCreate,
     FindingNoteRead,
     FindingRead,
@@ -92,11 +94,72 @@ async def list_findings(
     )
     findings = result.scalars().all()
     return Page[FindingRead](
-        items=[FindingRead.model_validate(f) for f in findings],
+        items=[FindingRead.from_model(f) for f in findings],
         total=total or 0,
         limit=limit,
         offset=offset,
     )
+
+
+_BULK_ACTIONS = {"assign", "false_positive", "start_remediation", "triage"}
+
+
+@router.post("/bulk", response_model=BulkFindingResult, summary="Apply an action to many findings")
+async def bulk_update(
+    payload: BulkFindingAction,
+    operator: Annotated[User, Depends(require_roles(*_OPERATOR_ROLES))],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    context: Annotated[RequestContext, Depends(get_request_context)],
+) -> BulkFindingResult:
+    """Apply one workflow action to several findings. Each finding is checked for
+    per-object ownership (findings outside the caller's org are skipped, never
+    touched) and every change produces its own audit event."""
+    if payload.action not in _BULK_ACTIONS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"action must be one of {sorted(_BULK_ACTIONS)}",
+        )
+    if payload.action == "assign" and payload.owner_user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="assign requires owner_user_id",
+        )
+
+    updated: list[uuid.UUID] = []
+    skipped = 0
+    for finding_id in payload.finding_ids:
+        finding = await session.get(Finding, finding_id)
+        # Per-object authorization: silently skip anything not in the caller's org.
+        if finding is None or finding.organization_id != operator.organization_id:
+            skipped += 1
+            continue
+        if payload.action == "assign":
+            finding.owner_user_id = payload.owner_user_id
+            finding.status = FindingStatus.ASSIGNED
+        elif payload.action == "false_positive":
+            finding.status = FindingStatus.FALSE_POSITIVE
+            finding.false_positive_reason = payload.false_positive_reason
+        elif payload.action == "start_remediation":
+            finding.status = FindingStatus.REMEDIATION_IN_PROGRESS
+        elif payload.action == "triage":
+            finding.status = FindingStatus.TRIAGE
+        session.add(finding)
+        record_audit(
+            session,
+            action="finding.bulk_updated",
+            actor=operator,
+            organization_id=operator.organization_id,
+            target_type="finding",
+            target_id=finding.id,
+            source_ip=context.source_ip,
+            user_agent=context.user_agent,
+            request_id=context.request_id,
+            metadata={"action": payload.action},
+        )
+        updated.append(finding.id)
+
+    await session.commit()
+    return BulkFindingResult(updated=updated, skipped=skipped)
 
 
 @router.get("/{finding_id}", response_model=FindingRead, summary="Get a finding")
@@ -106,7 +169,7 @@ async def get_finding(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> FindingRead:
     finding = await _get_owned_finding(session, finding_id, current_user.organization_id)
-    return FindingRead.model_validate(finding)
+    return FindingRead.from_model(finding)
 
 
 @router.patch("/{finding_id}", response_model=FindingRead, summary="Update a finding's workflow")
@@ -157,7 +220,7 @@ async def update_finding(
         request_id=context.request_id,
         metadata={"changed_fields": sorted(changes.keys())},
     )
-    return FindingRead.model_validate(finding)
+    return FindingRead.from_model(finding)
 
 
 @router.get(

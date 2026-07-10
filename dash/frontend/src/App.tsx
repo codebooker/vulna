@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from './api/client';
 import { useAuth } from './auth/useAuth';
+import { GlobalSearch } from './components/GlobalSearch';
 import { AddScoutPage } from './pages/AddScoutPage';
 import { ChangesPage } from './pages/ChangesPage';
 import { FeedsPage } from './pages/FeedsPage';
+import { FindingsPage } from './pages/FindingsPage';
 import { HealthPage } from './pages/HealthPage';
+import { HomeDashboard } from './pages/HomeDashboard';
 import { LoginPage } from './pages/LoginPage';
 import { OnboardingWizard } from './pages/OnboardingWizard';
 import { PresetsPage } from './pages/PresetsPage';
@@ -39,6 +42,7 @@ export function App() {
         <img className="brand-mark" src="/vulna-mark.svg" alt="Vulna" width={44} height={42} />
         <h1>VulnaDash</h1>
         <span className="tag">Self-hosted security assessment across every site.</span>
+        {user && <GlobalSearch />}
         {user && (
           <div className="session">
             {incomplete && onboarding.dismissed && !resume && (
@@ -70,6 +74,8 @@ export function App() {
               }}
             />
           )}
+          <HomeDashboard />
+          <FindingsPage />
           <SitesPage />
           <PresetsPage />
           <AddScoutPage />

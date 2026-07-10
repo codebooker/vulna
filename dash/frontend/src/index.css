@@ -355,3 +355,119 @@ pre.cmd {
   font-size: 0.72rem;
   color: var(--muted);
 }
+
+/* ---- Everyday UX (Phase 22) ---- */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.global-search {
+  position: relative;
+  margin-left: auto;
+}
+.global-search input {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 0.35rem 0.6rem;
+  min-width: 12rem;
+}
+.search-results {
+  position: absolute;
+  right: 0;
+  top: 2.2rem;
+  z-index: 20;
+  min-width: 18rem;
+  max-height: 60vh;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+}
+.search-group-label {
+  font-size: 0.72rem;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+.search-group ul,
+.priority-counts,
+.top-findings,
+.finding-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.25rem 0;
+}
+.next-action {
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 0.6rem 0.9rem;
+  margin: 0.5rem 0 1rem;
+}
+.next-action.fix_now {
+  border-color: var(--bad);
+}
+.dash-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1rem;
+}
+.priority-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.pill,
+.tagpill {
+  border-radius: 999px;
+  padding: 0.1rem 0.55rem;
+  font-size: 0.8rem;
+  border: 1px solid var(--border);
+}
+.pill .count {
+  font-weight: 700;
+}
+.tagpill.fix_now,
+.pill.fix_now {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+.tagpill.plan,
+.pill.plan {
+  border-color: #e0a63a;
+  color: #e0a63a;
+}
+.top-findings li {
+  margin: 0.3rem 0;
+}
+.finding-row {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 0.5rem 0.7rem;
+  margin: 0.3rem 0;
+  cursor: pointer;
+}
+.finding-row.active {
+  border-color: var(--accent);
+}
+.finding-detail {
+  border-top: 1px solid var(--border);
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+}
+.finding-detail h4 {
+  margin: 0.75rem 0 0.25rem;
+}

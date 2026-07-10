@@ -8,6 +8,7 @@ from app.api.v1 import (
     auth,
     changes,
     cve,
+    dashboard,
     feeds,
     findings,
     jobs,
@@ -34,6 +35,8 @@ api_router.include_router(sites.router)
 api_router.include_router(scopes.router)
 api_router.include_router(probes.router)
 api_router.include_router(jobs.router)
+api_router.include_router(dashboard.router)
+api_router.include_router(dashboard.search_router)
 api_router.include_router(onboarding.router)
 api_router.include_router(presets.router)
 api_router.include_router(assets.router)

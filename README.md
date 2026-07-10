@@ -48,6 +48,7 @@ each phase lands on `main` via a pull request with green CI. Current progress:
 | 19 | Guided first run — resumable wizard, recovery codes, advisory network detection, scope guardrails, safe preset, pre-scan summary, isolated demo target | ✅ Done |
 | 20 | Frictionless remote VulnaScout — per-site Add VulnaScout command, verified bootstrap, `doctor` connection test, local emergency stop, reset + self-revoke | ✅ Done |
 | 21 | Opinionated scan presets & tuning — versioned presets, capability manager, why-skipped preview, hardware-aware tuning clamped to policy, validated custom presets | ✅ Done |
+| 22 | Everyday UX — home dashboard, plain-language priority (fix now/plan/watch), consistent finding layout, one-click workflows, global search, sanitized evidence, a11y | ✅ Done |
 
 Not yet ready for production use. See the [CHANGELOG](CHANGELOG.md) for details.
 

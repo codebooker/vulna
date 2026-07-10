@@ -14,6 +14,8 @@ import type {
   ScanSummary,
   ScopePreview,
 } from '../types/onboarding';
+import type { DashboardSummary, SearchResults } from '../types/dashboard';
+import type { Finding, Page as FindingPage } from '../types/finding';
 import type { Preset, PresetPreview } from '../types/presets';
 import type { EnrollmentCommand } from '../types/remote';
 import type { Report } from '../types/report';
@@ -179,6 +181,33 @@ export const api = {
       method: 'POST',
       token,
       body: { probe_id: probeId, targets, mode: 'vulnerability_assessment' },
+    });
+  },
+
+  // --- Everyday UX (Phase 22) ---
+  dashboardSummary(token: string): Promise<DashboardSummary> {
+    return request<DashboardSummary>('/api/v1/dashboard/summary', { token });
+  },
+  search(token: string, q: string): Promise<SearchResults> {
+    return request<SearchResults>(`/api/v1/search?q=${encodeURIComponent(q)}`, { token });
+  },
+  listFindings(token: string, limit = 50): Promise<FindingPage<Finding>> {
+    return request<FindingPage<Finding>>(`/api/v1/findings?limit=${limit}`, { token });
+  },
+  getFinding(token: string, id: string): Promise<Finding> {
+    return request<Finding>(`/api/v1/findings/${encodeURIComponent(id)}`, { token });
+  },
+  updateFinding(token: string, id: string, patch: Record<string, unknown>): Promise<Finding> {
+    return request<Finding>(`/api/v1/findings/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      token,
+      body: patch,
+    });
+  },
+  rescanFinding(token: string, id: string): Promise<unknown> {
+    return request<unknown>(`/api/v1/findings/${encodeURIComponent(id)}/rescan`, {
+      method: 'POST',
+      token,
     });
   },
 
