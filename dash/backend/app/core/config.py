@@ -160,6 +160,12 @@ class Settings(BaseSettings):
     # EPSS probability at/above which a change crossing it raises an event.
     epss_alert_threshold: float = 0.5
 
+    # ---- Updates (Phase 24) -------------------------------------------------
+    # Display-only in the web UI: the running app never fetches or applies
+    # releases (that would make it a package-execution channel). Updates are
+    # applied by the operator with the signed-manifest-verifying `vulna` CLI.
+    update_channel: str = "stable"
+
     # ---- Reports (Phase 8) --------------------------------------------------
     # Directory where generated report artifacts (PDF/CSV/JSON) are stored.
     reports_dir: str = "/var/lib/vulna/reports"

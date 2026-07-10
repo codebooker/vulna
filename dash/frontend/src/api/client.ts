@@ -21,6 +21,7 @@ import type { Preset, PresetPreview } from '../types/presets';
 import type { EnrollmentCommand } from '../types/remote';
 import type { Report } from '../types/report';
 import type { HealthResponse, SystemInfoResponse } from '../types/system';
+import type { UpdateCenter } from '../types/update';
 
 // In development, Vite proxies /api to the backend (see vite.config.ts).
 // In production the frontend is served behind the same reverse proxy as the API.
@@ -183,6 +184,11 @@ export const api = {
       token,
       body: { probe_id: probeId, targets, mode: 'vulnerability_assessment' },
     });
+  },
+
+  // --- Update center (Phase 24, display only) ---
+  updateCenter(token: string): Promise<UpdateCenter> {
+    return request<UpdateCenter>('/api/v1/system/update', { token });
   },
 
   // --- Networking assistant (Phase 23) ---

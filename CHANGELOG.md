@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 24: Boring, safe updates and rollback
+
+Keep Vulna current with verified, operator-driven, reversible updates — without
+the running app becoming a remote code-execution channel.
+
+- New `vulna` CLI commands: `update check`, `update`, `update status`, and
+  `rollback`.
+- **Signed release-manifest verification** (`cli/internal/release`): an Ed25519
+  signature over the `SHA256SUMS` manifest plus a checksum match for `release.json`.
+  A manifest that is unsigned, altered, expired, or on the wrong channel is
+  **rejected** (pure-Go verification, unit-tested; a smoke test proves a tampered
+  manifest is refused).
+- **Pre-update safety checks** (`cli/internal/update`): free disk, backup status,
+  database health, local modifications, and — blocking — an incompatible **active
+  assessment** (no update begins while one runs). Schema-changing releases surface
+  a migration warning.
+- An **automatic pre-update backup** (unless `--no-backup`) and a recorded rollback
+  point (applied + prior version + backup path).
+- **Rollback** that never restores an incompatible state: a schema-changing release
+  requires restoring the pre-update backup first, and rollback refuses if a
+  schema-changing update recorded no backup.
+- A **display-only** web Update Center (`GET /system/update`): current version,
+  channel (stable/candidate/development), the separate update types
+  (app/Scout/scanner-binary/scanner-template/feeds), and the CLI commands. The app
+  never fetches or applies releases; automatic installation is opt-in and there is
+  no forced remote update path.
+- ADR 0024, `docs/updates.md`, a frontend Update Center panel, and backend + Go
+  tests (release verification, pre-update checks, rollback bookkeeping).
+
 ### Added — Phase 23: Networking, URL, TLS, and reverse-proxy assistant
 
 Eliminate one of the most common self-hosting failure points: reaching the

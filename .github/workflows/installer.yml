@@ -9,6 +9,7 @@ on:
       - "scripts/install-scout.sh"
       - "deploy/release/installer_smoke_test.sh"
       - "deploy/release/scout_bootstrap_smoke_test.sh"
+      - "deploy/release/update_smoke_test.sh"
       - ".github/workflows/installer.yml"
   # No path filter on PRs so the check reports on every PR.
   pull_request:
@@ -90,6 +91,7 @@ jobs:
         run: |
           bash deploy/release/installer_smoke_test.sh
           bash deploy/release/scout_bootstrap_smoke_test.sh
+          bash deploy/release/update_smoke_test.sh
 
   cross-build:
     name: installer-cross-build

@@ -49,3 +49,32 @@ def system_info(settings: Settings = Depends(get_settings)) -> SystemInfoRespons
         environment=settings.env,
         api_version="v1",
     )
+
+
+@router.get("/update", summary="Update center (display only)")
+def update_center(
+    current_user: CurrentUser,
+    settings: Settings = Depends(get_settings),
+) -> dict[str, object]:
+    """Show the current version and update channel. The web UI is display-only —
+    the running app never fetches or applies releases (that would make it a
+    package-execution channel). Updates are checked and applied by the operator
+    with the signature-verifying `vulna` CLI, which keeps application, Scout,
+    scanner-binary, scanner-template, and intelligence-feed updates separate."""
+    return {
+        "current_version": settings.version,
+        "channel": settings.update_channel,
+        "channels": ["stable", "candidate", "development"],
+        "update_types": [
+            "Vulna application",
+            "VulnaScout",
+            "scanner binaries",
+            "scanner templates",
+            "intelligence feeds",
+        ],
+        "how_to_check": "vulna update check --channel " + settings.update_channel,
+        "how_to_apply": (
+            "vulna update   (takes an automatic pre-update backup; roll back with `vulna rollback`)"
+        ),
+        "note": "Automatic installation is opt-in; there is no forced remote update path.",
+    }

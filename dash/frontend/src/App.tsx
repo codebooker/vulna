@@ -14,6 +14,7 @@ import { OnboardingWizard } from './pages/OnboardingWizard';
 import { PresetsPage } from './pages/PresetsPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { SitesPage } from './pages/SitesPage';
+import { UpdateCenterPage } from './pages/UpdateCenterPage';
 import type { OnboardingState } from './types/onboarding';
 
 export function App() {
@@ -81,6 +82,7 @@ export function App() {
           <PresetsPage />
           <AddScoutPage />
           <NetworkingPage />
+          <UpdateCenterPage />
           <ChangesPage />
           <FeedsPage />
           <ReportsPage />
