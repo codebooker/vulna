@@ -1,0 +1,55 @@
+name: schemas
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "shared/**"
+      - ".github/workflows/schemas.yml"
+  pull_request:
+    paths:
+      - "shared/**"
+      - ".github/workflows/schemas.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install validators
+        run: pip install jsonschema pyyaml
+
+      - name: Validate schemas and examples
+        run: |
+          python - <<'PY'
+          import json, glob
+          from jsonschema import Draft202012Validator
+          import yaml
+
+          schemas = {}
+          for path in glob.glob("shared/schemas/*.schema.json"):
+              with open(path) as f:
+                  s = json.load(f)
+              Draft202012Validator.check_schema(s)
+              schemas[path] = s
+              print("schema OK:", path)
+
+          def validate(example, schema):
+              with open(example) as f:
+                  data = json.load(f) if example.endswith(".json") else yaml.safe_load(f)
+              Draft202012Validator(schemas[schema]).validate(data)
+              print("example OK:", example, "->", schema)
+
+          validate("shared/examples/job.example.json", "shared/schemas/job.schema.json")
+          validate("shared/examples/policy.example.json", "shared/schemas/policy.schema.json")
+          validate("shared/schemas/nmap.plugin.example.yaml", "shared/schemas/plugin.schema.json")
+          PY

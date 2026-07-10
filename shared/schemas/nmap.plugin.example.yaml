@@ -1,0 +1,31 @@
+# Example VulnaForge plugin manifest (see plugin.schema.json).
+# Illustrative only — the real Nmap adapter manifest ships in Phase 4.
+name: nmap
+version: 1.0.0
+runner: process
+executable: /usr/bin/nmap
+supported_architectures:
+  - amd64
+  - arm64
+capabilities:
+  - discovery
+  - port_scan
+  - service_detection
+allowed_arguments:
+  - name: timing
+    type: enum
+    values: [T2, T3, T4]
+    default: T3
+  - name: top_ports
+    type: integer
+    minimum: 1
+    maximum: 65535
+    default: 1000
+timeout_seconds: 7200
+output:
+  format: nmap_xml
+  parser: builtin_nmap_xml
+resource_limits:
+  memory_mb: 1024
+  cpu_percent: 100
+  max_output_bytes: 52428800

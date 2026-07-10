@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vulna.dev/schemas/policy.schema.json",
+  "title": "Vulna Local Probe Policy",
+  "description": "Signed local policy stored on a VulnaScout. The probe enforces this policy independently and rejects any job that violates it.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "policy_version",
+    "probe_id",
+    "site_id",
+    "issued_at",
+    "approved_cidrs",
+    "allow_public_addresses",
+    "allowed_modes",
+    "allowed_plugins",
+    "limits",
+    "signature"
+  ],
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "policy_version": { "type": "integer", "minimum": 1 },
+    "probe_id": { "type": "string", "format": "uuid" },
+    "site_id": { "type": "string", "format": "uuid" },
+    "issued_at": { "type": "string", "format": "date-time" },
+    "expires_at": { "type": "string", "format": "date-time" },
+    "approved_cidrs": {
+      "type": "array",
+      "items": { "type": "string", "description": "Approved CIDR (IPv4 or IPv6)" }
+    },
+    "denied_cidrs": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "allow_public_addresses": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether public IP ranges may be assessed. Denied by default."
+    },
+    "allowed_modes": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["vulnerability_assessment", "controlled_pentest", "full_spectrum"] }
+    },
+    "allowed_plugins": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "allowed_web_domains": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_hosts", "max_concurrency", "max_packets_per_second", "max_job_duration_seconds"],
+      "properties": {
+        "max_hosts": { "type": "integer", "minimum": 1 },
+        "max_concurrency": { "type": "integer", "minimum": 1 },
+        "max_packets_per_second": { "type": "integer", "minimum": 1 },
+        "max_job_duration_seconds": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "redirect_behavior": {
+      "type": "string",
+      "enum": ["deny_out_of_scope", "follow_in_scope_only"],
+      "default": "deny_out_of_scope"
+    },
+    "dns_resolution": {
+      "type": "string",
+      "enum": ["revalidate_at_execution", "static_only"],
+      "default": "revalidate_at_execution"
+    },
+    "credentialed_scans_allowed": { "type": "boolean", "default": false },
+    "exploit_validation_allowed": { "type": "boolean", "default": false },
+    "signature": { "type": "string", "description": "Base64 Ed25519 signature over the canonical policy" }
+  }
+}

@@ -1,0 +1,38 @@
+name: Feature request
+description: Suggest an enhancement for Vulna
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / motivation
+      description: What are you trying to accomplish? What's missing today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+  - type: dropdown
+    id: phase
+    attributes:
+      label: Related build-plan area
+      description: See VULNA_CODEX_BUILD_PLAN.md
+      options:
+        - Orchestrator / API
+        - Frontend
+        - Probe / agent
+        - Scanner plugin (VulnaForge)
+        - CVE intelligence (VulnaWatch)
+        - Remediation (VulnaVerify)
+        - Reporting (VulnaReport)
+        - Observability (VulnaPulse)
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

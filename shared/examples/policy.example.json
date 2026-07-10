@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "policy_version": 12,
+  "probe_id": "b2a1c0d9-8e7f-4a6b-9c5d-0e1f2a3b4c5d",
+  "site_id": "11112222-3333-4444-5555-666677778888",
+  "issued_at": "2026-07-10T00:00:00Z",
+  "expires_at": "2026-08-10T00:00:00Z",
+  "approved_cidrs": ["10.20.0.0/24", "10.20.1.0/24"],
+  "denied_cidrs": ["10.20.0.1/32"],
+  "allow_public_addresses": false,
+  "allowed_modes": ["vulnerability_assessment"],
+  "allowed_plugins": ["nmap", "nuclei", "testssl"],
+  "allowed_web_domains": ["intranet.example.internal"],
+  "limits": {
+    "max_hosts": 512,
+    "max_concurrency": 8,
+    "max_packets_per_second": 1000,
+    "max_job_duration_seconds": 10800
+  },
+  "redirect_behavior": "deny_out_of_scope",
+  "dns_resolution": "revalidate_at_execution",
+  "credentialed_scans_allowed": false,
+  "exploit_validation_allowed": false,
+  "signature": "BASE64_ED25519_SIGNATURE_PLACEHOLDER"
+}

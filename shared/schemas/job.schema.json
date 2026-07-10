@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vulna.dev/schemas/job.schema.json",
+  "title": "Vulna Job Envelope",
+  "description": "Signed job envelope delivered from VulnaDash to a VulnaScout probe. The signature covers the canonical serialization of all fields except `signature`.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "job_id",
+    "probe_id",
+    "site_id",
+    "mode",
+    "profile_version",
+    "policy_version",
+    "not_before",
+    "expires_at",
+    "targets",
+    "workflow",
+    "limits",
+    "signature"
+  ],
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "job_id": { "type": "string", "format": "uuid" },
+    "probe_id": { "type": "string", "format": "uuid" },
+    "site_id": { "type": "string", "format": "uuid" },
+    "mode": {
+      "type": "string",
+      "enum": ["vulnerability_assessment", "controlled_pentest", "full_spectrum"]
+    },
+    "profile_version": { "type": "integer", "minimum": 1 },
+    "policy_version": { "type": "integer", "minimum": 1 },
+    "not_before": { "type": "string", "format": "date-time" },
+    "expires_at": { "type": "string", "format": "date-time" },
+    "targets": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "description": "CIDR or host/IP within the approved scope" }
+    },
+    "workflow": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["stage", "plugin"],
+        "properties": {
+          "stage": { "type": "string" },
+          "plugin": { "type": "string" },
+          "config": { "type": "object" }
+        }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_hosts", "max_parallel_hosts", "max_packets_per_second", "max_duration_seconds"],
+      "properties": {
+        "max_hosts": { "type": "integer", "minimum": 1 },
+        "max_parallel_hosts": { "type": "integer", "minimum": 1 },
+        "max_packets_per_second": { "type": "integer", "minimum": 1 },
+        "max_duration_seconds": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "signature": {
+      "type": "string",
+      "description": "Base64-encoded Ed25519 signature over the canonical job payload"
+    }
+  }
+}

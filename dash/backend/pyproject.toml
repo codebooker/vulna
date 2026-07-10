@@ -1,0 +1,61 @@
+[project]
+name = "vulna-dash-backend"
+version = "0.1.0"
+description = "VulnaDash — central orchestrator API for the Vulna security-assessment platform"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Vulna maintainers" }]
+
+# Dependencies are pinned to compatible major versions per the build plan.
+dependencies = [
+    "fastapi>=0.115,<0.116",
+    "uvicorn[standard]>=0.34,<0.35",
+    "pydantic>=2.10,<3.0",
+    "pydantic-settings>=2.7,<3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3,<9.0",
+    "httpx>=0.28,<0.29",
+    "ruff>=0.9,<0.10",
+    "mypy>=1.14,<2.0",
+]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["app", "tests"]
+
+[tool.ruff.lint]
+# Sensible, security-conscious default rule set.
+select = ["E", "F", "W", "I", "B", "UP", "S", "C4", "SIM"]
+# S101 (assert) is fine in tests; handled per-file below.
+ignore = []
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's dependency-injection idiom uses these callables in argument defaults.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Path", "fastapi.Body"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+plugins = ["pydantic.mypy"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

@@ -1,0 +1,37 @@
+# Caddy reverse proxy for VulnaDash.
+#
+# Behavior is controlled by two environment variables (see .env.example):
+#   VULNA_DOMAIN  — the public hostname (blank => HTTP-only local lab mode)
+#   CADDY_TLS     — "internal" for a local self-signed CA, or an email for
+#                   automatic Let's Encrypt certificates in production.
+#
+# Routes:
+#   /api/*, /openapi.json, /docs, /health  -> api:8000
+#   everything else                        -> frontend:8080 (SPA)
+
+{
+	# Use an internal CA by default; override with a real email for public TLS.
+	email {$CADDY_TLS}
+}
+
+{$VULNA_DOMAIN:localhost} {
+	# API and docs to the backend.
+	@api path /api/* /openapi.json /docs /docs/* /health
+	handle @api {
+		reverse_proxy api:8000
+	}
+
+	# Everything else to the frontend SPA.
+	handle {
+		reverse_proxy frontend:8080
+	}
+
+	encode gzip
+
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy no-referrer
+		-Server
+	}
+}

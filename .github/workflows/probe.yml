@@ -1,0 +1,62 @@
+name: probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "scout/**"
+      - ".github/workflows/probe.yml"
+  pull_request:
+    paths:
+      - "scout/**"
+      - ".github/workflows/probe.yml"
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: scout
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          # No external dependencies yet, so there is no go.sum to cache on.
+          cache: false
+
+      - name: Formatting (gofmt)
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; echo 'Run gofmt -w .'; exit 1; }
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
+
+  cross-build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache: false
+
+      - name: Build linux/${{ matrix.goarch }}
+        env:
+          CGO_ENABLED: "0"
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
+        run: go build -o bin/vulnascout-linux-${{ matrix.goarch }} ./cmd/vulnascout

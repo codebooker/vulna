@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vulna.dev/schemas/plugin.schema.json",
+  "title": "Vulna Scanner Plugin Manifest",
+  "description": "Signed manifest describing a VulnaForge scanner adapter. Plugins never accept arbitrary command strings: only typed, allowlisted arguments are permitted.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "version", "runner", "supported_architectures", "capabilities", "allowed_arguments", "timeout_seconds", "output"],
+  "properties": {
+    "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$" },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "runner": {
+      "type": "string",
+      "enum": ["process", "container"],
+      "description": "How the scanner is invoked: a predefined executable path or a signed container image"
+    },
+    "executable": { "type": "string", "description": "Absolute path for runner=process" },
+    "image": { "type": "string", "description": "Signed image reference for runner=container" },
+    "supported_architectures": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "enum": ["amd64", "arm64"] }
+    },
+    "capabilities": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string" }
+    },
+    "allowed_arguments": {
+      "type": "array",
+      "description": "Typed, allowlisted arguments. Anything not listed here is rejected.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "type"],
+        "properties": {
+          "name": { "type": "string" },
+          "type": { "type": "string", "enum": ["enum", "integer", "boolean", "string"] },
+          "values": { "type": "array", "items": {} },
+          "minimum": { "type": "integer" },
+          "maximum": { "type": "integer" },
+          "pattern": { "type": "string" },
+          "required": { "type": "boolean", "default": false },
+          "default": {}
+        }
+      }
+    },
+    "timeout_seconds": { "type": "integer", "minimum": 1 },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "parser"],
+      "properties": {
+        "format": { "type": "string" },
+        "parser": { "type": "string", "description": "Name of the built-in parser for this output" }
+      }
+    },
+    "resource_limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "memory_mb": { "type": "integer", "minimum": 1 },
+        "cpu_percent": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "max_output_bytes": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "signature": { "type": "string", "description": "Base64 Ed25519 signature over the canonical manifest" }
+  },
+  "oneOf": [
+    { "required": ["executable"] },
+    { "required": ["image"] }
+  ]
+}

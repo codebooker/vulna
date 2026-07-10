@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/codebooker/vulna/security/advisories/new
+    about: Report security vulnerabilities privately — never in public issues. See SECURITY.md.

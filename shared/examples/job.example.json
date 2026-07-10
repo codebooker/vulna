@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "job_id": "6f1c2b7e-6d1a-4c2e-9a3b-1f2e3d4c5b6a",
+  "probe_id": "b2a1c0d9-8e7f-4a6b-9c5d-0e1f2a3b4c5d",
+  "site_id": "11112222-3333-4444-5555-666677778888",
+  "mode": "vulnerability_assessment",
+  "profile_version": 4,
+  "policy_version": 12,
+  "not_before": "2026-07-11T01:00:00Z",
+  "expires_at": "2026-07-11T05:00:00Z",
+  "targets": ["10.20.0.0/24"],
+  "workflow": [
+    { "stage": "discovery", "plugin": "nmap", "config": { "timing": "T3", "top_ports": 1000 } },
+    { "stage": "vulnerability", "plugin": "nuclei", "config": { "templates": "safe" } }
+  ],
+  "limits": {
+    "max_hosts": 256,
+    "max_parallel_hosts": 8,
+    "max_packets_per_second": 1000,
+    "max_duration_seconds": 10800
+  },
+  "signature": "BASE64_ED25519_SIGNATURE_PLACEHOLDER"
+}
