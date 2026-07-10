@@ -329,3 +329,19 @@ func missingScanners() []string {
 	}
 	return missing
 }
+
+// scannerCapabilities returns the scanner tools present on PATH, reported to the
+// orchestrator so the capability manager and preset previews know what can run.
+func scannerCapabilities() []string {
+	var present []string
+	for _, c := range selftest.Run() {
+		name := strings.TrimPrefix(c.Name, "scanner:")
+		if name == c.Name {
+			continue // not a scanner check
+		}
+		if c.OK {
+			present = append(present, name)
+		}
+	}
+	return present
+}

@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.password import hash_password, verify_password
 from app.models.onboarding import ONBOARDING_STEPS, OnboardingState
 from app.models.user import User
+from app.services import presets as presetsvc
 from app.services.scopes import ScopeValidationError, normalize_cidr, validate_cidr
 
 # Thresholds for pre-approval warnings (advisory; they never block a valid,
@@ -42,37 +43,33 @@ RECOVERY_CODE_COUNT = 10
 # Scan presets
 # --------------------------------------------------------------------------- #
 
-# Phase 19 ships the one safe default preset (roadmap §24). Phase 21 formalizes
-# preset tuning; the shape here is forward-compatible with that.
-SCAN_PRESETS: list[dict[str, Any]] = [
-    {
-        "key": "standard",
-        "name": "Standard Security Check",
-        "mode": "vulnerability_assessment",
-        "description": (
-            "Safe host and service discovery plus non-intrusive vulnerability and "
-            "TLS checks. No intrusive tests, no active web attacks, no credentials."
-        ),
-        "checks": [
-            "Host and service discovery (Nmap TCP connect scan)",
-            "Non-intrusive vulnerability checks (Nuclei, safe severities)",
-            "TLS configuration review (testssl.sh)",
-        ],
-        "intrusive": False,
-        "active_web": False,
-        "uses_credentials": False,
-        "resource_class": "light",
-        "duration_class": "minutes to tens of minutes, depending on host count",
-    },
-]
+# Onboarding presents the built-in presets from the Phase 21 registry so the
+# wizard and the presets API never drift. The dict shape stays what the wizard
+# schema expects.
+def _preset_dict(p: presetsvc.Preset) -> dict[str, Any]:
+    return {
+        "key": p.key,
+        "name": p.name,
+        "mode": p.mode,
+        "description": p.description,
+        "checks": [s.label for s in p.stages()],
+        "intrusive": p.intrusive,
+        "active_web": p.active_web,
+        "uses_credentials": p.uses_credentials,
+        "resource_class": p.workload_class,
+        "duration_class": p.duration_class,
+    }
+
+
+SCAN_PRESETS: list[dict[str, Any]] = [_preset_dict(p) for p in presetsvc.list_presets()]
 
 
 def get_preset(key: str) -> dict[str, Any]:
     """Return a scan preset by key, or raise ValueError."""
-    for preset in SCAN_PRESETS:
-        if preset["key"] == key:
-            return preset
-    raise ValueError(f"Unknown scan preset '{key}'")
+    try:
+        return _preset_dict(presetsvc.get_preset(key))
+    except presetsvc.PresetError as exc:
+        raise ValueError(str(exc)) from exc
 
 
 # --------------------------------------------------------------------------- #

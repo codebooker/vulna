@@ -403,7 +403,7 @@ func runRun(args []string, stdout, stderr io.Writer) int {
 
 func buildHeartbeat() api.HeartbeatRequest {
 	host, _ := os.Hostname()
-	health := map[string]any{}
+	health := map[string]any{"cpu_count": runtime.NumCPU()}
 	// Advisory only: suggest private ranges the operator may choose to approve in
 	// the first-run wizard. Never an approved scope (see docs/adr/0019).
 	if candidates := netdetect.PrivateCandidates(); len(candidates) > 0 {
@@ -414,7 +414,7 @@ func buildHeartbeat() api.HeartbeatRequest {
 		Hostname:        host,
 		OperatingSystem: runtime.GOOS,
 		Architecture:    runtime.GOARCH,
-		Capabilities:    []string{},
+		Capabilities:    scannerCapabilities(),
 		Health:          health,
 	}
 }

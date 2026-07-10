@@ -7,6 +7,7 @@ import { FeedsPage } from './pages/FeedsPage';
 import { HealthPage } from './pages/HealthPage';
 import { LoginPage } from './pages/LoginPage';
 import { OnboardingWizard } from './pages/OnboardingWizard';
+import { PresetsPage } from './pages/PresetsPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { SitesPage } from './pages/SitesPage';
 import type { OnboardingState } from './types/onboarding';
@@ -70,6 +71,7 @@ export function App() {
             />
           )}
           <SitesPage />
+          <PresetsPage />
           <AddScoutPage />
           <ChangesPage />
           <FeedsPage />

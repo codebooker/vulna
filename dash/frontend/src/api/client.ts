@@ -14,6 +14,7 @@ import type {
   ScanSummary,
   ScopePreview,
 } from '../types/onboarding';
+import type { Preset, PresetPreview } from '../types/presets';
 import type { EnrollmentCommand } from '../types/remote';
 import type { Report } from '../types/report';
 import type { HealthResponse, SystemInfoResponse } from '../types/system';
@@ -178,6 +179,18 @@ export const api = {
       method: 'POST',
       token,
       body: { probe_id: probeId, targets, mode: 'vulnerability_assessment' },
+    });
+  },
+
+  // --- Scan presets (Phase 21) ---
+  listPresets(token: string): Promise<{ presets: Preset[] }> {
+    return request<{ presets: Preset[] }>('/api/v1/presets', { token });
+  },
+  previewPreset(token: string, presetKey: string, hostCount = 1): Promise<PresetPreview> {
+    return request<PresetPreview>('/api/v1/presets/preview', {
+      method: 'POST',
+      token,
+      body: { preset_key: presetKey, host_count: hostCount },
     });
   },
 

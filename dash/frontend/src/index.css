@@ -328,3 +328,30 @@ pre.cmd {
   word-break: break-all;
   font-size: 0.82rem;
 }
+
+/* ---- Scan presets (Phase 21) ---- */
+.preset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 0.6rem;
+  margin: 0.75rem 0;
+}
+.preset-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  text-align: left;
+  padding: 0.7rem 0.85rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  cursor: pointer;
+}
+.preset-card.active {
+  border-color: var(--accent);
+}
+.preset-card .tag {
+  font-size: 0.72rem;
+  color: var(--muted);
+}

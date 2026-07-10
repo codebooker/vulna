@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 21: Opinionated scan presets and automatic tuning
+
+A small set of safe, understandable scan *outcomes* instead of scanner flags,
+built on the same signed-job and local-policy controls.
+
+- A versioned preset registry (`app/services/presets.py`): Quick Check, Standard
+  Security Check, Fragile / IoT Safe, Web and TLS Check, Deep Safe Check, plus a
+  validated Custom path. Each preset pins a `(key, version)` so historical reports
+  stay reproducible and updating a preset never silently changes a schedule.
+- Built-in presets contain **only** passive/safe stages; intrusive and active-web
+  checks are never part of a preset and cannot be enabled by a custom preset.
+- A `GET /presets/capabilities` capability manager: the Scout now reports its
+  installed scanners and CPU count in the heartbeat, so each known scanner shows as
+  installed/missing/unhealthy.
+- `POST /presets/preview` resolves a preset against a Scout's real capabilities and
+  returns exactly which stages will run and a plain-language reason for each
+  skipped stage. A missing scanner **blocks** the job (a clear preflight result)
+  unless the operator explicitly approves downgrade.
+- Hardware-aware `recommend_tuning` suggests concurrency/rate from the Scout's
+  resources, **hard-clamped** to the `maximum_packets_per_second` /
+  `maximum_concurrency` in local Scout policy — tuning can never exceed the signed
+  limits.
+- `POST /presets/custom/validate`: expert custom presets are validated structured
+  choices only — they cannot introduce arbitrary executable paths, shell fragments,
+  unrestricted Nmap scripts, or unreviewed Nuclei template sets.
+- Scan estimates are workload classes and duration *ranges*, not false precision.
+- A frontend Scan Presets panel with the why-skipped preview; onboarding now
+  offers the full preset set from the same registry. ADR 0021; backend, Go, and
+  frontend tests.
+
 ### Added — Phase 20: Frictionless remote VulnaScout deployment
 
 Adding a Scout at a second site is now nearly as simple as the local one, while
