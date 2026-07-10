@@ -27,3 +27,18 @@ class ActorType(StrEnum):
     USER = "user"
     SYSTEM = "system"
     PROBE = "probe"
+
+
+class ProbeStatus(StrEnum):
+    """Administrative lifecycle state of a VulnaScout (build plan Section 9.3).
+
+    This is the *stored* lifecycle status. Live connectivity (online/offline) is
+    derived from ``last_seen_at`` at read time rather than persisted, since it is
+    time-dependent.
+    """
+
+    PENDING_ENROLLMENT = "pending_enrollment"  # enrolled, awaiting admin approval
+    ENROLLED = "enrolled"  # approved and active
+    DISABLED = "disabled"
+    REVOKED = "revoked"
+

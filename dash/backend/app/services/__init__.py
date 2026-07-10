@@ -6,6 +6,13 @@ from app.services.bootstrap import (
     ensure_default_organization,
     run_bootstrap,
 )
+from app.services.ca import (
+    CertificateAuthority,
+    CertificateAuthorityError,
+    certificate_fingerprint,
+    get_ca,
+)
+from app.services.enrollment import GeneratedToken, generate_token, hash_token
 from app.services.scopes import (
     ScopeValidationError,
     find_overlaps,
@@ -14,10 +21,17 @@ from app.services.scopes import (
 )
 
 __all__ = [
+    "CertificateAuthority",
+    "CertificateAuthorityError",
+    "GeneratedToken",
     "ScopeValidationError",
+    "certificate_fingerprint",
     "ensure_bootstrap_admin",
     "ensure_default_organization",
     "find_overlaps",
+    "generate_token",
+    "get_ca",
+    "hash_token",
     "normalize_cidr",
     "record_audit",
     "run_bootstrap",

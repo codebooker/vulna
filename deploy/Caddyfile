@@ -15,10 +15,29 @@
 }
 
 {$VULNA_DOMAIN:localhost} {
+	# --- Probe mutual TLS (enable in production) ---
+	# VulnaScout probes authenticate with a client certificate issued by the
+	# internal CA. Terminate mTLS here and forward the verified fingerprint to
+	# the API. Mount the CA cert (VULNA_CA_CERT_PATH) into the Caddy container.
+	#
+	#   tls {$CADDY_TLS} {
+	#       client_auth {
+	#           mode request
+	#           trust_pool file /etc/caddy/vulna-ca.pem
+	#       }
+	#   }
+
 	# API and docs to the backend.
 	@api path /api/* /openapi.json /docs /docs/* /health
 	handle @api {
-		reverse_proxy api:8000
+		reverse_proxy api:8000 {
+			# Never let a client set the trusted fingerprint header. Strip any
+			# inbound value; in production also set it from the verified client
+			# certificate. The API trusts this header only from the proxy.
+			header_up -X-Vulna-Client-Cert-Fingerprint
+			# Enable together with the mTLS block above:
+			# header_up X-Vulna-Client-Cert-Fingerprint {http.request.tls.client.fingerprint}
+		}
 	}
 
 	# Everything else to the frontend SPA.

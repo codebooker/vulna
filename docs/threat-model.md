@@ -16,9 +16,14 @@
 
 1. Browser ↔ VulnaDash (HTTPS).
 2. VulnaScout ↔ VulnaDash (outbound HTTPS + mutual TLS).
-3. VulnaDash ↔ PostgreSQL / Redis (internal network).
-4. VulnaScout ↔ scanner child processes (sandboxed, resource-limited).
-5. VulnaScout ↔ assessed targets (policy-enforced scope).
+3. Reverse proxy ↔ API. The proxy terminates probe mTLS and forwards the
+   verified client-certificate fingerprint in `X-Vulna-Client-Cert-Fingerprint`.
+   **The API must never be published directly**: it trusts that header, and the
+   proxy strips any client-supplied value. Exposing the API port directly would
+   permit fingerprint-header spoofing (see ADR 0003).
+4. VulnaDash ↔ PostgreSQL / Redis (internal network).
+5. VulnaScout ↔ scanner child processes (sandboxed, resource-limited).
+6. VulnaScout ↔ assessed targets (policy-enforced scope).
 
 ## Threats and controls (STRIDE summary)
 

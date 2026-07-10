@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 2: VulnaScout enrollment and heartbeat
+
+Orchestrator (VulnaDash):
+
+- Internal ECDSA P-256 certificate authority that signs probe client
+  certificates from a CSR (the probe's private key never leaves the probe).
+- `Probe` and one-time `EnrollmentToken` models (token secrets stored only as
+  SHA-256 hashes) and their Alembic migration.
+- Enrollment flow: admins mint single-use, 15-minute tokens per site; probes
+  submit a token + CSR and receive a bounded-validity client certificate, the
+  CA certificate, and their assigned identity.
+- Mutual-TLS probe authentication via a proxy-forwarded client-certificate
+  fingerprint header, with an explicit documented trust boundary.
+- Heartbeat endpoint that records inventory/health and returns server
+  directives; job-poll endpoint (returns 204 for now) — both reject revoked or
+  disabled probes.
+- Probe lifecycle management (list, get, approve, revoke, disable) and derived
+  online/offline connectivity from `last_seen_at`.
+
+VulnaScout agent (Go, standard-library-only, static amd64/arm64):
+
+- `enroll` (local key generation + CSR + token exchange), `status`, and `run`
+  (mutual-TLS heartbeat loop with graceful shutdown) commands.
+- File-based local state (client key `0600`, certificate, CA, `state.json`) and
+  JSON configuration with `VULNASCOUT_*` environment overrides.
+- Hardened systemd unit (build-plan Section 18.4) and install docs.
+
+Caddy configuration strips any spoofed client-cert fingerprint header and
+documents the production mTLS block. ADR 0003 records the enrollment/mTLS design.
+Verified end-to-end: the real Go binary enrolls against the orchestrator, the
+issued certificate's fingerprint authenticates heartbeats, and a revoked probe
+is rejected.
+
 ### Added — Phase 1: Authentication and core inventory
 
 - VulnaDash backend data layer: async SQLAlchemy 2.0 models for organizations,

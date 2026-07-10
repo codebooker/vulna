@@ -9,11 +9,19 @@ to that database, so no PostgreSQL instance is required.
 from __future__ import annotations
 
 import os
+import tempfile
 from collections.abc import AsyncIterator, Awaitable, Callable
+from pathlib import Path
 
 # A signing secret must exist before any settings are loaded. This is a test-only
 # value and is never used outside the suite.
 os.environ.setdefault("VULNA_SECRET_KEY", "test-only-secret-do-not-use-in-production")
+
+# Point the internal CA at a writable temp directory so enrollment tests can
+# issue certificates without touching /var/lib/vulna.
+_CA_DIR = Path(tempfile.gettempdir()) / "vulna-test-ca"
+os.environ.setdefault("VULNA_CA_KEY_PATH", str(_CA_DIR / "ca_key.pem"))
+os.environ.setdefault("VULNA_CA_CERT_PATH", str(_CA_DIR / "ca_cert.pem"))
 
 import app.models  # noqa: F401  (register models on the metadata)
 import pytest
@@ -164,3 +172,67 @@ def admin_headers(admin: User) -> dict[str, str]:
 @pytest.fixture
 def viewer_headers(viewer: User) -> dict[str, str]:
     return auth_headers(viewer)
+
+
+# --- Probe / enrollment helpers ------------------------------------------------
+
+from cryptography import x509  # noqa: E402
+from cryptography.hazmat.primitives import hashes, serialization  # noqa: E402
+from cryptography.hazmat.primitives.asymmetric import ec  # noqa: E402
+from cryptography.x509.oid import NameOID  # noqa: E402
+
+
+def generate_csr_pem() -> str:
+    """Generate a fresh EC private key and return a PEM CSR (as a probe would)."""
+    key = ec.generate_private_key(ec.SECP256R1())
+    csr = (
+        x509.CertificateSigningRequestBuilder()
+        .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "vulnascout")]))
+        .sign(key, hashes.SHA256())
+    )
+    return csr.public_bytes(serialization.Encoding.PEM).decode("utf-8")
+
+
+def probe_cert_headers(fingerprint: str) -> dict[str, str]:
+    """Build the proxy-injected client-cert header for probe authentication."""
+    return {get_settings().probe_cert_fingerprint_header: fingerprint}
+
+
+EnrolledProbe = dict[str, str]
+
+
+@pytest_asyncio.fixture
+async def enroll_probe(
+    client: AsyncClient, admin_headers: dict[str, str]
+) -> Callable[..., Awaitable[EnrolledProbe]]:
+    """Factory that provisions a site, mints a token, and enrolls a probe.
+
+    Returns a dict with ``probe_id``, ``site_id``, ``fingerprint``, and the
+    issued ``certificate_pem``.
+    """
+
+    async def _enroll(site_code: str = "SITE1", probe_name: str = "probe-a") -> EnrolledProbe:
+        site = await client.post(
+            "/api/v1/sites", json={"name": "Site", "code": site_code}, headers=admin_headers
+        )
+        site_id = site.json()["id"]
+        token_resp = await client.post(
+            "/api/v1/probes/enrollment-tokens",
+            json={"site_id": site_id, "probe_name": probe_name},
+            headers=admin_headers,
+        )
+        secret = token_resp.json()["token"]
+        enroll = await client.post(
+            "/api/v1/probes/enroll",
+            json={"token": secret, "csr_pem": generate_csr_pem()},
+        )
+        body = enroll.json()
+        return {
+            "probe_id": body["probe_id"],
+            "site_id": body["site_id"],
+            "fingerprint": body["certificate_fingerprint"],
+            "certificate_pem": body["certificate_pem"],
+            "token": secret,
+        }
+
+    return _enroll

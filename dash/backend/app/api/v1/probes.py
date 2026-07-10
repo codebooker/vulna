@@ -1,0 +1,473 @@
+"""VulnaScout probe endpoints.
+
+Two audiences share the ``/probes`` prefix:
+
+* **Administrators** mint enrollment tokens and manage probe lifecycle
+  (list, get, approve, revoke, disable), authenticated as users.
+* **Probes** enroll (token-gated), heartbeat, and poll for jobs, authenticated
+  by their mutual-TLS client certificate (see ``app.api.probe_auth``).
+
+Static probe-facing routes (``/enroll``, ``/enrollment-tokens``) are declared
+before the ``/{probe_id}`` routes so they are matched correctly.
+"""
+
+from __future__ import annotations
+
+import uuid
+from datetime import UTC, datetime, timedelta
+from typing import Annotated
+
+from cryptography.hazmat.primitives import serialization
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.context import RequestContext, get_request_context
+from app.api.probe_auth import CurrentProbe
+from app.auth.dependencies import CurrentUser, require_admin
+from app.core.config import Settings, get_settings
+from app.db.session import get_session
+from app.models.enrollment_token import EnrollmentToken
+from app.models.enums import ActorType, ProbeStatus
+from app.models.probe import Probe
+from app.models.site import Site
+from app.models.user import User
+from app.schemas.common import Page
+from app.schemas.enrollment import (
+    EnrollmentTokenCreate,
+    EnrollmentTokenCreated,
+    EnrollRequest,
+    EnrollResponse,
+)
+from app.schemas.probe import (
+    CertificateStatus,
+    HeartbeatRequest,
+    HeartbeatResponse,
+    PolicyStatus,
+    ProbeRead,
+    serialize_probe,
+)
+from app.services.audit import record_audit
+from app.services.ca import CertificateAuthorityError, certificate_fingerprint, get_ca
+from app.services.enrollment import generate_token, hash_token
+
+router = APIRouter(prefix="/probes", tags=["probes"])
+
+# A suggested client heartbeat cadence; also used for the "expiring soon" window.
+_HEARTBEAT_INTERVAL_SECONDS = 60
+_CERT_EXPIRING_SOON = timedelta(days=14)
+
+
+# ---------------------------------------------------------------------------
+# Admin: enrollment tokens
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/enrollment-tokens",
+    response_model=EnrollmentTokenCreated,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a one-time probe enrollment token",
+)
+async def create_enrollment_token(
+    payload: EnrollmentTokenCreate,
+    admin: Annotated[User, Depends(require_admin)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    context: Annotated[RequestContext, Depends(get_request_context)],
+) -> EnrollmentTokenCreated:
+    """Mint a single-use enrollment token for a site (Administrator only)."""
+    site = await session.get(Site, payload.site_id)
+    if site is None or site.organization_id != admin.organization_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Site not found")
+
+    generated = generate_token()
+    expires_at = datetime.now(UTC) + timedelta(minutes=settings.enrollment_token_ttl_minutes)
+    token = EnrollmentToken(
+        organization_id=admin.organization_id,
+        site_id=payload.site_id,
+        token_hash=generated.token_hash,
+        short_code=generated.short_code,
+        probe_name=payload.probe_name,
+        description=payload.description,
+        created_by=admin.id,
+        expires_at=expires_at,
+    )
+    session.add(token)
+    await session.flush()
+
+    record_audit(
+        session,
+        action="probe.enrollment_token_created",
+        actor=admin,
+        organization_id=admin.organization_id,
+        target_type="enrollment_token",
+        target_id=token.id,
+        source_ip=context.source_ip,
+        user_agent=context.user_agent,
+        request_id=context.request_id,
+        metadata={"site_id": str(payload.site_id), "short_code": generated.short_code},
+    )
+    return EnrollmentTokenCreated(
+        id=token.id,
+        site_id=token.site_id,
+        probe_name=token.probe_name,
+        token=generated.secret,
+        short_code=generated.short_code,
+        expires_at=expires_at,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Probe-facing: enrollment (token-gated, no client cert yet)
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/enroll",
+    response_model=EnrollResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Enroll a probe using a one-time token and a CSR",
+)
+async def enroll_probe(
+    payload: EnrollRequest,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    context: Annotated[RequestContext, Depends(get_request_context)],
+) -> EnrollResponse:
+    """Consume an enrollment token and issue a client certificate for the probe."""
+    invalid = HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired enrollment token"
+    )
+    token_hash = hash_token(payload.token)
+    result = await session.execute(
+        select(EnrollmentToken).where(EnrollmentToken.token_hash == token_hash)
+    )
+    token = result.scalar_one_or_none()
+    now = datetime.now(UTC)
+
+    if token is None:
+        raise invalid
+    if token.used_at is not None:
+        # Single-use: a reused token is rejected and audited.
+        record_audit(
+            session,
+            action="probe.enroll_rejected_token_reused",
+            actor_type=ActorType.SYSTEM,
+            organization_id=token.organization_id,
+            target_type="enrollment_token",
+            target_id=token.id,
+            source_ip=context.source_ip,
+            request_id=context.request_id,
+        )
+        await session.commit()
+        raise invalid
+    expires_at = token.expires_at
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=UTC)
+    if expires_at < now:
+        raise invalid
+
+    # Assign the probe's identity server-side and sign its CSR into a client cert.
+    probe_id = uuid.uuid4()
+    ca = get_ca(settings)
+    try:
+        cert = ca.sign_csr(
+            payload.csr_pem.encode("utf-8"),
+            common_name=str(probe_id),
+            validity_days=settings.client_cert_validity_days,
+        )
+    except CertificateAuthorityError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+
+    fingerprint = certificate_fingerprint(cert)
+    cert_expires = cert.not_valid_after_utc
+
+    probe = Probe(
+        id=probe_id,
+        organization_id=token.organization_id,
+        site_id=token.site_id,
+        name=token.probe_name,
+        description=token.description,
+        status=ProbeStatus.PENDING_ENROLLMENT,
+        certificate_fingerprint=fingerprint,
+        certificate_serial=format(cert.serial_number, "x"),
+        certificate_expires_at=cert_expires,
+        enrolled_at=now,
+    )
+    session.add(probe)
+
+    token.used_at = now
+    token.used_by_probe_id = probe_id
+    await session.flush()
+
+    record_audit(
+        session,
+        action="probe.enrolled",
+        actor_type=ActorType.PROBE,
+        actor_id=probe_id,
+        organization_id=token.organization_id,
+        target_type="probe",
+        target_id=probe_id,
+        source_ip=context.source_ip,
+        request_id=context.request_id,
+        metadata={"site_id": str(token.site_id), "fingerprint": fingerprint},
+    )
+
+    return EnrollResponse(
+        probe_id=probe_id,
+        site_id=token.site_id,
+        certificate_pem=cert.public_bytes(serialization.Encoding.PEM).decode("utf-8"),
+        ca_certificate_pem=ca.cert_pem.decode("utf-8"),
+        certificate_fingerprint=fingerprint,
+        certificate_expires_at=cert_expires,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Admin: probe management
+# ---------------------------------------------------------------------------
+
+
+async def _get_owned_probe(session: AsyncSession, probe_id: uuid.UUID, org_id: uuid.UUID) -> Probe:
+    probe = await session.get(Probe, probe_id)
+    if probe is None or probe.organization_id != org_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Probe not found")
+    return probe
+
+
+@router.get("", response_model=Page[ProbeRead], summary="List probes")
+async def list_probes(
+    current_user: CurrentUser,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    site_id: Annotated[uuid.UUID | None, Query(description="Filter by site")] = None,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> Page[ProbeRead]:
+    """List probes in the caller's organization (any authenticated role)."""
+    filters = [Probe.organization_id == current_user.organization_id]
+    if site_id is not None:
+        filters.append(Probe.site_id == site_id)
+    total = await session.scalar(select(func.count()).select_from(Probe).where(*filters))
+    result = await session.execute(
+        select(Probe).where(*filters).order_by(Probe.created_at.asc()).limit(limit).offset(offset)
+    )
+    probes = result.scalars().all()
+    return Page[ProbeRead](
+        items=[
+            serialize_probe(p, offline_after_seconds=settings.probe_offline_after_seconds)
+            for p in probes
+        ],
+        total=total or 0,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/{probe_id}", response_model=ProbeRead, summary="Get a probe")
+async def get_probe(
+    probe_id: uuid.UUID,
+    current_user: CurrentUser,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> ProbeRead:
+    probe = await _get_owned_probe(session, probe_id, current_user.organization_id)
+    return serialize_probe(probe, offline_after_seconds=settings.probe_offline_after_seconds)
+
+
+async def _lifecycle_transition(
+    *,
+    probe: Probe,
+    new_status: ProbeStatus,
+    admin: User,
+    session: AsyncSession,
+    settings: Settings,
+    context: RequestContext,
+    action: str,
+    timestamp_field: str,
+) -> ProbeRead:
+    now = datetime.now(UTC)
+    probe.status = new_status
+    setattr(probe, timestamp_field, now)
+    await session.flush()
+    record_audit(
+        session,
+        action=action,
+        actor=admin,
+        organization_id=admin.organization_id,
+        target_type="probe",
+        target_id=probe.id,
+        source_ip=context.source_ip,
+        user_agent=context.user_agent,
+        request_id=context.request_id,
+        metadata={"fingerprint": probe.certificate_fingerprint},
+    )
+    return serialize_probe(probe, offline_after_seconds=settings.probe_offline_after_seconds)
+
+
+@router.post("/{probe_id}/approve", response_model=ProbeRead, summary="Approve a probe")
+async def approve_probe(
+    probe_id: uuid.UUID,
+    admin: Annotated[User, Depends(require_admin)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    context: Annotated[RequestContext, Depends(get_request_context)],
+) -> ProbeRead:
+    """Approve a pending probe, moving it to the ``enrolled`` (active) state."""
+    probe = await _get_owned_probe(session, probe_id, admin.organization_id)
+    if probe.status not in (ProbeStatus.PENDING_ENROLLMENT, ProbeStatus.DISABLED):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cannot approve a probe in state '{probe.status.value}'",
+        )
+    return await _lifecycle_transition(
+        probe=probe,
+        new_status=ProbeStatus.ENROLLED,
+        admin=admin,
+        session=session,
+        settings=settings,
+        context=context,
+        action="probe.approved",
+        timestamp_field="approved_at",
+    )
+
+
+@router.post("/{probe_id}/revoke", response_model=ProbeRead, summary="Revoke a probe")
+async def revoke_probe(
+    probe_id: uuid.UUID,
+    admin: Annotated[User, Depends(require_admin)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    context: Annotated[RequestContext, Depends(get_request_context)],
+) -> ProbeRead:
+    """Revoke a probe's certificate; it can no longer heartbeat or poll jobs."""
+    probe = await _get_owned_probe(session, probe_id, admin.organization_id)
+    return await _lifecycle_transition(
+        probe=probe,
+        new_status=ProbeStatus.REVOKED,
+        admin=admin,
+        session=session,
+        settings=settings,
+        context=context,
+        action="probe.revoked",
+        timestamp_field="revoked_at",
+    )
+
+
+@router.post("/{probe_id}/disable", response_model=ProbeRead, summary="Disable a probe")
+async def disable_probe(
+    probe_id: uuid.UUID,
+    admin: Annotated[User, Depends(require_admin)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    context: Annotated[RequestContext, Depends(get_request_context)],
+) -> ProbeRead:
+    """Temporarily disable a probe (reversible via approve)."""
+    probe = await _get_owned_probe(session, probe_id, admin.organization_id)
+    return await _lifecycle_transition(
+        probe=probe,
+        new_status=ProbeStatus.DISABLED,
+        admin=admin,
+        session=session,
+        settings=settings,
+        context=context,
+        action="probe.disabled",
+        timestamp_field="disabled_at",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Probe-facing: heartbeat and job polling (client-cert authenticated)
+# ---------------------------------------------------------------------------
+
+
+def _certificate_status(probe: Probe, now: datetime) -> CertificateStatus:
+    status_str = "unknown"
+    expires = probe.certificate_expires_at
+    if expires is not None:
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=UTC)
+        status_str = "expiring_soon" if (expires - now) < _CERT_EXPIRING_SOON else "ok"
+    return CertificateStatus(
+        fingerprint=probe.certificate_fingerprint,
+        expires_at=probe.certificate_expires_at,
+        status=status_str,
+    )
+
+
+@router.post(
+    "/{probe_id}/heartbeat",
+    response_model=HeartbeatResponse,
+    summary="Probe heartbeat",
+)
+async def heartbeat(
+    probe_id: uuid.UUID,
+    payload: HeartbeatRequest,
+    probe: CurrentProbe,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> HeartbeatResponse:
+    """Record a probe heartbeat and return server directives.
+
+    The path ``probe_id`` must match the certificate-authenticated probe.
+    """
+    if probe.id != probe_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Certificate does not match the requested probe",
+        )
+
+    now = datetime.now(UTC)
+    probe.last_seen_at = now
+    if payload.agent_version is not None:
+        probe.agent_version = payload.agent_version
+    if payload.hostname is not None:
+        probe.hostname = payload.hostname
+    if payload.operating_system is not None:
+        probe.operating_system = payload.operating_system
+    if payload.architecture is not None:
+        probe.architecture = payload.architecture
+    if payload.capabilities:
+        probe.capabilities_json = payload.capabilities
+    if payload.health:
+        probe.health_json = payload.health
+    if payload.policy_hash is not None:
+        probe.policy_hash = payload.policy_hash
+    await session.flush()
+
+    return HeartbeatResponse(
+        server_time=now,
+        probe_status=probe.status,
+        certificate=_certificate_status(probe, now),
+        policy=PolicyStatus(),
+        agent_update=None,
+        pending_job_count=0,
+        cancellations=[],
+        heartbeat_interval_seconds=_HEARTBEAT_INTERVAL_SECONDS,
+    )
+
+
+@router.post(
+    "/{probe_id}/jobs/next",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+    summary="Poll for the next job",
+)
+async def poll_next_job(
+    probe_id: uuid.UUID,
+    probe: CurrentProbe,
+) -> Response:
+    """Return the next signed job for the probe, or 204 when none is available.
+
+    Job delivery lands in Phase 3; for now this always returns 204. Revoked or
+    disabled probes are rejected by certificate authentication before reaching
+    here, satisfying "a revoked probe cannot poll jobs".
+    """
+    if probe.id != probe_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Certificate does not match the requested probe",
+        )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -88,6 +88,25 @@ class Settings(BaseSettings):
     # production should run migrations and leave this disabled.
     auto_create_tables: bool = False
 
+    # ---- VulnaScout enrollment / PKI ---------------------------------------
+    # Internal certificate authority used to sign VulnaScout client
+    # certificates. Generated on first use if missing (dev) or via `vulna
+    # ca-init`. Keep the CA private key secret and backed up.
+    ca_key_path: str = "/var/lib/vulna/keys/ca_key.pem"
+    ca_cert_path: str = "/var/lib/vulna/keys/ca_cert.pem"
+    # Bounded validity for issued client certificates (days).
+    client_cert_validity_days: int = 90
+    # One-time enrollment tokens expire after this many minutes.
+    enrollment_token_ttl_minutes: int = 15
+    # A probe is considered offline if it has not sent a heartbeat within this
+    # many seconds.
+    probe_offline_after_seconds: int = 180
+    # Header, set by the mTLS-terminating reverse proxy (Caddy), carrying the
+    # SHA-256 fingerprint of the verified client certificate. The API trusts
+    # this header only because it is never exposed directly to probes; only the
+    # proxy can reach it. See docs/threat-model.md.
+    probe_cert_fingerprint_header: str = "x-vulna-client-cert-fingerprint"
+
     @property
     def version(self) -> str:
         """The running application version."""

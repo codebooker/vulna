@@ -1,0 +1,47 @@
+[Unit]
+Description=VulnaScout remote assessment appliance
+Documentation=https://github.com/codebooker/vulna
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/vulnascout run --config /etc/vulna/agent.json
+Restart=on-failure
+RestartSec=5
+User=vulna
+Group=vulna
+
+# Managed state and config directories (created by systemd with correct owner).
+StateDirectory=vulna
+ConfigurationDirectory=vulna
+WorkingDirectory=/var/lib/vulna
+
+# --- Hardening (build plan Section 18.4) ---
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/vulna
+# The agent only needs outbound network sockets; scanning capabilities are
+# granted later to a narrowly scoped scanner helper, never the whole agent.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+
+# Resource limits.
+MemoryMax=1G
+CPUQuota=100%
+TasksMax=256
+
+[Install]
+WantedBy=multi-user.target

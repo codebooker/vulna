@@ -1,0 +1,7 @@
+{
+  "server_url": "https://vulna.example.com",
+  "state_dir": "/var/lib/vulna",
+  "server_ca_path": "",
+  "heartbeat_interval_seconds": 60,
+  "insecure_skip_verify": false
+}

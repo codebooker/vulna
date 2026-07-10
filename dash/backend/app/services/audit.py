@@ -23,6 +23,7 @@ def record_audit(
     action: str,
     actor: User | None = None,
     actor_type: ActorType = ActorType.USER,
+    actor_id: uuid.UUID | None = None,
     organization_id: uuid.UUID | None = None,
     target_type: str | None = None,
     target_id: str | uuid.UUID | None = None,
@@ -31,11 +32,15 @@ def record_audit(
     request_id: str | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> AuditEvent:
-    """Append an audit event to ``session`` and return it (not yet committed)."""
+    """Append an audit event to ``session`` and return it (not yet committed).
+
+    Pass ``actor`` for a user action; for system or probe actions pass
+    ``actor_type`` (and optionally ``actor_id``) instead.
+    """
     event = AuditEvent(
         organization_id=organization_id or (actor.organization_id if actor else None),
-        actor_type=actor_type if actor is None else ActorType.USER,
-        actor_id=actor.id if actor else None,
+        actor_type=ActorType.USER if actor is not None else actor_type,
+        actor_id=actor.id if actor is not None else actor_id,
         action=action,
         target_type=target_type,
         target_id=str(target_id) if target_id is not None else None,
