@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "VulnaDash — central orchestrator API for the Vulna security-assessment platform"
 readme = "README.md"
 requires-python = ">=3.12"
-license = { text = "Apache-2.0" }
+license = { text = "AGPL-3.0-only" }
 authors = [{ name = "Vulna maintainers" }]
 
 # Dependencies are pinned to compatible major versions per the build plan.

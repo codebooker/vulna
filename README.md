@@ -108,4 +108,5 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md) and
 
 ## License
 
-Licensed under the Apache License 2.0. See [`LICENSE`](LICENSE).
+Licensed under the GNU Affero General Public License v3.0 (AGPL-3.0-only).
+See [`LICENSE`](LICENSE).
