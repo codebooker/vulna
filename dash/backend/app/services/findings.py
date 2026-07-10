@@ -60,6 +60,9 @@ class FindingIngestSummary:
     findings_updated: int = 0
     findings_reopened: int = 0
     change_events: int = 0
+    # Canonical keys observed in this ingest, so a verification rescan can tell
+    # which verified findings are still present versus fixed.
+    seen_keys: set[str] = field(default_factory=set)
 
 
 def canonical_finding_key(
@@ -143,6 +146,7 @@ async def ingest_findings(
         key = canonical_finding_key(
             job.organization_id, asset_id, service_id, pf.scanner, pf.weakness_key
         )
+        summary.seen_keys.add(key)
 
         existing = await session.scalar(
             select(Finding).where(

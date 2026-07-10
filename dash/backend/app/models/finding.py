@@ -12,7 +12,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, DateTime, Enum, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, Enum, Float, ForeignKey, Integer, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -91,7 +91,20 @@ class Finding(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         default=FindingStatus.NEW,
         index=True,
     )
+    # Remediation / verification workflow (Phase 10).
+    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Points to the currently-active RiskAcceptance (soft reference; the owning FK
+    # is risk_acceptances.finding_id, avoiding a circular foreign key).
+    risk_acceptance_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    false_positive_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     first_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_verified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     reopened_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

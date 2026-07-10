@@ -17,17 +17,39 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.context import RequestContext, get_request_context
 from app.auth.dependencies import CurrentUser, require_roles
+from app.core.config import Settings, get_settings
 from app.db.session import get_session
-from app.models.enums import FindingStatus, FindingType, Severity, UserRole
+from app.models.asset import AssetIdentifier
+from app.models.enums import (
+    FindingStatus,
+    FindingType,
+    IdentifierType,
+    JobMode,
+    ProbeStatus,
+    Severity,
+    UserRole,
+)
 from app.models.finding import Finding
+from app.models.finding_note import FindingNote
+from app.models.probe import Probe
 from app.models.user import User
 from app.schemas.common import Page
-from app.schemas.finding import FindingRead, FindingUpdate
+from app.schemas.finding import (
+    FindingNoteCreate,
+    FindingNoteRead,
+    FindingRead,
+    FindingUpdate,
+)
+from app.schemas.job import JobRead
+from app.schemas.risk_acceptance import RiskAcceptanceCreate, RiskAcceptanceRead
 from app.services.audit import record_audit
+from app.services.jobs import JobValidationError, create_scan_job
+from app.services.remediation import create_risk_acceptance
 
 router = APIRouter(prefix="/findings", tags=["findings"])
 
 _require_operator = require_roles(UserRole.ADMINISTRATOR, UserRole.SECURITY_OPERATOR)
+_OPERATOR_ROLES = (UserRole.ADMINISTRATOR, UserRole.SECURITY_OPERATOR)
 
 
 async def _get_owned_finding(
@@ -91,12 +113,23 @@ async def get_finding(
 async def update_finding(
     finding_id: uuid.UUID,
     payload: FindingUpdate,
-    operator: Annotated[User, Depends(_require_operator)],
+    current_user: CurrentUser,
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> FindingRead:
-    """Update a finding's workflow/validation status (Operator/Administrator)."""
-    finding = await _get_owned_finding(session, finding_id, operator.organization_id)
+    """Update a finding's workflow, validation, assignment, or due date.
+
+    Operators and administrators may update any finding; the assigned owner may
+    update their own finding (e.g. mark it ready for verification).
+    """
+    finding = await _get_owned_finding(session, finding_id, current_user.organization_id)
+    is_owner = finding.owner_user_id == current_user.id
+    if current_user.role not in _OPERATOR_ROLES and not is_owner:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only an operator, administrator, or the finding owner may update it",
+        )
+
     changes = payload.model_dump(exclude_unset=True)
     if "status" in changes:
         finding.status = changes["status"]
@@ -104,13 +137,19 @@ async def update_finding(
             finding.resolved_at = datetime.now(UTC)
     if "validation_status" in changes:
         finding.validation_status = changes["validation_status"]
+    if "owner_user_id" in changes:
+        finding.owner_user_id = changes["owner_user_id"]
+    if "due_at" in changes:
+        finding.due_at = changes["due_at"]
+    if "false_positive_reason" in changes:
+        finding.false_positive_reason = changes["false_positive_reason"]
     await session.flush()
 
     record_audit(
         session,
         action="finding.updated",
-        actor=operator,
-        organization_id=operator.organization_id,
+        actor=current_user,
+        organization_id=current_user.organization_id,
         target_type="finding",
         target_id=finding.id,
         source_ip=context.source_ip,
@@ -119,3 +158,159 @@ async def update_finding(
         metadata={"changed_fields": sorted(changes.keys())},
     )
     return FindingRead.model_validate(finding)
+
+
+@router.get(
+    "/{finding_id}/notes",
+    response_model=list[FindingNoteRead],
+    summary="List a finding's notes",
+)
+async def list_finding_notes(
+    finding_id: uuid.UUID,
+    current_user: CurrentUser,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> list[FindingNoteRead]:
+    await _get_owned_finding(session, finding_id, current_user.organization_id)
+    result = await session.execute(
+        select(FindingNote)
+        .where(FindingNote.finding_id == finding_id)
+        .order_by(FindingNote.created_at)
+    )
+    return [FindingNoteRead.model_validate(n) for n in result.scalars().all()]
+
+
+@router.post(
+    "/{finding_id}/notes",
+    response_model=FindingNoteRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Add a note to a finding",
+)
+async def add_finding_note(
+    finding_id: uuid.UUID,
+    payload: FindingNoteCreate,
+    current_user: CurrentUser,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> FindingNoteRead:
+    """Add an append-only note (any authenticated user in the organization)."""
+    await _get_owned_finding(session, finding_id, current_user.organization_id)
+    note = FindingNote(
+        finding_id=finding_id, author_user_id=current_user.id, body=payload.body
+    )
+    session.add(note)
+    await session.flush()
+    return FindingNoteRead.model_validate(note)
+
+
+@router.post(
+    "/{finding_id}/rescan",
+    response_model=JobRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Trigger a targeted verification rescan",
+)
+async def rescan_finding(
+    finding_id: uuid.UUID,
+    operator: Annotated[User, Depends(_require_operator)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    context: Annotated[RequestContext, Depends(get_request_context)],
+) -> JobRead:
+    """Create a scan job that re-checks this finding's asset. If the scanner no
+    longer observes the finding, it is resolved as fixed."""
+    finding = await _get_owned_finding(session, finding_id, operator.organization_id)
+    if finding.asset_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Finding is not tied to an asset and cannot be rescanned",
+        )
+    ip = await session.scalar(
+        select(AssetIdentifier.identifier_value)
+        .where(
+            AssetIdentifier.asset_id == finding.asset_id,
+            AssetIdentifier.identifier_type == IdentifierType.IP_ADDRESS,
+        )
+        .order_by(AssetIdentifier.created_at)
+        .limit(1)
+    )
+    if ip is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Finding's asset has no IP address to rescan",
+        )
+    probe = await session.scalar(
+        select(Probe)
+        .where(Probe.site_id == finding.site_id, Probe.status == ProbeStatus.ENROLLED)
+        .limit(1)
+    )
+    if probe is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No enrolled probe at this finding's site to run a verification scan",
+        )
+    try:
+        job = await create_scan_job(
+            session,
+            probe,
+            settings,
+            targets=[ip],
+            mode=JobMode.VULNERABILITY_ASSESSMENT,
+            created_by=operator.id,
+            verifies_finding_ids=[str(finding.id)],
+        )
+    except JobValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+
+    record_audit(
+        session,
+        action="finding.rescan",
+        actor=operator,
+        organization_id=operator.organization_id,
+        target_type="finding",
+        target_id=finding.id,
+        source_ip=context.source_ip,
+        user_agent=context.user_agent,
+        request_id=context.request_id,
+        metadata={"job_id": str(job.id), "target": ip},
+    )
+    return JobRead.model_validate(job)
+
+
+@router.post(
+    "/{finding_id}/risk-acceptances",
+    response_model=RiskAcceptanceRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Request risk acceptance for a finding",
+)
+async def request_risk_acceptance(
+    finding_id: uuid.UUID,
+    payload: RiskAcceptanceCreate,
+    operator: Annotated[User, Depends(_require_operator)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    context: Annotated[RequestContext, Depends(get_request_context)],
+) -> RiskAcceptanceRead:
+    """Request a bounded risk acceptance (an approver activates it separately)."""
+    finding = await _get_owned_finding(session, finding_id, operator.organization_id)
+    ra = await create_risk_acceptance(
+        session,
+        finding=finding,
+        requested_by=operator.id,
+        reason=payload.reason,
+        compensating_controls=payload.compensating_controls,
+        starts_at=payload.starts_at,
+        expires_at=payload.expires_at,
+        now=datetime.now(UTC),
+    )
+    record_audit(
+        session,
+        action="risk_acceptance.requested",
+        actor=operator,
+        organization_id=operator.organization_id,
+        target_type="risk_acceptance",
+        target_id=ra.id,
+        source_ip=context.source_ip,
+        user_agent=context.user_agent,
+        request_id=context.request_id,
+        metadata={"finding_id": str(finding.id)},
+    )
+    return RiskAcceptanceRead.model_validate(ra)

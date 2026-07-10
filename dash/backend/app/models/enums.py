@@ -144,6 +144,8 @@ class ChangeEventType(StrEnum):
     CVE_SEVERITY_CHANGED = "cve_severity_changed"
     CVE_ADDED_TO_KEV = "cve_added_to_kev"
     EPSS_THRESHOLD_CROSSED = "epss_threshold_crossed"
+    FINDING_VERIFIED = "finding_verified"
+    RISK_ACCEPTANCE_EXPIRED = "risk_acceptance_expired"
 
 
 class FeedSource(StrEnum):
@@ -170,6 +172,16 @@ class MatchConfidence(StrEnum):
     HIGH = "high"
     MEDIUM = "medium"
     LOW = "low"
+
+
+class RiskAcceptanceStatus(StrEnum):
+    """Lifecycle of a finding risk acceptance (build plan Section 9.19)."""
+
+    PENDING = "pending"  # requested, awaiting approval
+    ACTIVE = "active"  # approved and currently in force
+    EXPIRED = "expired"  # passed its expiry (default outcome)
+    REVOKED = "revoked"  # withdrawn before expiry
+    REJECTED = "rejected"  # approval declined
 
 
 class WebScanProfile(StrEnum):

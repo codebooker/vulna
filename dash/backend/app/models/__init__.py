@@ -26,6 +26,7 @@ from app.models.enums import (
     ReportFormat,
     ReportStatus,
     ReportType,
+    RiskAcceptanceStatus,
     ServiceState,
     ServiceTransport,
     Severity,
@@ -35,10 +36,12 @@ from app.models.enums import (
 )
 from app.models.feed_health import FeedHealth
 from app.models.finding import Finding
+from app.models.finding_note import FindingNote
 from app.models.network_scope import NetworkScope
 from app.models.organization import Organization
 from app.models.probe import Probe
 from app.models.report import Report
+from app.models.risk_acceptance import RiskAcceptance
 from app.models.scan_artifact import ScanArtifact
 from app.models.scan_job import ScanJob
 from app.models.service import Service
@@ -60,6 +63,7 @@ __all__ = [
     "FeedSource",
     "FeedStatus",
     "Finding",
+    "FindingNote",
     "FindingStatus",
     "FindingType",
     "IdentifierType",
@@ -74,6 +78,8 @@ __all__ = [
     "ReportFormat",
     "ReportStatus",
     "ReportType",
+    "RiskAcceptance",
+    "RiskAcceptanceStatus",
     "ScanArtifact",
     "ScanJob",
     "Service",

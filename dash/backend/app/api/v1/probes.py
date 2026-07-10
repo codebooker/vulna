@@ -58,6 +58,7 @@ from app.services.ingest import ingest_nmap_result, store_scan_artifact
 from app.services.nmap_parser import NmapParseError
 from app.services.nuclei_parser import parse_nuclei_jsonl
 from app.services.policy import build_policy_document
+from app.services.remediation import apply_verification
 from app.services.signing import document_hash, get_signer
 from app.services.testssl_parser import TestsslParseError, parse_testssl_json
 from app.services.zap_parser import ZapParseError, parse_zap_json
@@ -671,6 +672,9 @@ async def upload_job_results(
             else:
                 parsed = parse_zap_json(body)
             fsummary = await ingest_findings(session, job=job, parsed=parsed, now=now)
+            await apply_verification(
+                session, job=job, scanner=scanner, seen_keys=fsummary.seen_keys, now=now
+            )
             result = ResultIngestSummary(
                 findings_seen=fsummary.findings_seen,
                 findings_created=fsummary.findings_created,

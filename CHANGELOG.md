@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 10: Remediation and verification
+
+Findings gain a full remediation workflow and automatic verification.
+
+- Finding fields for `owner_user_id`, `due_at`, `last_verified_at`,
+  `risk_acceptance_id`, and `false_positive_reason`; append-only `FindingNote`s;
+  and `RiskAcceptance` records (+ migration).
+- Assignment, due dates, and status transitions via the finding PATCH, now
+  authorized for operators/administrators *or the assigned owner* (so an owner can
+  mark their finding ready for verification). Notes are readable by any org member
+  and appended by any org member.
+- Targeted verification rescan (`POST /findings/{id}/rescan`) creates a scan job
+  for the finding's asset, tagged with the finding it verifies. When a scanner's
+  results arrive, a verified finding that scanner no longer observes is
+  automatically resolved as fixed; a reintroduced issue reopens via the existing
+  recurrence logic.
+- Risk acceptance: request (`POST /findings/{id}/risk-acceptances`), approve/reject
+  (`PATCH /risk-acceptances/{id}`, approver/administrator), and an expiry sweep
+  (`POST /risk-acceptances/run-expiry`) that reopens the finding and raises a
+  `risk_acceptance_expired` change event — acceptances expire by default.
+
+Verified: an owner marks a finding ready for verification; a verification rescan
+resolves a fixed finding; a reintroduced issue reopens; and a risk-acceptance
+expiry reopens the finding and raises an alert. ADR 0011 records the design.
+
 ### Added — Phase 9: ZAP web assessment
 
 Web-application assessment via OWASP ZAP's Automation Framework, with scope

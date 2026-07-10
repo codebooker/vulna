@@ -153,6 +153,7 @@ async def create_scan_job(
     expires_at: datetime | None = None,
     web_profile: WebScanProfile | None = None,
     web_start_urls: list[str] | None = None,
+    verifies_finding_ids: list[str] | None = None,
 ) -> ScanJob:
     """Validate, build, sign, and persist a scan job for a probe (status queued)."""
     if mode not in _SUPPORTED_MODES:
@@ -208,6 +209,7 @@ async def create_scan_job(
         not_before=start,
         expires_at=end,
         created_by=created_by,
+        verifies_finding_ids_json=list(verifies_finding_ids or []),
     )
     session.add(job)
     await session.flush()

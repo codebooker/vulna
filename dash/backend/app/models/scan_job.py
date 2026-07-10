@@ -47,6 +47,12 @@ class ScanJob(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     requested_targets_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     workflow_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)
     limits_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    # Finding IDs this job re-checks (targeted verification rescan, Phase 10). When
+    # a scanner's results arrive, a verified finding it no longer observes is
+    # resolved as fixed.
+    verifies_finding_ids_json: Mapped[list[str]] = mapped_column(
+        JSON, nullable=False, default=list
+    )
 
     policy_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     # The exact signed job envelope delivered to the probe (source of truth).

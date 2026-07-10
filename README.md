@@ -35,7 +35,8 @@ via a pull request with green CI. Current progress:
 | 7 | VulnaWatch CVE intelligence — NVD/KEV/EPSS sync, feed health, finding enrichment, CVE watch events | ✅ Done |
 | 8 | Reports — executive/technical PDF, findings/assets/services/CVE CSVs, JSON bundle, storage, checksums, download authz | ✅ Done |
 | 9 | ZAP web assessment — passive + limited-active profiles, generated automation YAML, scope controls, approval gate, result parsing | ✅ Done |
-| 10–15 | Remediation, pentest, full-spectrum, appliance, observability, hardening | ⏳ Planned |
+| 10 | Remediation & verification — assignment, due dates, notes, risk acceptance + expiry, targeted rescan, auto resolve/reopen | ✅ Done |
+| 11–15 | Pentest, full-spectrum, appliance, observability, hardening | ⏳ Planned |
 
 Not yet ready for production use. See the [CHANGELOG](CHANGELOG.md) for details.
 
