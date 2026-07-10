@@ -36,6 +36,8 @@ from app.models.site import Site
 from app.models.user import User
 from app.schemas.common import Page
 from app.schemas.enrollment import (
+    EnrollmentCommandRequest,
+    EnrollmentCommandResponse,
     EnrollmentTokenCreate,
     EnrollmentTokenCreated,
     EnrollRequest,
@@ -59,6 +61,7 @@ from app.services.nmap_parser import NmapParseError
 from app.services.nuclei_parser import parse_nuclei_jsonl
 from app.services.policy import build_policy_document
 from app.services.remediation import apply_verification
+from app.services.remote_scout import build_install_commands
 from app.services.signing import document_hash, get_signer
 from app.services.testssl_parser import TestsslParseError, parse_testssl_json
 from app.services.zap_parser import ZapParseError, parse_zap_json
@@ -130,6 +133,73 @@ async def create_enrollment_token(
         token=generated.secret,
         short_code=generated.short_code,
         expires_at=expires_at,
+    )
+
+
+@router.post(
+    "/enrollment-command",
+    response_model=EnrollmentCommandResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Add a VulnaScout: mint a token and build install commands",
+)
+async def create_enrollment_command(
+    payload: EnrollmentCommandRequest,
+    request: Request,
+    admin: Annotated[User, Depends(require_admin)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    context: Annotated[RequestContext, Depends(get_request_context)],
+) -> EnrollmentCommandResponse:
+    """Mint a single-use enrollment token for a site and return copy-paste install
+    commands. The token is short-lived, hashed centrally, and passed via the
+    environment (not argv) so it does not linger in process listings. Every command
+    routes through the signature-verifying bootstrap."""
+    site = await session.get(Site, payload.site_id)
+    if site is None or site.organization_id != admin.organization_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Site not found")
+
+    generated = generate_token()
+    expires_at = datetime.now(UTC) + timedelta(minutes=settings.enrollment_token_ttl_minutes)
+    token = EnrollmentToken(
+        organization_id=admin.organization_id,
+        site_id=payload.site_id,
+        token_hash=generated.token_hash,
+        short_code=generated.short_code,
+        probe_name=payload.probe_name,
+        description=payload.description,
+        created_by=admin.id,
+        expires_at=expires_at,
+    )
+    session.add(token)
+    await session.flush()
+
+    record_audit(
+        session,
+        action="probe.enrollment_command_created",
+        actor=admin,
+        organization_id=admin.organization_id,
+        target_type="enrollment_token",
+        target_id=token.id,
+        source_ip=context.source_ip,
+        user_agent=context.user_agent,
+        request_id=context.request_id,
+        metadata={"site_id": str(payload.site_id), "short_code": generated.short_code},
+    )
+
+    server_url = str(settings.public_base_url or request.base_url).rstrip("/")
+    return EnrollmentCommandResponse(
+        site_id=token.site_id,
+        probe_name=token.probe_name,
+        token=generated.secret,
+        short_code=generated.short_code,
+        expires_at=expires_at,
+        server_url=server_url,
+        commands=build_install_commands(server_url, generated.secret, token.probe_name),
+        verification=(
+            f"Confirm the short code '{generated.short_code}' matches on the Scout at "
+            "enrollment. Enrolling does NOT authorize any target — approve a scope "
+            "afterwards."
+        ),
     )
 
 
@@ -416,6 +486,31 @@ def _certificate_status(probe: Probe, now: datetime) -> CertificateStatus:
         expires_at=probe.certificate_expires_at,
         status=status_str,
     )
+
+
+@router.post("/self-revoke", summary="Probe self-revocation (reset)")
+async def self_revoke(
+    probe: CurrentProbe,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, str]:
+    """A probe revokes its own identity, used by ``vulnascout reset``. After this the
+    certificate can no longer heartbeat, poll jobs, or upload results — the old
+    identity is dead centrally even if the local key survived on disk."""
+    if probe.status != ProbeStatus.REVOKED:
+        probe.status = ProbeStatus.REVOKED
+        probe.revoked_at = datetime.now(UTC)
+        session.add(probe)
+        record_audit(
+            session,
+            action="probe.self_revoked",
+            actor_type=ActorType.PROBE,
+            organization_id=probe.organization_id,
+            target_type="probe",
+            target_id=probe.id,
+            metadata={"probe_id": str(probe.id)},
+        )
+        await session.commit()
+    return {"status": "revoked", "probe_id": str(probe.id)}
 
 
 @router.post(

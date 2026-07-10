@@ -14,11 +14,13 @@ import (
 )
 
 const (
-	keyFile    = "client_key.pem"
-	certFile   = "client_cert.pem"
-	caFile     = "ca_cert.pem"
-	stateFile  = "state.json"
-	policyFile = "policy.json"
+	keyFile         = "client_key.pem"
+	certFile        = "client_cert.pem"
+	caFile          = "ca_cert.pem"
+	stateFile       = "state.json"
+	policyFile      = "policy.json"
+	stopFile        = "stop.flag"
+	diagnosticsFile = "last-reset-diagnostics.json"
 )
 
 // State is the persisted enrollment state.
@@ -109,6 +111,65 @@ func (s *Store) SavePolicy(raw []byte) error {
 // LoadPolicy reads the raw signed local-policy document, if present.
 func (s *Store) LoadPolicy() ([]byte, error) {
 	return os.ReadFile(s.path(policyFile))
+}
+
+// StopFlag is the persisted local emergency-stop marker.
+type StopFlag struct {
+	Reason    string `json:"reason"`
+	CreatedAt string `json:"created_at"`
+}
+
+// SetStop writes the local emergency-stop marker. This is a purely local kill
+// switch: it works with no network and is authoritative even when the
+// orchestrator is unreachable or compromised. The run loop refuses to start (and
+// stops any running job) while it is present.
+func (s *Store) SetStop(reason string, now string) error {
+	data, err := json.MarshalIndent(StopFlag{Reason: reason, CreatedAt: now}, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal stop flag: %w", err)
+	}
+	return writeFile(s.path(stopFile), data, 0o600)
+}
+
+// ClearStop removes the emergency-stop marker (used by `resume`).
+func (s *Store) ClearStop() error {
+	err := os.Remove(s.path(stopFile))
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("clear stop flag: %w", err)
+	}
+	return nil
+}
+
+// IsStopped reports whether the emergency stop is set and, if so, its reason.
+func (s *Store) IsStopped() (bool, string) {
+	data, err := os.ReadFile(s.path(stopFile))
+	if err != nil {
+		return false, ""
+	}
+	var flag StopFlag
+	if json.Unmarshal(data, &flag) == nil {
+		return true, flag.Reason
+	}
+	return true, ""
+}
+
+// Reset revokes the local identity by deleting the client key, certificate, and
+// enrollment state so the Scout can re-enroll cleanly. Before deleting, it
+// preserves a small diagnostics snapshot (never secrets) so an operator can still
+// see what the prior identity was. The private key is shredded-by-removal; it
+// never left the Scout.
+func (s *Store) Reset(diagnostics []byte) error {
+	if len(diagnostics) > 0 {
+		if err := writeFile(s.path(diagnosticsFile), diagnostics, 0o600); err != nil {
+			return err
+		}
+	}
+	for _, f := range []string{keyFile, certFile, caFile, stateFile, policyFile, stopFile} {
+		if err := os.Remove(s.path(f)); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove %s: %w", f, err)
+		}
+	}
+	return nil
 }
 
 func writeFile(path string, data []byte, perm os.FileMode) error {

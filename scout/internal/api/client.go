@@ -285,3 +285,41 @@ func (c *Client) Heartbeat(ctx context.Context, hb HeartbeatRequest) (HeartbeatR
 	}
 	return out, nil
 }
+
+// CheckReachable verifies the authenticated result-upload channel is reachable:
+// it makes a GET to the policy endpoint over mTLS and returns an error only on a
+// transport failure (any HTTP status means the channel is open).
+func (c *Client) CheckReachable(ctx context.Context) error {
+	url := fmt.Sprintf("%s/api/v1/probes/%s/policy", c.serverURL, c.probeID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	_ = resp.Body.Close()
+	return nil
+}
+
+// SelfRevoke asks the orchestrator to revoke this Scout's own identity (used by
+// `vulnascout reset`). After success the certificate can no longer poll or upload.
+func (c *Client) SelfRevoke(ctx context.Context) error {
+	url := fmt.Sprintf("%s/api/v1/probes/self-revoke", c.serverURL)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Accept", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("self-revoke request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
+		return fmt.Errorf("self-revoke failed: status %d: %s", resp.StatusCode, string(body))
+	}
+	return nil
+}

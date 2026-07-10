@@ -27,6 +27,27 @@ class EnrollmentTokenCreated(BaseModel):
     expires_at: datetime
 
 
+class EnrollmentCommandRequest(BaseModel):
+    """Admin request for a per-site "Add VulnaScout" install command."""
+
+    site_id: uuid.UUID
+    probe_name: str = Field(default="remote-scout", min_length=1, max_length=255)
+    description: str | None = Field(default=None, max_length=1024)
+
+
+class EnrollmentCommandResponse(BaseModel):
+    """A one-time token plus ready-to-copy install commands (secret shown once)."""
+
+    site_id: uuid.UUID
+    probe_name: str
+    token: str = Field(description="The enrollment secret — store it now; it is not retrievable")
+    short_code: str = Field(description="Human-readable code for out-of-band verification")
+    expires_at: datetime
+    server_url: str
+    commands: dict[str, str]
+    verification: str
+
+
 class EnrollRequest(BaseModel):
     """Probe-submitted enrollment: a valid token and a PEM certificate request."""
 

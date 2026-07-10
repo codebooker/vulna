@@ -103,3 +103,32 @@ by severity/status, probe liveness, and feed freshness. No finding titles,
 descriptions, evidence, or IP addresses appear in any label or value. The public
 Caddy proxy does not route `/metrics`, so it is reachable only on the internal
 Docker network for Prometheus to scrape.
+
+## Adding a remote Scout (Phase 20)
+
+In VulnaDash, use **Add VulnaScout** on a site to generate a one-time install
+command. Run it on the remote Linux host (amd64/arm64):
+
+```sh
+VULNA_SERVER=https://vulna.example.com VULNA_ENROLL_TOKEN=<token> sh install-scout.sh
+```
+
+The command downloads a **pinned, signed** release, verifies its Ed25519 signature
+and checksum before installing, then enrolls. The token is single-use, expires,
+and is passed via the environment so it does not linger in process listings. No
+inbound port is opened on the remote host; all communication is Scout-initiated
+outbound. Enrolling does **not** authorize any target — approve a scope afterward.
+
+### Operating a remote Scout
+
+```sh
+vulnascout doctor    # staged connection test with remediation for DNS/TLS/clock/…
+vulnascout stop      # local emergency stop — works even if VulnaDash is unreachable
+vulnascout resume    # clear the emergency stop
+vulnascout reset     # revoke this identity centrally, then wipe local state to re-enroll
+```
+
+The emergency stop and the local signed policy remain authoritative even when the
+central service is unavailable or compromised. `reset` self-revokes over mTLS so
+the old identity can no longer poll or upload; the private key is removed in place
+and never leaves the Scout.

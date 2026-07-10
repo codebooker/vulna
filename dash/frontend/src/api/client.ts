@@ -14,6 +14,7 @@ import type {
   ScanSummary,
   ScopePreview,
 } from '../types/onboarding';
+import type { EnrollmentCommand } from '../types/remote';
 import type { Report } from '../types/report';
 import type { HealthResponse, SystemInfoResponse } from '../types/system';
 
@@ -177,6 +178,15 @@ export const api = {
       method: 'POST',
       token,
       body: { probe_id: probeId, targets, mode: 'vulnerability_assessment' },
+    });
+  },
+
+  // --- Add VulnaScout (remote enrollment) ---
+  addScout(token: string, siteId: string, probeName = 'remote-scout'): Promise<EnrollmentCommand> {
+    return request<EnrollmentCommand>('/api/v1/probes/enrollment-command', {
+      method: 'POST',
+      token,
+      body: { site_id: siteId, probe_name: probeName },
     });
   },
 };

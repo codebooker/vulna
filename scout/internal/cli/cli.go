@@ -43,6 +43,10 @@ Commands:
   enroll       Enroll with the orchestrator using a one-time token
   status       Show local enrollment status
   run          Heartbeat to the orchestrator until stopped
+  doctor       Run a connection test (DNS, TLS, time, enrollment, heartbeat, …)
+  stop         Local emergency stop (halts work; works offline)
+  resume       Clear the local emergency stop
+  reset        Revoke this identity and wipe local state for clean re-enrollment
   help         Show this help message
 
 Authorized use only. See SECURITY.md and docs/authorized-use.md.
@@ -67,6 +71,14 @@ func Execute(args []string, stdout, stderr io.Writer) int {
 		return runStatus(args[1:], stdout, stderr)
 	case "run":
 		return runRun(args[1:], stdout, stderr)
+	case "doctor", "connection-test":
+		return runDoctor(args[1:], stdout, stderr)
+	case "stop":
+		return runStop(args[1:], stdout, stderr)
+	case "resume":
+		return runResume(args[1:], stdout, stderr)
+	case "reset":
+		return runReset(args[1:], stdout, stderr)
 	case "help", "--help", "-h":
 		fmt.Fprint(stdout, usage)
 		return 0
@@ -248,6 +260,11 @@ func runRun(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "not enrolled: run `vulnascout enroll` first")
 		return 1
 	}
+	if stopped, reason := store.IsStopped(); stopped {
+		fmt.Fprintf(stderr, "vulnascout: local emergency stop is set (%s). "+
+			"Run `vulnascout resume` to clear it before running.\n", reason)
+		return 1
+	}
 	state, err := store.LoadState()
 	if err != nil {
 		fmt.Fprintln(stderr, "load state:", err)
@@ -291,6 +308,15 @@ func runRun(args []string, stdout, stderr io.Writer) int {
 	hb := buildHeartbeat()
 	var running *agent.RunningJob
 	for {
+		// Local emergency stop is authoritative even if the orchestrator is
+		// unreachable or compromised: honor it before doing any work.
+		if stopped, reason := store.IsStopped(); stopped {
+			fmt.Fprintf(stdout, "vulnascout: local emergency stop set (%s); halting\n", reason)
+			if running != nil {
+				running.Cancel()
+			}
+			break
+		}
 		hb.PolicyHash = scout.PolicyHash()
 		resp, hbErr := client.Heartbeat(ctx, hb)
 		if hbErr != nil {

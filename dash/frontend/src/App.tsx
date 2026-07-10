@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from './api/client';
 import { useAuth } from './auth/useAuth';
+import { AddScoutPage } from './pages/AddScoutPage';
 import { ChangesPage } from './pages/ChangesPage';
 import { FeedsPage } from './pages/FeedsPage';
 import { HealthPage } from './pages/HealthPage';
@@ -69,6 +70,7 @@ export function App() {
             />
           )}
           <SitesPage />
+          <AddScoutPage />
           <ChangesPage />
           <FeedsPage />
           <ReportsPage />

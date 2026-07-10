@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 20: Frictionless remote VulnaScout deployment
+
+Adding a Scout at a second site is now nearly as simple as the local one, while
+keeping outbound-only communication, single-use hashed tokens, a private key that
+never leaves the Scout, and locally-enforced signed policy.
+
+- A per-site **Add VulnaScout** command: `POST /probes/enrollment-command` mints a
+  single-use, hashed, short-lived token and returns copy-paste install commands
+  plus a short verification code. The token is passed via the environment (not
+  argv), so it does not linger in process listings; enrolling never authorizes a
+  target.
+- A verifying scout bootstrap (`scripts/install-scout.sh`) that checks a pinned
+  release's Ed25519 signature and checksum before installing/enrolling — no
+  inbound port is opened. A smoke test proves it refuses a tampered artifact or
+  signature.
+- `vulnascout doctor` — a staged connection test (DNS, TLS, clock skew, enrollment,
+  heartbeat, policy, scanner health, authenticated upload reachability) with a
+  concrete remediation for each failure (proxy, custom CA, DNS, clock, MTU,
+  outbound firewall); no secrets in output.
+- `vulnascout stop` / `resume` — a **local** emergency stop that works with no
+  network and is authoritative even when VulnaDash is unreachable; the run loop
+  refuses to start and cancels a running job while it is set.
+- `vulnascout reset` — best-effort central self-revocation
+  (`POST /probes/self-revoke`, mTLS) so the old identity can no longer poll or
+  upload, then a local wipe of key/cert/state that preserves a non-secret
+  diagnostics snapshot for clean re-enrollment. The private key is removed in
+  place and never leaves the Scout.
+- A frontend "Add VulnaScout" panel and ADR 0020; backend, Go (`doctor`, storage
+  stop/reset, `SelfRevoke`), and frontend tests.
+
 ### Added — Phase 19: Guided first run and first safe assessment
 
 A short, understandable route from first login to a first **safe** assessment,

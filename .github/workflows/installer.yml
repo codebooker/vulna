@@ -6,7 +6,9 @@ on:
     paths:
       - "cli/**"
       - "scripts/install.sh"
+      - "scripts/install-scout.sh"
       - "deploy/release/installer_smoke_test.sh"
+      - "deploy/release/scout_bootstrap_smoke_test.sh"
       - ".github/workflows/installer.yml"
   # No path filter on PRs so the check reports on every PR.
   pull_request:
@@ -77,15 +79,17 @@ jobs:
           print("OK: no called dependency vulnerabilities (cli is stdlib-only).")
           PY
 
-      - name: Shellcheck bootstrap script
+      - name: Shellcheck bootstrap scripts
         working-directory: ${{ github.workspace }}
         run: |
           sudo apt-get update && sudo apt-get install -y shellcheck
-          shellcheck scripts/install.sh
+          shellcheck scripts/install.sh scripts/install-scout.sh
 
-      - name: Bootstrap verify smoke test (good vs tampered)
+      - name: Bootstrap verify smoke tests (good vs tampered)
         working-directory: ${{ github.workspace }}
-        run: bash deploy/release/installer_smoke_test.sh
+        run: |
+          bash deploy/release/installer_smoke_test.sh
+          bash deploy/release/scout_bootstrap_smoke_test.sh
 
   cross-build:
     name: installer-cross-build

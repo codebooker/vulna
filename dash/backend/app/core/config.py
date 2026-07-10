@@ -83,6 +83,11 @@ class Settings(BaseSettings):
     default_org_name: str = "Default Organization"
     default_org_slug: str = "default"
 
+    # Public base URL of the orchestrator (e.g. https://vulna.example.com), used
+    # to build remote-Scout install commands. Falls back to the request's base URL
+    # when unset.
+    public_base_url: str | None = None
+
     # ---- Single-host deployment (Phase 17) ---------------------------------
     # When enabled (set by the single-host Compose profile), first-run bootstrap
     # also ensures a default site and mints a one-time, auto-approve enrollment
