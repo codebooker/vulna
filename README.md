@@ -45,6 +45,7 @@ each phase lands on `main` via a pull request with green CI. Current progress:
 | 16 | VulnaRelay — optional thin tunnel/relay mode for constrained sites (opt-in; smart probe stays the default) | 💤 Optional / future |
 | 17 | First-class single-host deployment — one-command stack with an auto-enrolled, scope-gated local Scout, per-component health, migrate-on-start | ✅ Done |
 | 18 | Safe installer & environment preflight — signed `vulna` CLI, verifying bootstrap, preflight checks, generated secrets, idempotent install, dry-run, clean uninstall | ✅ Done |
+| 19 | Guided first run — resumable wizard, recovery codes, advisory network detection, scope guardrails, safe preset, pre-scan summary, isolated demo target | ✅ Done |
 
 Not yet ready for production use. See the [CHANGELOG](CHANGELOG.md) for details.
 

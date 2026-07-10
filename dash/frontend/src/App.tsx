@@ -1,13 +1,35 @@
+import { useCallback, useEffect, useState } from 'react';
+import { api } from './api/client';
 import { useAuth } from './auth/useAuth';
 import { ChangesPage } from './pages/ChangesPage';
 import { FeedsPage } from './pages/FeedsPage';
 import { HealthPage } from './pages/HealthPage';
 import { LoginPage } from './pages/LoginPage';
+import { OnboardingWizard } from './pages/OnboardingWizard';
 import { ReportsPage } from './pages/ReportsPage';
 import { SitesPage } from './pages/SitesPage';
+import type { OnboardingState } from './types/onboarding';
 
 export function App() {
-  const { user, initializing, logout } = useAuth();
+  const { user, token, initializing, logout } = useAuth();
+  const [onboarding, setOnboarding] = useState<OnboardingState | null>(null);
+  const [resume, setResume] = useState(false);
+
+  const loadOnboarding = useCallback(async () => {
+    if (!token) return;
+    try {
+      setOnboarding(await api.onboardingState(token));
+    } catch {
+      setOnboarding(null);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    if (user && token) void loadOnboarding();
+  }, [user, token, loadOnboarding]);
+
+  const incomplete = onboarding !== null && onboarding.completed_at === null;
+  const showWizard = incomplete && (!onboarding.dismissed || resume);
 
   return (
     <main className="app">
@@ -17,6 +39,11 @@ export function App() {
         <span className="tag">Self-hosted security assessment across every site.</span>
         {user && (
           <div className="session">
+            {incomplete && onboarding.dismissed && !resume && (
+              <button type="button" className="btn ghost" onClick={() => setResume(true)}>
+                Resume setup
+              </button>
+            )}
             <span className="who">
               {user.email} · <em>{user.role}</em>
             </span>
@@ -33,6 +60,14 @@ export function App() {
         </div>
       ) : user ? (
         <>
+          {showWizard && (
+            <OnboardingWizard
+              onFinished={() => {
+                setResume(false);
+                void loadOnboarding();
+              }}
+            />
+          )}
           <SitesPage />
           <ChangesPage />
           <FeedsPage />

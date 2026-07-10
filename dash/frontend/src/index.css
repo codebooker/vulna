@@ -238,3 +238,81 @@ body {
 .table code {
   color: var(--accent);
 }
+
+/* ---- Guided first-run wizard (Phase 19) ---- */
+.wizard {
+  border-color: var(--accent);
+}
+.wizard-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.wizard-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.75rem;
+  list-style: none;
+  padding: 0;
+  margin: 0.75rem 0 1rem;
+  font-size: 0.82rem;
+}
+.wizard-steps li {
+  color: var(--muted);
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+.wizard-steps li.active {
+  color: var(--text);
+  border-color: var(--accent);
+}
+.wizard-steps li.done {
+  color: var(--ok);
+}
+.wizard-steps li.done::before {
+  content: '✓ ';
+}
+.wizard-body {
+  border-top: 1px solid var(--border);
+  padding-top: 1rem;
+}
+.wizard-body h3 {
+  margin: 0.25rem 0;
+}
+.codes {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 0.4rem;
+  margin: 0.75rem 0;
+}
+.codes code {
+  display: block;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.35rem 0.5rem;
+  text-align: center;
+}
+.status-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0 1rem;
+  display: grid;
+  gap: 0.3rem;
+}
+.preview,
+.preset {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin: 0.75rem 0;
+}
+.warn {
+  color: #e0a63a;
+  margin: 0.3rem 0;
+}

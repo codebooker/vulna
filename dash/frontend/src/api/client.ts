@@ -1,6 +1,19 @@
 import type { CurrentUser, TokenResponse } from '../types/auth';
 import type { ChangeEvent, NetworkScope, NewScope, NewSite, Page, Site } from '../types/inventory';
 import type { FeedHealth, SyncResult } from '../types/intelligence';
+import type {
+  ComponentHealth,
+  CompleteStepPayload,
+  DemoTarget,
+  JobSummary,
+  NetworkCandidates,
+  OnboardingState,
+  ProbeSummary,
+  RecoveryCodes,
+  ScanPreset,
+  ScanSummary,
+  ScopePreview,
+} from '../types/onboarding';
 import type { Report } from '../types/report';
 import type { HealthResponse, SystemInfoResponse } from '../types/system';
 
@@ -106,6 +119,65 @@ export const api = {
       throw new ApiError(response.status, response.statusText);
     }
     return response.blob();
+  },
+
+  // --- Guided first-run (onboarding) ---
+  onboardingState(token: string): Promise<OnboardingState> {
+    return request<OnboardingState>('/api/v1/onboarding/state', { token });
+  },
+  completeOnboardingStep(token: string, payload: CompleteStepPayload): Promise<OnboardingState> {
+    return request<OnboardingState>('/api/v1/onboarding/state/complete-step', {
+      method: 'POST',
+      token,
+      body: payload,
+    });
+  },
+  dismissOnboarding(token: string): Promise<OnboardingState> {
+    return request<OnboardingState>('/api/v1/onboarding/state/dismiss', { method: 'POST', token });
+  },
+  generateRecoveryCodes(token: string): Promise<RecoveryCodes> {
+    return request<RecoveryCodes>('/api/v1/onboarding/recovery-codes', { method: 'POST', token });
+  },
+  networkCandidates(token: string): Promise<NetworkCandidates> {
+    return request<NetworkCandidates>('/api/v1/onboarding/network-candidates', { token });
+  },
+  scopePreview(token: string, cidr: string, allowPublic = false): Promise<ScopePreview> {
+    return request<ScopePreview>('/api/v1/onboarding/scope-preview', {
+      method: 'POST',
+      token,
+      body: { cidr, allow_public: allowPublic },
+    });
+  },
+  scanPresets(token: string): Promise<{ presets: ScanPreset[] }> {
+    return request<{ presets: ScanPreset[] }>('/api/v1/onboarding/scan-presets', { token });
+  },
+  scanSummary(
+    token: string,
+    preset: string,
+    targets: string[],
+    demo = false,
+  ): Promise<ScanSummary> {
+    return request<ScanSummary>('/api/v1/onboarding/scan-summary', {
+      method: 'POST',
+      token,
+      body: { preset, targets, demo },
+    });
+  },
+  demoTarget(token: string): Promise<DemoTarget> {
+    return request<DemoTarget>('/api/v1/onboarding/demo-target', { token });
+  },
+  componentHealth(token: string): Promise<ComponentHealth> {
+    return request<ComponentHealth>('/api/v1/system/component-health', { token });
+  },
+  listProbes(token: string): Promise<Page<ProbeSummary>> {
+    return request<Page<ProbeSummary>>('/api/v1/probes', { token });
+  },
+  createJob(token: string, probeId: string, targets: string[]): Promise<JobSummary> {
+    return request<JobSummary>('/api/v1/jobs', {
+      method: 'POST',
+      token,
+      body: { probe_id: probeId, targets, mode: 'vulnerability_assessment' },
+    });
   },
 };
 

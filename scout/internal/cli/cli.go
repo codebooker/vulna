@@ -21,6 +21,7 @@ import (
 	"github.com/codebooker/vulna/scout/internal/buildinfo"
 	"github.com/codebooker/vulna/scout/internal/config"
 	"github.com/codebooker/vulna/scout/internal/enrollment"
+	"github.com/codebooker/vulna/scout/internal/netdetect"
 	"github.com/codebooker/vulna/scout/internal/policy"
 	"github.com/codebooker/vulna/scout/internal/scanners"
 	"github.com/codebooker/vulna/scout/internal/scanners/nmap"
@@ -376,12 +377,18 @@ func runRun(args []string, stdout, stderr io.Writer) int {
 
 func buildHeartbeat() api.HeartbeatRequest {
 	host, _ := os.Hostname()
+	health := map[string]any{}
+	// Advisory only: suggest private ranges the operator may choose to approve in
+	// the first-run wizard. Never an approved scope (see docs/adr/0019).
+	if candidates := netdetect.PrivateCandidates(); len(candidates) > 0 {
+		health["network_candidates"] = candidates
+	}
 	return api.HeartbeatRequest{
 		AgentVersion:    buildinfo.Version,
 		Hostname:        host,
 		OperatingSystem: runtime.GOOS,
 		Architecture:    runtime.GOARCH,
 		Capabilities:    []string{},
-		Health:          map[string]any{},
+		Health:          health,
 	}
 }

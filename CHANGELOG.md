@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 19: Guided first run and first safe assessment
+
+A short, understandable route from first login to a first **safe** assessment,
+without requiring the operator to understand scopes, jobs, or scanner syntax — and
+without weakening any control.
+
+- A resumable first-run wizard (frontend) whose progress lives server-side in a
+  new `onboarding_states` table, so refreshing or reopening the browser never
+  loses progress or creates duplicate scans. It can be skipped and resumed.
+- An `/onboarding` API that only *assists*: scope approval and job launch still go
+  through the ordinary, audited `/scopes` and `/jobs` paths, so the wizard cannot
+  bypass any signature, scope, approval, or least-privilege control.
+- **Advisory** local network detection: the Scout reports the private (RFC1918)
+  ranges it can see in its heartbeat; the wizard surfaces them as suggestions
+  only. Nothing is ever saved or scanned from detection.
+- Scope previews reuse the real `validate_cidr`, so `0.0.0.0/0`, `::/0`, malformed
+  input, and (by default) public ranges are rejected before anything is saved;
+  public and unusually broad ranges raise a warning and require explicit
+  confirmation.
+- One-time account recovery codes generated with a CSPRNG, shown once, and stored
+  only as Argon2 hashes on the user, consumed one at a time.
+- The single safe **Standard Security Check** preset plus a pre-scan summary
+  (targets, host estimate, checks, resource/duration class, data retention).
+- An isolated **demo target** (`127.0.0.1/32`, the Scout self-scanning over
+  loopback) so the full workflow can be tried without scanning a real network — it
+  still goes through explicit scope approval, so it exercises the real path.
+- ADR 0019, backend + Go (`netdetect`) + frontend tests.
+
 ### Added — Phase 18: Safe installer and environment preflight
 
 One supported installation workflow that detects problems before changing files
