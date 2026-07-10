@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 12: Full-spectrum workflow
+
+A multi-stage assessment engine that composes discovery, assessment, controlled
+validation, and reporting into one run.
+
+- `WorkflowRun` model (+ migration) with a per-stage trail. A deterministic engine
+  owns stage ordering, conditional skipping (web/TLS only when requested), the
+  approval pause, and safe continuation: an intrusive stage denied at the approval
+  gate — or any stage that fails — never skips the tail, so cleanup (when a
+  validation ran), the verification scan, and reporting always run when applicable.
+  A failed stage is reflected in the run status while the tail still completes.
+- API: create a run, advance/fail the current stage, and approve/deny the
+  intrusive gate (approver/administrator); every transition is audited.
+- A combined full-spectrum PDF report (executive posture, vulnerability results,
+  validation summary, exposure changes, remediation roadmap, cleanup/verification
+  summary) added to the report engine.
+
+Verified: a full run completes; an intrusive stage can be denied while reports
+still generate; stage failures are reflected and the tail still runs; and cleanup
+and verification always run when applicable. ADR 0013 records the design.
+
 ### Added — Phase 11: Controlled pentest framework
 
 A safety-first control plane for approval-gated validation. VulnaDash never runs

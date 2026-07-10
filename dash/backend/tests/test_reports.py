@@ -145,9 +145,9 @@ async def test_generate_all_formats_and_download(
     )
     assert resp.status_code == 201
     reports = resp.json()
-    assert len(reports) == 8  # all report types
+    assert len(reports) == 9  # all report types
     types = {r["report_type"] for r in reports}
-    assert {"executive_pdf", "pentest_pdf", "json_bundle"} <= types
+    assert {"executive_pdf", "pentest_pdf", "full_spectrum_pdf", "json_bundle"} <= types
     for r in reports:
         assert r["status"] == "completed"
         assert r["sha256"] and r["size_bytes"] > 0

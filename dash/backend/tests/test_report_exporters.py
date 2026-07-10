@@ -221,3 +221,6 @@ def test_pentest_pdf_renders_sessions() -> None:
     data = pdf.pentest_pdf(snap)
     assert data[:5] == b"%PDF-"
     assert len(data) > 1000
+    fs = pdf.full_spectrum_pdf(snap)
+    assert fs[:5] == b"%PDF-"
+    assert len(fs) > 1000

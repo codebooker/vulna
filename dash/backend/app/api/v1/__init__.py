@@ -20,6 +20,7 @@ from app.api.v1 import (
     sites,
     system,
     users,
+    workflows,
 )
 
 api_router = APIRouter(prefix="/api/v1")
@@ -36,6 +37,7 @@ api_router.include_router(changes.router)
 api_router.include_router(findings.router)
 api_router.include_router(risk_acceptances.router)
 api_router.include_router(pentest.router)
+api_router.include_router(workflows.router)
 api_router.include_router(feeds.router)
 api_router.include_router(cve.router)
 api_router.include_router(reports.router)

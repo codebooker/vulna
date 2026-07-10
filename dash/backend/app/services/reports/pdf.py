@@ -284,6 +284,64 @@ def pentest_pdf(snapshot: dict[str, Any]) -> bytes:
     return bytes(doc.output())
 
 
+def full_spectrum_pdf(snapshot: dict[str, Any]) -> bytes:
+    """Combined full-spectrum report: executive posture, findings by severity,
+    validation summary, and remediation/exposure changes (build plan §13.3)."""
+    summary = snapshot.get("summary", {})
+    counts = summary.get("severity_counts", {})
+    sessions = snapshot.get("pentest_sessions", [])
+    doc = _Doc("Full-Spectrum Assessment Report", _org_site(snapshot))
+    doc.add_page()
+
+    doc.h1("Full-Spectrum Assessment Report")
+    doc.para(_org_site(snapshot))
+
+    doc.h2("Executive summary")
+    doc.kv("Overall risk rating", _risk_rating(summary))
+    doc.kv("Critical / High", f"{counts.get('critical', 0)} / {counts.get('high', 0)}")
+    doc.kv("Known-exploited (KEV)", summary.get("kev_count", 0))
+    assets_services = f"{summary.get('asset_count', 0)} / {summary.get('service_count', 0)}"
+    doc.kv("Assets / services", assets_services)
+    doc.para(_plain_conclusion(summary))
+
+    doc.h2("Vulnerability results by severity")
+    for sev in _SEVERITY_ORDER:
+        doc.kv(sev.capitalize(), counts.get(sev, 0))
+
+    doc.h2("Validation results")
+    if sessions:
+        for s in sessions:
+            doc.bullet(
+                f"[{s.get('status', '').upper()}] {s.get('finding_title') or s.get('finding_id')} "
+                f"via {s.get('module')}"
+            )
+    else:
+        doc.para("No controlled validation was performed in this engagement.")
+
+    doc.h2("Asset and exposure changes")
+    changes = snapshot.get("changes", [])
+    if changes:
+        for c in changes[:40]:
+            doc.bullet(f"{c.get('timestamp', '')}: {c.get('summary', '')}")
+    else:
+        doc.para("No changes were recorded for this scan.")
+
+    doc.h2("Remediation roadmap")
+    for f in _top_priorities(snapshot):
+        doc.bullet(f"[{f.get('severity', '').upper()}] {f.get('title')} — {f.get('status')}")
+    if not _top_priorities(snapshot):
+        doc.para("No high-priority remediation items outstanding.")
+
+    doc.h2("Cleanup and verification summary")
+    pending = [s for s in sessions if s.get("cleanup_required") and not s.get("cleanup_completed")]
+    doc.para(
+        f"{len(sessions)} validation session(s); "
+        f"{len(pending)} with cleanup still pending. A verification scan follows all validation."
+    )
+
+    return bytes(doc.output())
+
+
 def _service_table(doc: _Doc, services: list[dict[str, Any]]) -> None:
     if not services:
         doc.para("No services were discovered.")

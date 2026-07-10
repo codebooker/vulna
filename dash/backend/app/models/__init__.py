@@ -34,6 +34,8 @@ from app.models.enums import (
     UserRole,
     ValidationStatus,
     WebScanProfile,
+    WorkflowRunStatus,
+    WorkflowStageStatus,
 )
 from app.models.feed_health import FeedHealth
 from app.models.finding import Finding
@@ -50,6 +52,7 @@ from app.models.scan_job import ScanJob
 from app.models.service import Service
 from app.models.site import Site
 from app.models.user import User
+from app.models.workflow_run import WorkflowRun
 
 __all__ = [
     "ActorType",
@@ -98,4 +101,7 @@ __all__ = [
     "UserRole",
     "ValidationStatus",
     "WebScanProfile",
+    "WorkflowRun",
+    "WorkflowRunStatus",
+    "WorkflowStageStatus",
 ]

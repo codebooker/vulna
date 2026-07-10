@@ -174,6 +174,29 @@ class MatchConfidence(StrEnum):
     LOW = "low"
 
 
+class WorkflowRunStatus(StrEnum):
+    """Overall status of a multi-stage assessment run (build plan §13.3)."""
+
+    PENDING = "pending"
+    RUNNING = "running"
+    AWAITING_APPROVAL = "awaiting_approval"
+    COMPLETED = "completed"
+    FAILED = "failed"  # a stage failed; cleanup/verification/reporting still ran
+    CANCELLED = "cancelled"
+
+
+class WorkflowStageStatus(StrEnum):
+    """Status of a single workflow stage."""
+
+    PENDING = "pending"
+    RUNNING = "running"
+    AWAITING_APPROVAL = "awaiting_approval"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    SKIPPED = "skipped"  # conditional stage that did not apply
+    DENIED = "denied"  # intrusive stage denied at the approval gate
+
+
 class PentestSessionStatus(StrEnum):
     """Lifecycle of a controlled-pentest validation session (build plan §13.2).
 
@@ -221,6 +244,7 @@ class ReportType(StrEnum):
     EXECUTIVE_PDF = "executive_pdf"
     TECHNICAL_PDF = "technical_pdf"
     PENTEST_PDF = "pentest_pdf"
+    FULL_SPECTRUM_PDF = "full_spectrum_pdf"
     FINDINGS_CSV = "findings_csv"
     ASSETS_CSV = "assets_csv"
     SERVICES_CSV = "services_csv"
