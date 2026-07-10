@@ -65,17 +65,6 @@ vulna/
 └── docs/        # Architecture, threat model, ADRs, guides
 ```
 
-## Project status
-
-This repository is being built in small, testable milestones (Phase 0 through
-Phase 15) as described in [`VULNA_CODEX_BUILD_PLAN.md`](VULNA_CODEX_BUILD_PLAN.md).
-
-**Current phase: Phase 0 — Repository foundation.** This provides the monorepo
-scaffolding, a development Docker Compose stack, a FastAPI backend with a health
-endpoint, a React/TypeScript frontend with a health page, a Go probe module with
-`version` and `self-test` commands, linting/formatting, a `Makefile`, and CI. No
-assessment functionality is implemented yet.
-
 ## Quick start (development)
 
 Prerequisites: Docker + Docker Compose. For running services individually you
