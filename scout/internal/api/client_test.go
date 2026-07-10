@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -117,6 +118,31 @@ func TestPollJob(t *testing.T) {
 	_, ok, err = c.PollJob(context.Background())
 	if err != nil || ok {
 		t.Fatalf("expected no job on second poll, ok=%v err=%v", ok, err)
+	}
+}
+
+func TestUploadResults(t *testing.T) {
+	var gotBody []byte
+	var gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/probes/p1/jobs/j1/results" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		gotQuery = r.URL.RawQuery
+		gotBody, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+	c := newClient(srv.URL, "p1", srv.Client())
+	if err := c.UploadResults(context.Background(), "j1", []byte("<nmaprun/>"), "discovery", "nmap"); err != nil {
+		t.Fatal(err)
+	}
+	if string(gotBody) != "<nmaprun/>" {
+		t.Errorf("body not received: %q", gotBody)
+	}
+	if !strings.Contains(gotQuery, "scanner=nmap") || !strings.Contains(gotQuery, "stage=discovery") {
+		t.Errorf("query missing stage/scanner: %q", gotQuery)
 	}
 }
 

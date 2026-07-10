@@ -56,3 +56,12 @@ class JobStatusUpdate(BaseModel):
     error_code: str | None = Field(default=None, max_length=64)
     error_message: str | None = Field(default=None, max_length=2048)
     summary: dict[str, Any] | None = None
+
+
+class ResultIngestSummary(BaseModel):
+    """Summary returned after ingesting a scanner result upload."""
+
+    hosts_seen: int
+    assets_created: int
+    assets_updated: int
+    services_upserted: int

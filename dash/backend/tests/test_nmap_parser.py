@@ -1,0 +1,101 @@
+"""Unit tests for the Nmap XML parser, including malicious-input defenses."""
+
+from __future__ import annotations
+
+import pytest
+from app.models.enums import ServiceState, ServiceTransport
+from app.services.nmap_parser import NmapParseError, parse_nmap_xml
+
+SAMPLE_XML = b"""<?xml version="1.0"?>
+<nmaprun scanner="nmap" version="7.94">
+  <host>
+    <status state="up"/>
+    <address addr="10.20.0.5" addrtype="ipv4"/>
+    <address addr="00:11:22:33:44:55" addrtype="mac" vendor="Acme Corp"/>
+    <hostnames><hostname name="host5.lan" type="PTR"/></hostnames>
+    <ports>
+      <port protocol="tcp" portid="22">
+        <state state="open"/>
+        <service name="ssh" product="OpenSSH" version="8.9p1">
+          <cpe>cpe:/a:openbsd:openssh:8.9p1</cpe>
+        </service>
+      </port>
+      <port protocol="tcp" portid="80">
+        <state state="open"/>
+        <service name="http" product="nginx" version="1.24"/>
+      </port>
+      <port protocol="tcp" portid="23"><state state="closed"/></port>
+    </ports>
+    <os>
+      <osmatch name="Linux 4.x" accuracy="90"/>
+      <osmatch name="Linux 5.4" accuracy="95"/>
+    </os>
+  </host>
+  <host>
+    <status state="down"/>
+    <address addr="10.20.0.6" addrtype="ipv4"/>
+  </host>
+</nmaprun>
+"""
+
+
+def test_parses_up_host_only() -> None:
+    hosts = parse_nmap_xml(SAMPLE_XML)
+    assert len(hosts) == 1  # the down host is skipped
+    host = hosts[0]
+    assert host.ip == "10.20.0.5"
+    assert host.mac == "00:11:22:33:44:55"
+    assert host.mac_vendor == "Acme Corp"
+    assert host.hostnames == ["host5.lan"]
+    assert host.operating_system == "Linux 5.4"  # highest-accuracy osmatch
+
+
+def test_parses_open_services_only() -> None:
+    host = parse_nmap_xml(SAMPLE_XML)[0]
+    ports = {s.port: s for s in host.services}
+    assert set(ports) == {22, 80}  # closed port 23 is excluded
+    assert ports[22].transport == ServiceTransport.TCP
+    assert ports[22].state == ServiceState.OPEN
+    assert ports[22].service_name == "ssh"
+    assert ports[22].product == "OpenSSH"
+    assert ports[22].version == "8.9p1"
+    assert ports[22].cpe == "cpe:/a:openbsd:openssh:8.9p1"
+    assert ports[80].product == "nginx"
+
+
+def test_malformed_xml_raises() -> None:
+    with pytest.raises(NmapParseError):
+        parse_nmap_xml(b"<nmaprun><host></nmaprun")
+
+
+def test_non_nmaprun_raises() -> None:
+    with pytest.raises(NmapParseError):
+        parse_nmap_xml(b"<other></other>")
+
+
+def test_xxe_entity_is_blocked() -> None:
+    # An external-entity payload must be rejected, not resolved.
+    payload = (
+        b'<?xml version="1.0"?>\n'
+        b'<!DOCTYPE nmaprun [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>\n'
+        b"<nmaprun>&xxe;</nmaprun>"
+    )
+    with pytest.raises(NmapParseError):
+        parse_nmap_xml(payload)
+
+
+def test_billion_laughs_is_blocked() -> None:
+    payload = (
+        b'<?xml version="1.0"?>\n'
+        b"<!DOCTYPE lolz [\n"
+        b'  <!ENTITY lol "lol">\n'
+        b'  <!ENTITY lol2 "&lol;&lol;&lol;&lol;">\n'
+        b"]>\n"
+        b"<nmaprun>&lol2;</nmaprun>"
+    )
+    with pytest.raises(NmapParseError):
+        parse_nmap_xml(payload)
+
+
+def test_empty_scan_returns_no_hosts() -> None:
+    assert parse_nmap_xml(b'<nmaprun scanner="nmap"></nmaprun>') == []

@@ -18,7 +18,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 from cryptography.hazmat.primitives import serialization
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -41,7 +41,7 @@ from app.schemas.enrollment import (
     EnrollRequest,
     EnrollResponse,
 )
-from app.schemas.job import JobStatusUpdate
+from app.schemas.job import JobStatusUpdate, ResultIngestSummary
 from app.schemas.probe import (
     CertificateStatus,
     HeartbeatRequest,
@@ -53,8 +53,13 @@ from app.schemas.probe import (
 from app.services.audit import record_audit
 from app.services.ca import CertificateAuthorityError, certificate_fingerprint, get_ca
 from app.services.enrollment import generate_token, hash_token
+from app.services.ingest import ingest_nmap_result
+from app.services.nmap_parser import NmapParseError
 from app.services.policy import build_policy_document
 from app.services.signing import document_hash, get_signer
+
+# Upper bound on a single result upload (defense against oversized payloads).
+_MAX_RESULT_BYTES = 25 * 1024 * 1024
 
 router = APIRouter(prefix="/probes", tags=["probes"])
 
@@ -590,3 +595,72 @@ async def report_job_status(
         if payload.summary is not None:
             job.summary_json = payload.summary
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/{probe_id}/jobs/{job_id}/results",
+    response_model=ResultIngestSummary,
+    status_code=status.HTTP_201_CREATED,
+    summary="Upload raw scanner results",
+)
+async def upload_job_results(
+    probe_id: uuid.UUID,
+    job_id: uuid.UUID,
+    request: Request,
+    probe: CurrentProbe,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    stage: Annotated[str, Query(max_length=64)] = "discovery",
+    scanner: Annotated[str, Query(max_length=64)] = "nmap",
+) -> ResultIngestSummary:
+    """Ingest a probe's raw Nmap XML for a job into the asset/service inventory.
+
+    The raw output is retained verbatim, then parsed defensively and normalized
+    into assets and services (deduplicated by identifier).
+    """
+    if probe.id != probe_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Certificate does not match the requested probe",
+        )
+    job = await session.get(ScanJob, job_id)
+    if job is None or job.probe_id != probe.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+
+    # Bound the payload size before reading it.
+    content_length = request.headers.get("content-length")
+    if (
+        content_length is not None
+        and content_length.isdigit()
+        and int(content_length) > _MAX_RESULT_BYTES
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Result upload too large"
+        )
+    body = await request.body()
+    if len(body) > _MAX_RESULT_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Result upload too large"
+        )
+
+    if scanner != "nmap":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Unsupported scanner '{scanner}'",
+        )
+    try:
+        summary = await ingest_nmap_result(
+            session, job=job, xml_bytes=body, probe_id=probe.id, stage=stage, scanner=scanner
+        )
+    except NmapParseError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+
+    if job.started_at is None:
+        job.started_at = datetime.now(UTC)
+    return ResultIngestSummary(
+        hosts_seen=summary.hosts_seen,
+        assets_created=summary.assets_created,
+        assets_updated=summary.assets_updated,
+        services_upserted=summary.services_upserted,
+    )

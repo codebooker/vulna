@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 4: Nmap discovery
+
+Real network discovery: probes run Nmap and the orchestrator normalizes the
+results into an asset/service inventory.
+
+Orchestrator (VulnaDash):
+
+- `Asset`, `AssetIdentifier`, `Service`, and `ScanArtifact` models (+ migrations).
+- Defensive Nmap XML parser (`defusedxml` — rejects XXE and entity-expansion
+  attacks) that normalizes up hosts and open services.
+- Result-upload endpoint (size-bounded) that retains raw output verbatim, parses
+  it, and upserts assets/identifiers/services — deduplicating by identifier (IP
+  then MAC) so repeated scans update rather than duplicate.
+- Asset/service read API (list, detail with services, per-asset services).
+
+VulnaScout agent (Go):
+
+- Nmap scanner adapter with an allowlisted, argument-injection-safe command
+  builder (only typed flags; targets validated as IP/CIDR) and a
+  context-cancellable runner producing XML (safe `-sT` discovery profile, no raw
+  sockets/root).
+- Executor generalized to a `JobRunner` interface; the agent uploads scanner
+  output before reporting completion; the run loop uses the Nmap worker.
+
+Validated end-to-end with **real nmap 7.99**: the probe's adapter scans a
+loopback target, the output parses and ingests, assets/services appear, repeated
+scans deduplicate, and out-of-scope targets are rejected. ADR 0005 records the
+discovery/adapter design.
+
 ### Added — Phase 3: Signed jobs and local policy
 
 Ed25519-signed job envelopes and local policy, verified and enforced

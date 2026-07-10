@@ -17,6 +17,23 @@ open-source security tools — **not** another vulnerability engine.
 > [`docs/authorized-use.md`](docs/authorized-use.md) and
 > [`SECURITY.md`](SECURITY.md).
 
+## Project status
+
+**Pre-release / active development.** Vulna is being built in reviewed, testable
+phases ([build plan §31](VULNA_CODEX_BUILD_PLAN.md)); each phase lands on `main`
+via a pull request with green CI. Current progress:
+
+| Phase | Scope | Status |
+|---|---|---|
+| 0 | Repository foundation, CI, scaffolding | ✅ Done |
+| 1 | Authentication, RBAC, orgs, sites, network scopes, audit log | ✅ Done |
+| 2 | VulnaScout enrollment, internal CA, mTLS, heartbeat, revocation | ✅ Done |
+| 3 | Ed25519-signed jobs & local policy, probe enforcement, cancellation | ✅ Done |
+| 4 | Nmap discovery — assets/services, safe discovery profile, XML parsing | ✅ Done |
+| 5–15 | Change detection, Nuclei/TLS, CVE intelligence, reports, ZAP, remediation, pentest, full-spectrum, appliance, observability, hardening | ⏳ Planned |
+
+Not yet ready for production use. See the [CHANGELOG](CHANGELOG.md) for details.
+
 ## Product family
 
 | Name | Purpose |

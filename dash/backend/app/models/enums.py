@@ -68,3 +68,62 @@ class JobStatus(StrEnum):
     EXPIRED = "expired"
     REJECTED_BY_PROBE = "rejected_by_probe"
 
+
+class AssetType(StrEnum):
+    """Asset classification (build plan Section 9.10)."""
+
+    WORKSTATION = "workstation"
+    SERVER = "server"
+    NETWORK_DEVICE = "network_device"
+    PRINTER = "printer"
+    CAMERA = "camera"
+    PHONE = "phone"
+    STORAGE = "storage"
+    HYPERVISOR = "hypervisor"
+    VIRTUAL_MACHINE = "virtual_machine"
+    CLOUD_INSTANCE = "cloud_instance"
+    IOT = "iot"
+    EMBEDDED = "embedded"
+    WEB_APPLICATION = "web_application"
+    UNKNOWN = "unknown"
+
+
+class AssetStatus(StrEnum):
+    """Whether an asset was seen in the most recent relevant assessment."""
+
+    ACTIVE = "active"
+    INACTIVE = "inactive"
+
+
+class IdentifierType(StrEnum):
+    """Types of stable asset identifier (build plan Section 9.11)."""
+
+    IP_ADDRESS = "ip_address"
+    MAC_ADDRESS = "mac_address"
+    HOSTNAME = "hostname"
+    FQDN = "fqdn"
+    SMB_NAME = "smb_name"
+    SSH_HOST_KEY = "ssh_host_key"
+    TLS_CERT_FINGERPRINT = "tls_cert_fingerprint"
+    SNMP_ENGINE_ID = "snmp_engine_id"
+    CLOUD_INSTANCE_ID = "cloud_instance_id"
+    AGENT_ID = "agent_id"
+
+
+class ServiceTransport(StrEnum):
+    """Transport protocol of a discovered service."""
+
+    TCP = "tcp"
+    UDP = "udp"
+    SCTP = "sctp"
+
+
+class ServiceState(StrEnum):
+    """Nmap-style port state."""
+
+    OPEN = "open"
+    CLOSED = "closed"
+    FILTERED = "filtered"
+    OPEN_FILTERED = "open_filtered"
+    UNFILTERED = "unfiltered"
+

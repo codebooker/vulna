@@ -21,6 +21,7 @@ type Orchestrator interface {
 	FetchPolicy(ctx context.Context) ([]byte, error)
 	PollJob(ctx context.Context) ([]byte, bool, error)
 	ReportJobStatus(ctx context.Context, jobID string, report api.JobStatusReport) error
+	UploadResults(ctx context.Context, jobID string, raw []byte, stage, scanner string) error
 }
 
 // Agent processes jobs for a single probe.
@@ -28,7 +29,7 @@ type Agent struct {
 	client Orchestrator
 	store  *storage.Store
 	pubkey ed25519.PublicKey
-	worker *executor.TestWorker
+	worker executor.JobRunner
 
 	policy     *policy.Policy
 	policyHash string
@@ -36,7 +37,7 @@ type Agent struct {
 
 // New builds an Agent.
 func New(
-	client Orchestrator, store *storage.Store, pubkey ed25519.PublicKey, worker *executor.TestWorker,
+	client Orchestrator, store *storage.Store, pubkey ed25519.PublicKey, worker executor.JobRunner,
 ) *Agent {
 	return &Agent{client: client, store: store, pubkey: pubkey, worker: worker}
 }
@@ -114,8 +115,19 @@ func (a *Agent) PollAndStart(ctx context.Context) (*RunningJob, error) {
 	return &RunningJob{JobID: job.JobID, cancel: cancel, done: done}, nil
 }
 
-// Finalize reports the terminal status of a finished job.
+// Finalize uploads any scanner output and reports the job's terminal status.
 func (a *Agent) Finalize(ctx context.Context, running *RunningJob, res executor.Result) error {
+	if !res.Cancelled && len(res.RawOutput) > 0 {
+		if err := a.client.UploadResults(
+			ctx, running.JobID, res.RawOutput, res.Stage, res.Scanner,
+		); err != nil {
+			return a.client.ReportJobStatus(ctx, running.JobID, api.JobStatusReport{
+				Status:       "failed",
+				ErrorCode:    "upload_failed",
+				ErrorMessage: err.Error(),
+			})
+		}
+	}
 	status := "completed"
 	if res.Cancelled {
 		status = "cancelled"

@@ -3,6 +3,7 @@
 from fastapi import APIRouter
 
 from app.api.v1 import (
+    assets,
     audit,
     auth,
     jobs,
@@ -23,4 +24,5 @@ api_router.include_router(sites.router)
 api_router.include_router(scopes.router)
 api_router.include_router(probes.router)
 api_router.include_router(jobs.router)
+api_router.include_router(assets.router)
 api_router.include_router(audit.router)

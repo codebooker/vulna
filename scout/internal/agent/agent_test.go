@@ -27,9 +27,19 @@ type fakeOrch struct {
 	job       []byte
 	jobServed bool
 	reports   []api.JobStatusReport
+	uploads   int
+	uploaded  []byte
 }
 
 func (f *fakeOrch) FetchPolicy(context.Context) ([]byte, error) { return f.policy, nil }
+
+func (f *fakeOrch) UploadResults(_ context.Context, _ string, raw []byte, _, _ string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.uploads++
+	f.uploaded = raw
+	return nil
+}
 
 func (f *fakeOrch) PollJob(context.Context) ([]byte, bool, error) {
 	f.mu.Lock()
@@ -157,6 +167,49 @@ func TestAlteredJobRejected(t *testing.T) {
 	}
 	if got := f.statuses(); !contains(got, "rejected_by_probe") {
 		t.Errorf("expected rejected_by_probe, got %v", got)
+	}
+}
+
+type stubRunner struct{ raw []byte }
+
+func (s stubRunner) Run(_ context.Context, job *policy.Job) (executor.Result, error) {
+	return executor.Result{
+		JobID: job.JobID, RawOutput: s.raw, Scanner: "nmap", Stage: "discovery",
+		StagesRun: 1, StagesTotal: 1,
+	}, nil
+}
+
+func TestFinalizeUploadsResults(t *testing.T) {
+	f := &fakeOrch{policy: []byte(agentPolicy), job: []byte(agentJob)}
+	pub, err := policy.ParsePublicKey(agentPub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := storage.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := New(f, st, pub, stubRunner{raw: []byte("<nmaprun/>")})
+	ctx := context.Background()
+	if err := a.SyncPolicy(ctx); err != nil {
+		t.Fatal(err)
+	}
+	running, err := a.PollAndStart(ctx)
+	if err != nil || running == nil {
+		t.Fatalf("expected a running job, err=%v", err)
+	}
+	res := <-running.Done()
+	if err := a.Finalize(ctx, running, res); err != nil {
+		t.Fatal(err)
+	}
+	if f.uploads != 1 {
+		t.Errorf("expected 1 result upload, got %d", f.uploads)
+	}
+	if string(f.uploaded) != "<nmaprun/>" {
+		t.Errorf("unexpected uploaded content: %q", f.uploaded)
+	}
+	if !contains(f.statuses(), "completed") {
+		t.Errorf("expected completed status, got %v", f.statuses())
 	}
 }
 

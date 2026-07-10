@@ -215,6 +215,37 @@ func (c *Client) ReportJobStatus(ctx context.Context, jobID string, report JobSt
 	return nil
 }
 
+// UploadResults uploads raw scanner output (e.g. Nmap XML) for a job.
+func (c *Client) UploadResults(
+	ctx context.Context, jobID string, raw []byte, stage, scanner string,
+) error {
+	if stage == "" {
+		stage = "discovery"
+	}
+	if scanner == "" {
+		scanner = "nmap"
+	}
+	url := fmt.Sprintf(
+		"%s/api/v1/probes/%s/jobs/%s/results?stage=%s&scanner=%s",
+		c.serverURL, c.probeID, jobID, stage, scanner,
+	)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(raw))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/xml")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("upload results: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
+		return fmt.Errorf("upload results: status %d: %s", resp.StatusCode, string(body))
+	}
+	return nil
+}
+
 // Heartbeat sends a heartbeat and returns the server's response.
 func (c *Client) Heartbeat(ctx context.Context, hb HeartbeatRequest) (HeartbeatResponse, error) {
 	var out HeartbeatResponse

@@ -1,6 +1,6 @@
-// Package executor runs assessment jobs. Phase 3 provides a cancellable test
-// worker that simulates execution without contacting any target; real scanner
-// plugins (Nmap and friends) arrive in later phases.
+// Package executor runs assessment jobs. It provides a cancellable test worker
+// (simulation) and, via the Nmap adapter, real discovery scans. Both satisfy
+// the JobRunner interface and honor context cancellation (the kill switch).
 package executor
 
 import (
@@ -10,13 +10,23 @@ import (
 	"github.com/codebooker/vulna/scout/internal/policy"
 )
 
-// Result summarizes a (simulated) job run.
+// Result summarizes a job run.
 type Result struct {
 	JobID           string
 	StagesRun       int
 	StagesTotal     int
 	Cancelled       bool
 	CompletedStages []string
+	// RawOutput is the scanner's raw output to upload (empty for the simulation).
+	RawOutput []byte
+	Scanner   string
+	Stage     string
+}
+
+// JobRunner executes a verified job and returns its result. Implementations
+// must stop promptly when the context is cancelled.
+type JobRunner interface {
+	Run(ctx context.Context, job *policy.Job) (Result, error)
 }
 
 // TestWorker simulates executing a job by stepping through its workflow stages,
