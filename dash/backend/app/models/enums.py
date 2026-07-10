@@ -127,3 +127,14 @@ class ServiceState(StrEnum):
     OPEN_FILTERED = "open_filtered"
     UNFILTERED = "unfiltered"
 
+
+class ChangeEventType(StrEnum):
+    """Types of asset/service change event (subset of build plan Section 9.17)."""
+
+    ASSET_DISCOVERED = "asset_discovered"
+    ASSET_DISAPPEARED = "asset_disappeared"
+    IP_CHANGED = "ip_changed"
+    NEW_PORT_OPENED = "new_port_opened"
+    PORT_CLOSED = "port_closed"
+    SERVICE_VERSION_CHANGED = "service_version_changed"
+

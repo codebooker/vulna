@@ -16,7 +16,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.asset import Asset, AssetIdentifier
-from app.models.enums import AssetStatus, AssetType, IdentifierType
+from app.models.change_event import ChangeEvent
+from app.models.enums import (
+    AssetStatus,
+    AssetType,
+    ChangeEventType,
+    IdentifierType,
+    ServiceState,
+)
 from app.models.scan_artifact import ScanArtifact
 from app.models.scan_job import ScanJob
 from app.models.service import Service
@@ -31,6 +38,7 @@ class IngestSummary:
     assets_created: int = 0
     assets_updated: int = 0
     services_upserted: int = 0
+    change_events: int = 0
 
 
 async def _find_asset_by_identifier(
@@ -123,6 +131,79 @@ def _classify_hostname(name: str) -> IdentifierType:
     return IdentifierType.FQDN if "." in name else IdentifierType.HOSTNAME
 
 
+def _record_change(
+    session: AsyncSession,
+    job: ScanJob,
+    asset: Asset,
+    event_type: ChangeEventType,
+    summary_text: str,
+    *,
+    before: dict[str, object] | None = None,
+    after: dict[str, object] | None = None,
+    severity: str = "info",
+) -> None:
+    session.add(
+        ChangeEvent(
+            organization_id=job.organization_id,
+            site_id=job.site_id,
+            asset_id=asset.id,
+            scan_job_id=job.id,
+            event_type=event_type,
+            severity=severity,
+            summary=summary_text,
+            before_json=before or {},
+            after_json=after or {},
+        )
+    )
+
+
+async def _detect_service_changes(
+    session: AsyncSession,
+    job: ScanJob,
+    asset: Asset,
+    host: ParsedHost,
+    now: datetime,
+    summary: IngestSummary,
+) -> None:
+    """Record port-open/close and version-change events vs the asset's current state."""
+    current = (
+        await session.execute(select(Service).where(Service.asset_id == asset.id))
+    ).scalars().all()
+    before = {(s.transport, s.port): s for s in current}
+    after = {(s.transport, s.port): s for s in host.services}
+
+    for (transport, port), parsed in after.items():
+        existing = before.get((transport, port))
+        if existing is None or existing.state != ServiceState.OPEN:
+            _record_change(
+                session, job, asset, ChangeEventType.NEW_PORT_OPENED,
+                f"Port {port}/{transport.value} opened on {asset.canonical_name}",
+                after={"port": port, "transport": transport.value, "service": parsed.service_name},
+            )
+            summary.change_events += 1
+        elif (existing.product, existing.version) != (parsed.product, parsed.version) and (
+            parsed.product or parsed.version
+        ):
+            _record_change(
+                session, job, asset, ChangeEventType.SERVICE_VERSION_CHANGED,
+                f"Service on {port}/{transport.value} changed on {asset.canonical_name}",
+                before={"product": existing.product, "version": existing.version},
+                after={"product": parsed.product, "version": parsed.version},
+            )
+            summary.change_events += 1
+
+    for (transport, port), existing in before.items():
+        if (transport, port) not in after and existing.state == ServiceState.OPEN:
+            _record_change(
+                session, job, asset, ChangeEventType.PORT_CLOSED,
+                f"Port {port}/{transport.value} closed on {asset.canonical_name}",
+                before={"port": port, "transport": transport.value},
+            )
+            summary.change_events += 1
+            existing.state = ServiceState.CLOSED
+            existing.last_seen_at = now
+
+
 async def _ingest_host(
     session: AsyncSession, job: ScanJob, host: ParsedHost, now: datetime, summary: IngestSummary
 ) -> None:
@@ -150,8 +231,17 @@ async def _ingest_host(
         )
         session.add(asset)
         summary.assets_created += 1
+        await session.flush()
+        _record_change(
+            session, job, asset, ChangeEventType.ASSET_DISCOVERED,
+            f"Asset {asset.canonical_name} discovered",
+            after={"ip": host.ip, "mac": host.mac, "hostnames": host.hostnames},
+        )
+        summary.change_events += 1
     else:
         summary.assets_updated += 1
+        # Compare this scan against the asset's current services before upserting.
+        await _detect_service_changes(session, job, asset, host, now, summary)
 
     asset.last_seen_at = now
     asset.last_assessed_at = now

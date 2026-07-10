@@ -663,4 +663,5 @@ async def upload_job_results(
         assets_created=summary.assets_created,
         assets_updated=summary.assets_updated,
         services_upserted=summary.services_upserted,
+        change_events=summary.change_events,
     )

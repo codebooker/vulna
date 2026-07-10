@@ -63,6 +63,7 @@ async def test_upload_discovers_assets_and_services(
         "assets_created": 1,
         "assets_updated": 0,
         "services_upserted": 2,
+        "change_events": 1,  # asset_discovered
     }
 
     # The asset and its services are readable via the API.

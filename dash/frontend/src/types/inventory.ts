@@ -48,3 +48,13 @@ export interface NewScope {
   cidr: string;
   allow_public_addresses?: boolean;
 }
+
+export interface ChangeEvent {
+  id: string;
+  site_id: string;
+  asset_id: string | null;
+  event_type: string;
+  severity: string;
+  summary: string;
+  created_at: string;
+}

@@ -65,3 +65,4 @@ class ResultIngestSummary(BaseModel):
     assets_created: int
     assets_updated: int
     services_upserted: int
+    change_events: int

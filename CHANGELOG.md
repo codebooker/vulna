@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 5: Change detection
+
+The orchestrator compares each scan against the current inventory and records
+what changed, so operators can see a delta over time.
+
+- `ChangeEvent` model (append-only) + migration.
+- Change detection during ingestion: `asset_discovered` on first sight,
+  `new_port_opened` / `port_closed` as ports change between scans, and
+  `service_version_changed` when a product/version changes.
+- Delta read API (`/api/v1/changes`) filterable by site, asset, scan, and type.
+- Frontend "Recent changes" panel listing recent change events.
+
+Verified: opening a port produces an event, closing it produces a second, and a
+scan comparison for an asset shows both. ADR 0006 records the design.
+
 ### Added — Phase 4: Nmap discovery
 
 Real network discovery: probes run Nmap and the orchestrator normalizes the

@@ -6,11 +6,13 @@ Alembic and ``metadata.create_all`` see the full schema.
 
 from app.models.asset import Asset, AssetIdentifier
 from app.models.audit import AuditEvent
+from app.models.change_event import ChangeEvent
 from app.models.enrollment_token import EnrollmentToken
 from app.models.enums import (
     ActorType,
     AssetStatus,
     AssetType,
+    ChangeEventType,
     IdentifierType,
     JobMode,
     JobStatus,
@@ -35,6 +37,8 @@ __all__ = [
     "AssetStatus",
     "AssetType",
     "AuditEvent",
+    "ChangeEvent",
+    "ChangeEventType",
     "EnrollmentToken",
     "IdentifierType",
     "JobMode",

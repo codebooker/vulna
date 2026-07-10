@@ -1,5 +1,5 @@
 import type { CurrentUser, TokenResponse } from '../types/auth';
-import type { NetworkScope, NewScope, NewSite, Page, Site } from '../types/inventory';
+import type { ChangeEvent, NetworkScope, NewScope, NewSite, Page, Site } from '../types/inventory';
 import type { HealthResponse, SystemInfoResponse } from '../types/system';
 
 // In development, Vite proxies /api to the backend (see vite.config.ts).
@@ -80,6 +80,9 @@ export const api = {
   },
   createScope(token: string, payload: NewScope): Promise<NetworkScope> {
     return request<NetworkScope>('/api/v1/scopes', { method: 'POST', token, body: payload });
+  },
+  listChanges(token: string, limit = 20): Promise<Page<ChangeEvent>> {
+    return request<Page<ChangeEvent>>(`/api/v1/changes?limit=${limit}`, { token });
   },
 };
 

@@ -1,4 +1,5 @@
 import { useAuth } from './auth/useAuth';
+import { ChangesPage } from './pages/ChangesPage';
 import { HealthPage } from './pages/HealthPage';
 import { LoginPage } from './pages/LoginPage';
 import { SitesPage } from './pages/SitesPage';
@@ -29,7 +30,10 @@ export function App() {
           <p className="detail">Loading…</p>
         </div>
       ) : user ? (
-        <SitesPage />
+        <>
+          <SitesPage />
+          <ChangesPage />
+        </>
       ) : (
         <LoginPage />
       )}
@@ -37,7 +41,7 @@ export function App() {
       <HealthPage />
 
       <p className="footer">
-        Phase 1 — authentication and core inventory. Authorized use only. See SECURITY.md.
+        Authorized use only. See SECURITY.md and the project status in the README.
       </p>
     </main>
   );
