@@ -197,3 +197,27 @@ def test_pdf_renders_with_empty_snapshot() -> None:
     empty = {"summary": {}, "scan_job": {}, "findings": [], "services": [], "assets": []}
     assert pdf.executive_pdf(empty)[:5] == b"%PDF-"
     assert pdf.technical_pdf(empty)[:5] == b"%PDF-"
+    assert pdf.pentest_pdf(empty)[:5] == b"%PDF-"
+
+
+def test_pentest_pdf_renders_sessions() -> None:
+    snap = dict(SNAPSHOT)
+    snap["pentest_sessions"] = [
+        {
+            "id": "ps1",
+            "finding_id": "f1",
+            "finding_title": "Log4Shell — RCE ✓",
+            "module": "auxiliary/scanner/smb/smb_ms17_010",
+            "status": "cleaned",
+            "approved_at": "2026-07-10T10:05:00+00:00",
+            "started_at": "2026-07-10T10:05:00+00:00",
+            "ended_at": "2026-07-10T10:06:00+00:00",
+            "max_session_seconds": 120,
+            "cleanup_required": True,
+            "cleanup_completed": True,
+            "outcome": "Confirmed present; detection only.",
+        }
+    ]
+    data = pdf.pentest_pdf(snap)
+    assert data[:5] == b"%PDF-"
+    assert len(data) > 1000

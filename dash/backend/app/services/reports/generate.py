@@ -41,6 +41,9 @@ ARTIFACTS: dict[ReportType, _Spec] = {
     ReportType.TECHNICAL_PDF: _Spec(
         ReportFormat.PDF, "pdf", pdf.technical_pdf, pdf.TEMPLATE_VERSION
     ),
+    ReportType.PENTEST_PDF: _Spec(
+        ReportFormat.PDF, "pdf", pdf.pentest_pdf, pdf.TEMPLATE_VERSION
+    ),
     ReportType.FINDINGS_CSV: _Spec(ReportFormat.CSV, "csv", exporters.findings_csv, "1"),
     ReportType.ASSETS_CSV: _Spec(ReportFormat.CSV, "csv", exporters.assets_csv, "1"),
     ReportType.SERVICES_CSV: _Spec(ReportFormat.CSV, "csv", exporters.services_csv, "1"),

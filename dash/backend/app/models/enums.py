@@ -174,6 +174,25 @@ class MatchConfidence(StrEnum):
     LOW = "low"
 
 
+class PentestSessionStatus(StrEnum):
+    """Lifecycle of a controlled-pentest validation session (build plan §13.2).
+
+    A session is created ``pending_approval``; only after an approver moves it to
+    ``approved`` may it run. It ends ``completed``/``terminated``/``expired``, and
+    ``cleanup_required`` sessions are not considered closed until ``cleaned``.
+    """
+
+    PENDING_APPROVAL = "pending_approval"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    TERMINATED = "terminated"  # stopped by kill switch or timeout
+    EXPIRED = "expired"  # timed out before running
+    CLEANUP_PENDING = "cleanup_pending"
+    CLEANED = "cleaned"
+
+
 class RiskAcceptanceStatus(StrEnum):
     """Lifecycle of a finding risk acceptance (build plan Section 9.19)."""
 
@@ -201,6 +220,7 @@ class ReportType(StrEnum):
 
     EXECUTIVE_PDF = "executive_pdf"
     TECHNICAL_PDF = "technical_pdf"
+    PENTEST_PDF = "pentest_pdf"
     FINDINGS_CSV = "findings_csv"
     ASSETS_CSV = "assets_csv"
     SERVICES_CSV = "services_csv"

@@ -22,6 +22,7 @@ from app.models.enums import (
     JobMode,
     JobStatus,
     MatchConfidence,
+    PentestSessionStatus,
     ProbeStatus,
     ReportFormat,
     ReportStatus,
@@ -39,9 +40,11 @@ from app.models.finding import Finding
 from app.models.finding_note import FindingNote
 from app.models.network_scope import NetworkScope
 from app.models.organization import Organization
+from app.models.pentest_session import PentestSession
 from app.models.probe import Probe
 from app.models.report import Report
 from app.models.risk_acceptance import RiskAcceptance
+from app.models.rules_of_engagement import RulesOfEngagement
 from app.models.scan_artifact import ScanArtifact
 from app.models.scan_job import ScanJob
 from app.models.service import Service
@@ -72,6 +75,8 @@ __all__ = [
     "MatchConfidence",
     "NetworkScope",
     "Organization",
+    "PentestSession",
+    "PentestSessionStatus",
     "Probe",
     "ProbeStatus",
     "Report",
@@ -80,6 +85,7 @@ __all__ = [
     "ReportType",
     "RiskAcceptance",
     "RiskAcceptanceStatus",
+    "RulesOfEngagement",
     "ScanArtifact",
     "ScanJob",
     "Service",

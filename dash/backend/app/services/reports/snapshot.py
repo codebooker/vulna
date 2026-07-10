@@ -20,6 +20,7 @@ from app.models.cve import CveRecord, ThreatIntelEnrichment
 from app.models.enums import IdentifierType, ServiceState, Severity
 from app.models.finding import Finding
 from app.models.organization import Organization
+from app.models.pentest_session import PentestSession
 from app.models.scan_job import ScanJob
 from app.models.service import Service
 from app.models.site import Site
@@ -93,6 +94,25 @@ async def build_snapshot(
         .scalars()
         .all()
     )
+
+    # Controlled-pentest validation sessions for this site's findings.
+    finding_ids = [f.id for f in findings]
+    pentest_sessions = (
+        list(
+            (
+                await session.execute(
+                    select(PentestSession)
+                    .where(PentestSession.finding_id.in_(finding_ids))
+                    .order_by(PentestSession.created_at.desc())
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if finding_ids
+        else []
+    )
+    finding_title = {f.id: f.title for f in findings}
 
     # CVE records + enrichment for every CVE referenced by a finding.
     cve_ids: set[str] = set()
@@ -298,6 +318,24 @@ async def build_snapshot(
         "findings": finding_rows,
         "cve_exposure": cve_exposure,
         "changes": change_rows,
+        "pentest_sessions": [
+            {
+                "id": str(ps.id),
+                "finding_id": str(ps.finding_id),
+                "finding_title": finding_title.get(ps.finding_id),
+                "module": ps.module,
+                "status": ps.status.value,
+                "requested_at": _iso(ps.created_at),
+                "approved_at": _iso(ps.approved_at),
+                "started_at": _iso(ps.started_at),
+                "ended_at": _iso(ps.ended_at),
+                "max_session_seconds": ps.max_session_seconds,
+                "cleanup_required": ps.cleanup_required,
+                "cleanup_completed": ps.cleanup_completed,
+                "outcome": ps.outcome,
+            }
+            for ps in pentest_sessions
+        ],
     }
 
 

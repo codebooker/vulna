@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 11: Controlled pentest framework
+
+A safety-first control plane for approval-gated validation. VulnaDash never runs
+an exploit itself; it authorizes (or refuses) an allowlisted, probe-side
+validation and records what happened.
+
+- Allowlisted module policy: only allowlisted modules may be requested,
+  denial-of-service and exploit categories are categorically blocked, and every
+  module requires approval before it can run. The default pack ships
+  **auxiliary/validation (detection) modules only** — no exploit modules or
+  exploit-specific lists in the repository. The same allowlist is mirrored on the
+  probe (`scout/internal/pentest`), so an unapproved or non-allowlisted module is
+  also rejected locally.
+- `RulesOfEngagement` and `PentestSession` models (+ migration). A session is
+  created `pending_approval`; only an approver/administrator may approve it, which
+  starts the session clock and sets a hard expiry (session timeout).
+- A validation-candidate list (high/critical, unvalidated, open findings), a
+  timeout sweep (`POST /pentest/sessions/run-timeouts`) that terminates
+  timed-out sessions, and cleanup recording that closes out a session.
+- A controlled-pentest PDF report (rules of engagement, methodology, validated
+  weaknesses, cleanup confirmation, limitations, sign-off).
+
+Verified: a non-allowlisted/DoS/exploit module is rejected (server and probe); a
+session cannot run without approval; a session is terminated at timeout; cleanup
+state is recorded; and a pentest PDF is generated. ADR 0012 records the design.
+
 ### Added — Phase 10: Remediation and verification
 
 Findings gain a full remediation workflow and automatic verification.

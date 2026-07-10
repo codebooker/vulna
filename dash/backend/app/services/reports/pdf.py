@@ -208,6 +208,82 @@ def technical_pdf(snapshot: dict[str, Any]) -> bytes:
     return bytes(doc.output())
 
 
+def pentest_pdf(snapshot: dict[str, Any]) -> bytes:
+    """Controlled-pentest report (build plan Section 16.1)."""
+    sessions = snapshot.get("pentest_sessions", [])
+    scan = snapshot.get("scan_job", {})
+    doc = _Doc("Controlled Pentest Report", _org_site(snapshot))
+    doc.add_page()
+
+    doc.h1("Controlled Pentest Report")
+    doc.para(_org_site(snapshot))
+
+    doc.h2("Executive summary")
+    validated = [s for s in sessions if s.get("status") in ("cleaned", "completed", "terminated")]
+    doc.para(
+        f"{len(sessions)} validation session(s) were authorized for this engagement; "
+        f"{len(validated)} completed. All validation used allowlisted, non-destructive "
+        "modules under explicit approval."
+    )
+
+    doc.h2("Rules of engagement")
+    doc.para(
+        "Testing was performed under the organization's rules of engagement: allowlisted "
+        "modules only, per-session approval, bounded session duration, and required cleanup. "
+        "Denial-of-service modules are categorically prohibited."
+    )
+
+    doc.h2("Testing window and scope")
+    doc.kv("Window", f"{scan.get('started_at') or '—'} to {scan.get('finished_at') or '—'}")
+    doc.kv("Scope", ", ".join(scan.get("targets", [])) or "—")
+
+    doc.h2("Methodology")
+    doc.para(
+        "Discovery and vulnerability assessment produced a candidate list; each candidate "
+        "validation was individually approved, executed with an allowlisted module under a "
+        "session timeout, evidenced minimally, and followed by cleanup and a verification scan."
+    )
+
+    doc.h2("Validated weaknesses and proof of access")
+    if sessions:
+        for s in sessions:
+            doc.ln(1)
+            doc.set_font("Helvetica", "B", 11)
+            title = s.get("finding_title") or s.get("finding_id")
+            doc.multi_cell(
+                0, 6, _txt(f"[{s.get('status', '').upper()}] {title}"),
+                new_x=XPos.LMARGIN, new_y=YPos.NEXT,
+            )
+            doc.kv("Module", s.get("module"))
+            doc.kv("Approved at", s.get("approved_at") or "—")
+            doc.kv("Session window", f"{s.get('started_at') or '—'} → {s.get('ended_at') or '—'}")
+            doc.kv("Max duration", f"{s.get('max_session_seconds')}s")
+            if s.get("outcome"):
+                doc.para(s["outcome"])
+    else:
+        doc.para("No validation sessions were run in this engagement.")
+
+    doc.h2("Cleanup confirmation")
+    for s in sessions:
+        state = "completed" if s.get("cleanup_completed") else (
+            "not required" if not s.get("cleanup_required") else "PENDING"
+        )
+        doc.bullet(f"{s.get('module')}: cleanup {state}")
+    if not sessions:
+        doc.para("No cleanup was required.")
+
+    doc.h2("Limitations")
+    doc.para(
+        "Validation is limited to allowlisted, non-destructive modules; absence of a validated "
+        "exploit is not proof a weakness is unexploitable by other means."
+    )
+
+    doc.h2("Approval / sign-off")
+    doc.para("Each session in this report was individually approved by an authorized approver.")
+
+    return bytes(doc.output())
+
+
 def _service_table(doc: _Doc, services: list[dict[str, Any]]) -> None:
     if not services:
         doc.para("No services were discovered.")

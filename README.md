@@ -36,7 +36,8 @@ via a pull request with green CI. Current progress:
 | 8 | Reports — executive/technical PDF, findings/assets/services/CVE CSVs, JSON bundle, storage, checksums, download authz | ✅ Done |
 | 9 | ZAP web assessment — passive + limited-active profiles, generated automation YAML, scope controls, approval gate, result parsing | ✅ Done |
 | 10 | Remediation & verification — assignment, due dates, notes, risk acceptance + expiry, targeted rescan, auto resolve/reopen | ✅ Done |
-| 11–15 | Pentest, full-spectrum, appliance, observability, hardening | ⏳ Planned |
+| 11 | Controlled pentest — rules of engagement, allowlisted (auxiliary-only) module policy, approval-gated sessions, timeouts, cleanup records, pentest report | ✅ Done |
+| 12–15 | Full-spectrum, appliance, observability, hardening | ⏳ Planned |
 | 16 | VulnaRelay — optional thin tunnel/relay mode for constrained sites (opt-in; smart probe stays the default) | 💤 Optional / future |
 
 Not yet ready for production use. See the [CHANGELOG](CHANGELOG.md) for details.
