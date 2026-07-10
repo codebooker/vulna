@@ -8,7 +8,14 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models.enums import JobMode, JobStatus
+from app.models.enums import JobMode, JobStatus, WebScanProfile
+
+
+class WebScanRequest(BaseModel):
+    """Optional OWASP ZAP web-assessment stage to attach to a job."""
+
+    profile: WebScanProfile = WebScanProfile.PASSIVE_BASELINE
+    start_urls: list[str] = Field(min_length=1, max_length=50)
 
 
 class JobCreate(BaseModel):
@@ -19,6 +26,7 @@ class JobCreate(BaseModel):
     mode: JobMode = JobMode.VULNERABILITY_ASSESSMENT
     not_before: datetime | None = None
     expires_at: datetime | None = None
+    web_scan: WebScanRequest | None = None
 
 
 class JobRead(BaseModel):

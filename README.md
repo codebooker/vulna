@@ -34,7 +34,8 @@ via a pull request with green CI. Current progress:
 | 6 | Nuclei vulnerability + testssl.sh TLS scanning — findings model, normalization, dedup, multi-stage workflow | ✅ Done |
 | 7 | VulnaWatch CVE intelligence — NVD/KEV/EPSS sync, feed health, finding enrichment, CVE watch events | ✅ Done |
 | 8 | Reports — executive/technical PDF, findings/assets/services/CVE CSVs, JSON bundle, storage, checksums, download authz | ✅ Done |
-| 9–15 | ZAP, remediation, pentest, full-spectrum, appliance, observability, hardening | ⏳ Planned |
+| 9 | ZAP web assessment — passive + limited-active profiles, generated automation YAML, scope controls, approval gate, result parsing | ✅ Done |
+| 10–15 | Remediation, pentest, full-spectrum, appliance, observability, hardening | ⏳ Planned |
 
 Not yet ready for production use. See the [CHANGELOG](CHANGELOG.md) for details.
 

@@ -9,14 +9,16 @@ what was signed.
 
 from __future__ import annotations
 
+import ipaddress
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from urllib.parse import urlsplit
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
-from app.models.enums import JobMode, JobStatus
+from app.models.enums import JobMode, JobStatus, WebScanProfile
 from app.models.probe import Probe
 from app.models.scan_job import ScanJob
 from app.services.policy import build_policy_document
@@ -31,6 +33,46 @@ _DEFAULT_WORKFLOW: list[dict[str, Any]] = [
     {"stage": "vulnerability", "plugin": "nuclei", "config": {}},
     {"stage": "tls", "plugin": "testssl", "config": {}},
 ]
+
+
+def _validate_web_start_urls(start_urls: list[str], approved: list[str]) -> list[str]:
+    """Validate ZAP start URLs. Each must be an http(s) URL; an IP-literal host
+    must fall within an approved scope (defense in depth — the probe enforces
+    scope too)."""
+    validated: list[str] = []
+    for raw in start_urls:
+        parts = urlsplit(raw)
+        if parts.scheme not in ("http", "https") or not parts.hostname:
+            raise JobValidationError(f"Invalid web start URL '{raw}'")
+        host = parts.hostname
+        try:
+            ipaddress.ip_address(host)
+        except ValueError:
+            pass  # hostname; scope is enforced by the probe's context
+        else:
+            if not _target_within_approved(host, approved):
+                raise JobValidationError(
+                    f"Web start URL host '{host}' is outside the approved scope"
+                )
+        validated.append(raw)
+    return validated
+
+
+def _build_web_stage(
+    profile: WebScanProfile, start_urls: list[str], limits: dict[str, Any]
+) -> dict[str, Any]:
+    duration_s = int(limits.get("max_duration_seconds", 600) or 600)
+    rps = int(limits.get("max_packets_per_second", 10) or 10)
+    return {
+        "stage": "web",
+        "plugin": "zap",
+        "config": {
+            "profile": profile.value,
+            "start_urls": start_urls,
+            "max_duration_minutes": max(1, duration_s // 60),
+            "requests_per_second": min(max(1, rps), 20),
+        },
+    }
 
 
 class JobValidationError(ValueError):
@@ -109,6 +151,8 @@ async def create_scan_job(
     created_by: uuid.UUID | None,
     not_before: datetime | None = None,
     expires_at: datetime | None = None,
+    web_profile: WebScanProfile | None = None,
+    web_start_urls: list[str] | None = None,
 ) -> ScanJob:
     """Validate, build, sign, and persist a scan job for a probe (status queued)."""
     if mode not in _SUPPORTED_MODES:
@@ -123,6 +167,11 @@ async def create_scan_job(
         targets, approved, allow_public=bool(policy["allow_public_addresses"])
     )
 
+    workflow = list(_DEFAULT_WORKFLOW)
+    if web_profile is not None and web_start_urls:
+        validated_urls = _validate_web_start_urls(web_start_urls, approved)
+        workflow.append(_build_web_stage(web_profile, validated_urls, policy["limits"]))
+
     now = datetime.now(UTC)
     start = not_before or now
     end = expires_at or (now + timedelta(minutes=settings.job_default_ttl_minutes))
@@ -135,7 +184,7 @@ async def create_scan_job(
         probe=probe,
         mode=mode,
         targets=normalized_targets,
-        workflow=_DEFAULT_WORKFLOW,
+        workflow=workflow,
         limits=policy["limits"],
         policy_version=int(policy["policy_version"]),
         not_before=start,
@@ -151,7 +200,7 @@ async def create_scan_job(
         mode=mode,
         status=JobStatus.QUEUED,
         requested_targets_json=normalized_targets,
-        workflow_json=_DEFAULT_WORKFLOW,
+        workflow_json=workflow,
         limits_json=policy["limits"],
         policy_version=int(policy["policy_version"]),
         envelope_json=signed,

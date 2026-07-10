@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 9: ZAP web assessment
+
+Web-application assessment via OWASP ZAP's Automation Framework, with scope
+controls and an approval gate for active scanning.
+
+- Probe ZAP adapter (`scout/internal/scanners/zap`): generates a scoped
+  automation plan and runs ZAP with only allowlisted arguments. The passive
+  profile spiders + passively analyzes only (no active attacks); the
+  limited-active profile adds an active scan whose policy enables just an
+  allowlisted set of rules (every other rule left off). The context's include
+  paths are bound to the in-scope hosts, so the crawler/scanner cannot follow a
+  redirect outside the authorized scope, and out-of-scope start URLs are rejected
+  before ZAP runs.
+- Backend: a `WebScanProfile`, an optional `web_scan` block on job creation that
+  appends a ZAP `web` stage to the workflow, start-URL scope validation, and an
+  approval gate — the active profile may only be requested by an administrator or
+  pentest approver (a plain operator gets 403). A defensive ZAP `traditional-json`
+  report parser normalizes alerts into web-application findings, wired into the
+  result-upload routing (`scanner=zap`).
+
+Verified: passive plans contain no active-scan job; limited-active plans use the
+rule allowlist; include paths are bound to scope (redirects out of scope don't
+match); active scans require approval; and a ZAP report ingests into deduplicated
+web findings. ADR 0010 records the design.
+
 ### Fixed
 
 - `deploy/Caddyfile` probe-mTLS guidance, after live validation against Caddy

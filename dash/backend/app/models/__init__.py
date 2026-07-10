@@ -31,6 +31,7 @@ from app.models.enums import (
     Severity,
     UserRole,
     ValidationStatus,
+    WebScanProfile,
 )
 from app.models.feed_health import FeedHealth
 from app.models.finding import Finding
@@ -84,4 +85,5 @@ __all__ = [
     "User",
     "UserRole",
     "ValidationStatus",
+    "WebScanProfile",
 ]

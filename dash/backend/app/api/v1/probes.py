@@ -60,6 +60,7 @@ from app.services.nuclei_parser import parse_nuclei_jsonl
 from app.services.policy import build_policy_document
 from app.services.signing import document_hash, get_signer
 from app.services.testssl_parser import TestsslParseError, parse_testssl_json
+from app.services.zap_parser import ZapParseError, parse_zap_json
 
 # Upper bound on a single result upload (defense against oversized payloads).
 _MAX_RESULT_BYTES = 25 * 1024 * 1024
@@ -658,14 +659,17 @@ async def upload_job_results(
                 services_upserted=nmap_summary.services_upserted,
                 change_events=nmap_summary.change_events,
             )
-        elif scanner in ("nuclei", "testssl"):
+        elif scanner in ("nuclei", "testssl", "zap"):
             store_scan_artifact(
                 session, job=job, probe_id=probe.id, stage=stage, scanner=scanner,
                 raw=body, content_type="application/json",
             )
-            parsed = (
-                parse_nuclei_jsonl(body) if scanner == "nuclei" else parse_testssl_json(body)
-            )
+            if scanner == "nuclei":
+                parsed = parse_nuclei_jsonl(body)
+            elif scanner == "testssl":
+                parsed = parse_testssl_json(body)
+            else:
+                parsed = parse_zap_json(body)
             fsummary = await ingest_findings(session, job=job, parsed=parsed, now=now)
             result = ResultIngestSummary(
                 findings_seen=fsummary.findings_seen,
@@ -679,7 +683,7 @@ async def upload_job_results(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=f"Unsupported scanner '{scanner}'",
             )
-    except (NmapParseError, TestsslParseError) as exc:
+    except (NmapParseError, TestsslParseError, ZapParseError) as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc

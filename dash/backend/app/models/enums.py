@@ -172,6 +172,18 @@ class MatchConfidence(StrEnum):
     LOW = "low"
 
 
+class WebScanProfile(StrEnum):
+    """OWASP ZAP web-assessment profile (build plan Section 12.5).
+
+    ``passive_baseline`` spiders and passively analyzes only (no attacks).
+    ``limited_active`` additionally runs an allowlisted set of active rules and
+    therefore requires approval.
+    """
+
+    PASSIVE_BASELINE = "passive_baseline"
+    LIMITED_ACTIVE = "limited_active"
+
+
 class ReportType(StrEnum):
     """A report/export artifact type (build plan Section 16)."""
 

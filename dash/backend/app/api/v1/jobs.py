@@ -19,7 +19,7 @@ from app.api.context import RequestContext, get_request_context
 from app.auth.dependencies import CurrentUser, require_roles
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
-from app.models.enums import JobStatus, ProbeStatus, UserRole
+from app.models.enums import JobStatus, ProbeStatus, UserRole, WebScanProfile
 from app.models.probe import Probe
 from app.models.scan_job import ScanJob
 from app.models.user import User
@@ -31,6 +31,11 @@ from app.services.jobs import JobValidationError, create_scan_job
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 _require_operator = require_roles(UserRole.ADMINISTRATOR, UserRole.SECURITY_OPERATOR)
+# Job creation also admits pentest approvers (for active web assessments); the
+# handler enforces which profiles each role may request.
+_require_job_creator = require_roles(
+    UserRole.ADMINISTRATOR, UserRole.SECURITY_OPERATOR, UserRole.PENTEST_APPROVER
+)
 
 # Statuses at which a job is still active and can be cancelled.
 _CANCELLABLE = {JobStatus.QUEUED, JobStatus.OFFERED, JobStatus.ACCEPTED, JobStatus.RUNNING}
@@ -51,12 +56,17 @@ async def _get_owned_job(session: AsyncSession, job_id: uuid.UUID, org_id: uuid.
 )
 async def create_job(
     payload: JobCreate,
-    operator: Annotated[User, Depends(_require_operator)],
+    operator: Annotated[User, Depends(_require_job_creator)],
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> JobRead:
-    """Create a signed scan job for an enrolled probe (Operator/Administrator)."""
+    """Create a signed scan job for an enrolled probe.
+
+    Regular scans and passive web assessments are for operators/administrators;
+    an active web assessment is intrusive and requires approval — only an
+    administrator or pentest approver may request the limited-active profile.
+    """
     probe = await session.get(Probe, payload.probe_id)
     if probe is None or probe.organization_id != operator.organization_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Probe not found")
@@ -64,6 +74,23 @@ async def create_job(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Probe must be enrolled/approved to receive jobs (is '{probe.status.value}')",
+        )
+
+    web_profile = payload.web_scan.profile if payload.web_scan else None
+    web_start_urls = payload.web_scan.start_urls if payload.web_scan else None
+    if web_profile == WebScanProfile.LIMITED_ACTIVE:
+        if operator.role not in (UserRole.ADMINISTRATOR, UserRole.PENTEST_APPROVER):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    "An active web assessment requires administrator or "
+                    "pentest-approver approval"
+                ),
+            )
+    elif operator.role not in (UserRole.ADMINISTRATOR, UserRole.SECURITY_OPERATOR):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Creating scans requires the operator or administrator role",
         )
 
     try:
@@ -76,6 +103,8 @@ async def create_job(
             created_by=operator.id,
             not_before=payload.not_before,
             expires_at=payload.expires_at,
+            web_profile=web_profile,
+            web_start_urls=web_start_urls,
         )
     except JobValidationError as exc:
         raise HTTPException(
