@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+# vulna-appliance — the VulnaScout appliance console.
+#
+# A thin operator front-end over the probe binary, the update engine, and the
+# systemd service. Identity/policy live in /var/lib/vulna and are never touched
+# by updates or rollbacks.
+#
+#   vulna-appliance enroll <args...>     enroll this probe (forwards to vulnascout)
+#   vulna-appliance status               probe + service status
+#   vulna-appliance update <ver> <bin>   install + activate a release, restart
+#   vulna-appliance rollback             revert to the previous release, restart
+#   vulna-appliance logs [N]             tail N service log lines (default 100)
+#   vulna-appliance version              active release + binary version
+#   vulna-appliance                      interactive menu
+set -euo pipefail
+
+BIN="${VULNA_BIN:-/opt/vulna/bin/vulnascout}"
+UPDATE="${VULNA_UPDATE:-/opt/vulna/bin/vulna-update}"
+SERVICE="vulnascout.service"
+
+have_systemd() { command -v systemctl >/dev/null 2>&1; }
+
+restart_service() {
+	if have_systemd; then
+		systemctl restart "$SERVICE" && echo "restarted $SERVICE"
+	else
+		echo "(systemd not present; restart the probe manually)"
+	fi
+}
+
+svc_status() {
+	if have_systemd; then
+		systemctl status "$SERVICE" --no-pager || true
+	fi
+}
+
+cmd_enroll() { "$BIN" enroll "$@"; restart_service; }
+cmd_status() { "$BIN" status || true; svc_status; }
+cmd_update() {
+	local version="${1:?version required}" binary="${2:?binary path required}"
+	"$UPDATE" install "$version" "$binary"
+	"$UPDATE" activate "$version"
+	restart_service
+}
+cmd_rollback() { "$UPDATE" rollback; restart_service; }
+cmd_logs() {
+	if have_systemd; then
+		journalctl -u "$SERVICE" -n "${1:-100}" --no-pager
+	else
+		echo "(systemd not present; no journal)"
+	fi
+}
+cmd_version() { echo "active: $("$UPDATE" current 2>/dev/null || echo unknown)"; "$BIN" version || true; }
+
+menu() {
+	cat <<'EOF'
+VulnaScout appliance console
+  1) status      2) enroll      3) update
+  4) rollback    5) logs        6) version   q) quit
+EOF
+	read -r -p "> " choice
+	case "$choice" in
+		1) cmd_status ;;
+		2) read -r -p "enroll args: " -a a; cmd_enroll "${a[@]}" ;;
+		3) read -r -p "version binary: " v b; cmd_update "$v" "$b" ;;
+		4) cmd_rollback ;;
+		5) cmd_logs ;;
+		6) cmd_version ;;
+		q|Q) exit 0 ;;
+		*) echo "unknown choice" ;;
+	esac
+}
+
+main() {
+	local action="${1:-menu}"
+	shift || true
+	case "$action" in
+		enroll) cmd_enroll "$@" ;;
+		status) cmd_status ;;
+		update) cmd_update "$@" ;;
+		rollback) cmd_rollback ;;
+		logs) cmd_logs "$@" ;;
+		version) cmd_version ;;
+		menu) menu ;;
+		*) echo "usage: enroll|status|update|rollback|logs|version" >&2; exit 1 ;;
+	esac
+}
+
+main "$@"

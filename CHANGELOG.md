@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 13: Appliance packaging
+
+VulnaScout ships as a turnkey appliance, and upgrades never lose a probe's
+identity or policy.
+
+- Multi-arch Docker probe image (`deploy/probe/Dockerfile`, amd64 + arm64) with
+  Nmap bundled; nfpm config for Debian `.deb` packages (amd64 + arm64 /
+  Raspberry Pi-class); a hardened systemd unit; a cloud-init template for
+  unattended provisioning; and a package build script.
+- An update/rollback engine (`update.sh`) that installs releases side by side and
+  flips a single symlink, keeping identity, policy, and config in a separate
+  `/var/lib/vulna` that updates never touch — so an upgrade preserves the enrolled
+  identity and signed policy, and a rollback re-points to the previous release.
+- An operator console (`vulna-appliance`: enroll, status, update, rollback, logs)
+  and a `docs/deployment.md` with the documented fresh-VM and Raspberry-Pi ARM64
+  enrollment commands.
+- A `packaging` CI job: shellchecks the appliance scripts and runs a smoke test
+  proving upgrade preserves identity/policy and rollback restores the prior
+  version.
+
 ### Added — Phase 12: Full-spectrum workflow
 
 A multi-stage assessment engine that composes discovery, assessment, controlled

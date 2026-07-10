@@ -38,7 +38,8 @@ via a pull request with green CI. Current progress:
 | 10 | Remediation & verification — assignment, due dates, notes, risk acceptance + expiry, targeted rescan, auto resolve/reopen | ✅ Done |
 | 11 | Controlled pentest — rules of engagement, allowlisted (auxiliary-only) module policy, approval-gated sessions, timeouts, cleanup records, pentest report | ✅ Done |
 | 12 | Full-spectrum workflow — multi-stage engine, conditional stages, approval pause, safe continuation on denial/failure, combined report, audit trail | ✅ Done |
-| 13–15 | Appliance, observability, hardening | ⏳ Planned |
+| 13 | Appliance packaging — Docker probe, Debian/ARM64 packages, cloud-init, appliance console, update/rollback (identity & policy preserved) | ✅ Done |
+| 14–15 | Observability, hardening | ⏳ Planned |
 | 16 | VulnaRelay — optional thin tunnel/relay mode for constrained sites (opt-in; smart probe stays the default) | 💤 Optional / future |
 
 Not yet ready for production use. See the [CHANGELOG](CHANGELOG.md) for details.

@@ -1,0 +1,33 @@
+# systemd unit for the VulnaScout probe.
+# Installed to /etc/systemd/system/vulnascout.service by the Debian package or
+# install.sh. Identity/policy/config live in /var/lib/vulna and survive upgrades.
+[Unit]
+Description=VulnaScout assessment probe
+Documentation=https://github.com/codebooker/vulna
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=vulna
+Group=vulna
+Environment=VULNA_DATA=/var/lib/vulna
+# /opt/vulna/bin/vulnascout is a symlink managed by update.sh (activate/rollback).
+ExecStart=/opt/vulna/bin/vulnascout run
+Restart=on-failure
+RestartSec=5
+
+# Hardening. The probe is unprivileged (Nmap uses connect-scan, no raw sockets);
+# it only needs to read its data dir and reach the network.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/vulna
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

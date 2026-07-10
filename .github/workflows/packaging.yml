@@ -1,0 +1,30 @@
+name: packaging
+
+on:
+  push:
+    branches: [main]
+  # No path filter on PRs so the check reports on every PR.
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  packaging:
+    name: packaging
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Shellcheck appliance scripts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+          shellcheck deploy/probe/update.sh \
+                     deploy/probe/smoke_test.sh \
+                     deploy/probe/vulna-appliance \
+                     deploy/probe/build-packages.sh \
+                     deploy/probe/postinstall.sh
+
+      - name: Update/rollback smoke test (identity + policy preserved)
+        run: bash deploy/probe/smoke_test.sh

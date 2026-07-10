@@ -1,0 +1,38 @@
+# nfpm packaging config for the VulnaScout probe (.deb and .rpm).
+# Build (after `go build` produces ./dist/vulnascout for the target arch):
+#   VERSION=1.0.0 ARCH=arm64 nfpm package -f deploy/probe/nfpm.yaml -p deb -t dist/
+# nfpm builds amd64 and arm64 (Raspberry Pi-class) from the same config.
+name: vulnascout
+arch: ${ARCH}
+version: ${VERSION}
+maintainer: Vulna maintainers <security@example.invalid>
+description: |
+  VulnaScout — remote assessment probe for the Vulna platform. Runs signed,
+  scope-enforced scans and reports results back to VulnaDash over mutual TLS.
+license: AGPL-3.0-only
+homepage: https://github.com/codebooker/vulna
+section: admin
+priority: optional
+
+# Nmap provides the discovery stage; other scanners are optional.
+depends:
+  - nmap
+
+contents:
+  - src: ./dist/vulnascout
+    dst: /opt/vulna/releases/${VERSION}/vulnascout
+    file_info:
+      mode: 0755
+  - src: ./deploy/probe/vulnascout.service
+    dst: /etc/systemd/system/vulnascout.service
+  - src: ./deploy/probe/update.sh
+    dst: /opt/vulna/bin/vulna-update
+    file_info:
+      mode: 0755
+  - src: ./deploy/probe/vulna-appliance
+    dst: /usr/bin/vulna-appliance
+    file_info:
+      mode: 0755
+
+scripts:
+  postinstall: ./deploy/probe/postinstall.sh

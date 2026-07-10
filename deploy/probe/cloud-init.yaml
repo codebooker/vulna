@@ -1,0 +1,29 @@
+#cloud-config
+# VulnaScout probe cloud-init. Provision a fresh VM as an appliance: install the
+# .deb (which sets up the user, data dir, service, and activates the release),
+# then enroll with a one-time token. Replace the templated values before use.
+#
+# Usage (Hetzner, AWS, libvirt, etc.): pass this file as user-data. amd64 and
+# arm64 images are both supported.
+
+package_update: true
+packages:
+  - nmap
+  - ca-certificates
+
+write_files:
+  - path: /etc/vulna/enroll.env
+    permissions: "0600"
+    content: |
+      VULNA_SERVER_URL={{ server_url }}
+      VULNA_ENROLL_TOKEN={{ enrollment_token }}
+
+runcmd:
+  # Install the probe package built for this architecture (place or fetch it).
+  - [ sh, -c, "dpkg -i /opt/vulnascout_*.deb || apt-get -f install -y" ]
+  # Enroll using the one-time token, then the service starts polling for jobs.
+  - [ sh, -c, ". /etc/vulna/enroll.env && vulna-appliance enroll --server \"$VULNA_SERVER_URL\" --token \"$VULNA_ENROLL_TOKEN\"" ]
+  # Scrub the token after a single use.
+  - [ shred, -u, /etc/vulna/enroll.env ]
+
+final_message: "VulnaScout appliance provisioned and enrolled."
