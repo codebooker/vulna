@@ -1,0 +1,48 @@
+# VulnaPulse alert rules.
+groups:
+  - name: vulna
+    rules:
+      - alert: VulnaDashDown
+        expr: up{job="vulnadash"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "VulnaDash is not being scraped"
+          description: "Prometheus cannot scrape VulnaDash /metrics for 2 minutes."
+
+      - alert: StaleCveFeed
+        # A CVE/KEV/EPSS feed has not synced successfully in over 6 hours.
+        expr: time() - vulna_feed_last_success_timestamp_seconds > 6 * 3600
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Intelligence feed {{ $labels.source }} is stale"
+          description: "{{ $labels.source }} has not synced successfully in over 6 hours."
+
+      - alert: IntelligenceFeedFailing
+        expr: vulna_feed_up == 0
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Intelligence feed {{ $labels.source }} is failing"
+          description: "The last sync of {{ $labels.source }} did not succeed."
+
+      - alert: NoProbesOnline
+        expr: vulna_probes_online == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "No VulnaScout probes are online"
+          description: "No enrolled probe has sent a heartbeat recently."
+
+      - alert: PostgresDown
+        expr: pg_up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL exporter reports the database down"

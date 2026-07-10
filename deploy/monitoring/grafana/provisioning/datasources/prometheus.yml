@@ -1,0 +1,11 @@
+# Grafana datasource provisioning — Prometheus is added automatically, no manual
+# import required.
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    uid: vulna-prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false

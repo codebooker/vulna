@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 14: VulnaPulse observability
+
+Operational monitoring for the stack, with a strict no-sensitive-data guarantee.
+
+- A VulnaDash `/metrics` endpoint in Prometheus format exposing **aggregate,
+  non-sensitive** metrics only: findings by severity/status, known-exploited
+  count, probe/scan-job/pentest/workflow counts, per-probe heartbeat/liveness, and
+  intelligence-feed freshness. Labels are limited to enum values and opaque UUIDs;
+  no finding title, description, evidence, or IP address appears anywhere. The
+  public proxy does not route `/metrics` (internal scrape only).
+- A `monitoring` Docker Compose profile (Prometheus, Grafana, Postgres/Redis/host/
+  container exporters), provisioned Grafana datasource + "Vulna Overview"
+  dashboard (auto-loaded, no manual import), and Prometheus alert rules including
+  a stale-CVE-feed alert.
+
+Verified: `/metrics` exposes the aggregates and is asserted to contain no finding
+titles, IPs, or CVE ids; the compose monitoring profile parses; and all monitoring
+config is valid. ADR 0015 records the design.
+
 ### Added — Phase 13: Appliance packaging
 
 VulnaScout ships as a turnkey appliance, and upgrades never lose a probe's

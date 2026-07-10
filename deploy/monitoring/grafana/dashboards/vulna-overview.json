@@ -1,0 +1,56 @@
+{
+  "uid": "vulna-overview",
+  "title": "Vulna Overview",
+  "tags": ["vulna"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": { "list": [] },
+  "annotations": { "list": [] },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Probes online",
+      "datasource": { "type": "prometheus", "uid": "vulna-prometheus" },
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [ { "color": "red", "value": null }, { "color": "green", "value": 1 } ] } }, "overrides": [] },
+      "targets": [ { "expr": "vulna_probes_online", "refId": "A" } ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Known-exploited findings",
+      "datasource": { "type": "prometheus", "uid": "vulna-prometheus" },
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 0 },
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] } }, "overrides": [] },
+      "targets": [ { "expr": "vulna_findings_known_exploited", "refId": "A" } ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Findings by severity",
+      "datasource": { "type": "prometheus", "uid": "vulna-prometheus" },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 0 },
+      "targets": [ { "expr": "vulna_findings_by_severity", "legendFormat": "{{severity}}", "refId": "A" } ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Scan jobs by status",
+      "datasource": { "type": "prometheus", "uid": "vulna-prometheus" },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 5 },
+      "targets": [ { "expr": "vulna_scan_jobs_by_status", "legendFormat": "{{status}}", "refId": "A" } ]
+    },
+    {
+      "id": 5,
+      "type": "table",
+      "title": "Intelligence feed freshness (seconds since last success)",
+      "datasource": { "type": "prometheus", "uid": "vulna-prometheus" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 14 },
+      "targets": [ { "expr": "time() - vulna_feed_last_success_timestamp_seconds", "legendFormat": "{{source}}", "refId": "A", "instant": true } ]
+    }
+  ]
+}

@@ -10,17 +10,22 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
+from typing import Annotated
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import __version__
 from app.api.v1 import api_router
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 from app.db.base import Base
-from app.db.session import dispose_engine, get_engine, get_sessionmaker
+from app.db.session import dispose_engine, get_engine, get_session, get_sessionmaker
 from app.schemas.system import HealthResponse
 from app.services.bootstrap import run_bootstrap
+from app.services.metrics import render_metrics
 
 
 @asynccontextmanager
@@ -77,6 +82,15 @@ def create_app() -> FastAPI:
     def health() -> HealthResponse:
         """Liveness probe used by Docker/Compose health checks and the frontend."""
         return HealthResponse(status="ok", service=settings.app_name, version=__version__)
+
+    @app.get("/metrics", response_class=PlainTextResponse, tags=["system"], include_in_schema=False)
+    async def metrics(
+        session: Annotated[AsyncSession, Depends(get_session)],
+        settings_dep: Annotated[Settings, Depends(get_settings)],
+    ) -> str:
+        """Prometheus metrics (aggregate only; no sensitive labels). Scrape this
+        on the internal network — do not expose it through the public proxy."""
+        return await render_metrics(session, settings_dep, datetime.now(UTC))
 
     return app
 

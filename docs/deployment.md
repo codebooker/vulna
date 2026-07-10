@@ -76,3 +76,25 @@ vulna-appliance version
 
 The `deploy/probe/smoke_test.sh` check proves that an upgrade preserves identity
 and policy and that a rollback restores the prior version.
+
+## Observability (VulnaPulse)
+
+Start the monitoring stack (Prometheus, Grafana, and the Postgres/Redis/host/
+container exporters) alongside the main stack:
+
+```sh
+docker compose --profile monitoring up -d
+```
+
+- **Grafana** on `:3000` (user `admin`, password `GRAFANA_PASSWORD`) loads the
+  Prometheus datasource and the "Vulna Overview" dashboard automatically — no
+  manual import.
+- **Prometheus** on `:9090` scrapes VulnaDash at `api:8000/metrics`, plus the
+  exporters, and evaluates the alert rules in `deploy/monitoring/prometheus/alerts.yml`
+  (including a stale-CVE-feed alert).
+
+VulnaDash exposes only **aggregate, non-sensitive** metrics at `/metrics`: counts
+by severity/status, probe liveness, and feed freshness. No finding titles,
+descriptions, evidence, or IP addresses appear in any label or value. The public
+Caddy proxy does not route `/metrics`, so it is reachable only on the internal
+Docker network for Prometheus to scrape.
