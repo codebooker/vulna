@@ -42,13 +42,23 @@ if [ -f "$STAGE/config/env" ]; then
 	fi
 fi
 
-# 3. Restore the database.
+# 3. Restore the database. This is the whole point of a restore, so if we cannot
+# actually load the dump we FAIL — never report success for a database that was not
+# restored. (The Compose deployment restores the DB via `docker compose exec
+# postgres pg_restore` in the CLI, not this host-mode path.)
 if [ -f "$STAGE/db.dump" ]; then
 	if [ -n "${DATABASE_URL:-}" ] && command -v pg_restore >/dev/null 2>&1; then
 		pg_restore --clean --if-exists --no-owner --dbname "$DATABASE_URL" "$STAGE/db.dump"
+	elif [ -n "${VULNA_DB_RESTORE_OUT:-}" ]; then
+		# Explicit test hook: write the dump to a caller-named path. Used by the smoke
+		# test to exercise the archive mechanics WITHOUT a live PostgreSQL. Not a real
+		# database restore — the caller knows that.
+		cp "$STAGE/db.dump" "$VULNA_DB_RESTORE_OUT"
+		echo "restore: staged db.dump to $VULNA_DB_RESTORE_OUT (test hook; no live DB restored)" >&2
 	else
-		cp "$STAGE/db.dump" "$VULNA_DATA/restored-db.dump"
-		echo "restore: DATABASE_URL/pg_restore unavailable; dump left at $VULNA_DATA/restored-db.dump" >&2
+		echo "restore: no way to restore the database (set DATABASE_URL with pg_restore, or use the CLI against a running Compose deployment)." >&2
+		echo "restore: FAILED — the database was NOT restored." >&2
+		exit 1
 	fi
 fi
 

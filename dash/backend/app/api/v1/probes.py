@@ -14,6 +14,7 @@ before the ``/{probe_id}`` routes so they are matched correctly.
 from __future__ import annotations
 
 import contextlib
+import json
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
@@ -885,6 +886,25 @@ async def upload_job_results(
                 findings_reopened=fsummary.findings_reopened,
                 change_events=fsummary.change_events,
             )
+        elif scanner == "metasploit":
+            # Controlled-pentest exploit output: retain the raw artifact (encrypted)
+            # and record the minimized loot + cleanup_verified flag onto the session,
+            # which is where they must land — the terminal status summary carries only
+            # stage counts.
+            store_scan_artifact(
+                session, job=job, probe_id=probe.id, stage=stage, scanner=scanner,
+                raw=body, content_type="application/json", master_key=settings.master_key,
+            )
+            try:
+                output = json.loads(body)
+            except (json.JSONDecodeError, ValueError) as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="metasploit result is not valid JSON",
+                ) from exc
+            if isinstance(output, dict):
+                await pentest_service.record_pentest_result(session, job=job, output=output)
+            result = ResultIngestSummary()
         else:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
