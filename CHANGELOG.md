@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 25: Backups, restore, and recovery
+
+Make data ownership real with an understandable, verifiable recovery process.
+
+- New `vulna backup` CLI: `create`, `list`, `verify`, `restore`, `prune`, and
+  `recovery-sheet`, wrapping the DB-dump-plus-data archive from
+  `deploy/backup/backup.sh` in a bundle with a **versioned, secret-free manifest**
+  (content classes, app/schema versions, org ownership, archive checksum).
+- **Encrypted bundles**: AES-256-GCM keyed by PBKDF2-HMAC-SHA256 from a
+  user-controlled recovery passphrase supplied via the environment (never argv,
+  never stored, never in the manifest or logs). Both implemented from the Go
+  standard library (no third-party dependency). Wrong passphrase or tampering fails
+  authentication.
+- **Verify before restore**: a bundle missing required files or failing its
+  checksum is marked UNUSABLE; `restore` refuses it before any destructive step,
+  and `create` self-verifies what it wrote.
+- **Restore safety**: validates schema-version compatibility and organization
+  ownership, and refuses to overwrite an existing deployment without `--confirm`
+  (taking a safety backup first). A UX guard rejects flags placed after the bundle
+  path so a validation flag can never be silently skipped.
+- Because the **CA** and database are backed up, restoring does not require
+  re-enrolling every Scout.
+- A printable **recovery sheet** with only non-secret identifiers, key-custody
+  instructions, restore commands, and a clear statement of what cannot be recovered
+  if the passphrase or CA key is lost.
+- A **display-only** web backup center (`GET /system/backups`): retention,
+  destinations (local default, S3-compatible), content classes, encryption note,
+  CLI commands, and a prominent keep-a-verified-off-host-backup warning.
+- ADR 0025, `docs/backups.md`, a frontend Backup Center panel, a CI backup smoke
+  test (usable vs corrupted/wrong-passphrase), and Go + backend tests.
+
 ### Added — Phase 24: Boring, safe updates and rollback
 
 Keep Vulna current with verified, operator-driven, reversible updates — without

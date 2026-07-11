@@ -40,6 +40,42 @@ async def system_component_health(
     return asdict(health)
 
 
+@router.get("/backups", summary="Backup center (display only)")
+def backup_center(
+    current_user: CurrentUser,
+    settings: Settings = Depends(get_settings),
+) -> dict[str, object]:
+    """Show backup policy and the CLI commands. Backups are created, verified, and
+    restored by the operator with the `vulna backup` CLI — the web UI never handles
+    the recovery passphrase or key material."""
+    return {
+        "default_destination": "local filesystem",
+        "destinations": ["local", "s3-compatible"],
+        "retention_days": settings.backup_retention_days,
+        "contents": [
+            "database",
+            "config",
+            "ca",
+            "scout_state",
+            "reports",
+            "evidence",
+            "branding",
+            "presets",
+        ],
+        "encryption": (
+            "AES-256-GCM with a user-controlled recovery passphrase; required for backups "
+            "containing credentials, CA material, evidence, or application secrets"
+        ),
+        "how_to_create": "vulna backup create --archive <tar.gz> --encrypt",
+        "how_to_verify": "vulna backup verify <bundle>",
+        "how_to_restore": "vulna backup restore <bundle>",
+        "warning": (
+            "Keep a recent, VERIFIED, encrypted backup off-host. If you lose the recovery "
+            "passphrase, or the CA key and it was not backed up, that data cannot be recovered."
+        ),
+    }
+
+
 @router.get("/info", response_model=SystemInfoResponse, summary="Service information")
 def system_info(settings: Settings = Depends(get_settings)) -> SystemInfoResponse:
     """Return non-sensitive information about the running service."""

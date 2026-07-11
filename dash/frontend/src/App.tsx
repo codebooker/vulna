@@ -3,6 +3,7 @@ import { api } from './api/client';
 import { useAuth } from './auth/useAuth';
 import { GlobalSearch } from './components/GlobalSearch';
 import { AddScoutPage } from './pages/AddScoutPage';
+import { BackupCenterPage } from './pages/BackupCenterPage';
 import { ChangesPage } from './pages/ChangesPage';
 import { FeedsPage } from './pages/FeedsPage';
 import { FindingsPage } from './pages/FindingsPage';
@@ -83,6 +84,7 @@ export function App() {
           <AddScoutPage />
           <NetworkingPage />
           <UpdateCenterPage />
+          <BackupCenterPage />
           <ChangesPage />
           <FeedsPage />
           <ReportsPage />

@@ -14,6 +14,7 @@ import type {
   ScanSummary,
   ScopePreview,
 } from '../types/onboarding';
+import type { BackupCenter } from '../types/backup';
 import type { DashboardSummary, SearchResults } from '../types/dashboard';
 import type { Finding, Page as FindingPage } from '../types/finding';
 import type { BrowserTest, NetworkStatus, ValidateResult } from '../types/networking';
@@ -189,6 +190,11 @@ export const api = {
   // --- Update center (Phase 24, display only) ---
   updateCenter(token: string): Promise<UpdateCenter> {
     return request<UpdateCenter>('/api/v1/system/update', { token });
+  },
+
+  // --- Backup center (Phase 25, display only) ---
+  backupCenter(token: string): Promise<BackupCenter> {
+    return request<BackupCenter>('/api/v1/system/backups', { token });
   },
 
   // --- Networking assistant (Phase 23) ---

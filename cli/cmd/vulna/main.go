@@ -33,6 +33,7 @@ Commands:
   update         Pre-update checks + backup, then print the apply steps
   update status  Show current version and the recorded rollback point
   rollback       Roll back to the prior known-good version (restore from backup)
+  backup ...     create | list | verify | restore | prune | recovery-sheet
   version        Print version and build information
   help           Show this help message
 
@@ -67,6 +68,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return cmdUpdate(args[1:], stdout, stderr)
 	case "rollback":
 		return cmdRollback(args[1:], stdout, stderr)
+	case "backup":
+		return cmdBackup(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "unknown command: %q\n\n%s", args[0], usage)
 		return 2

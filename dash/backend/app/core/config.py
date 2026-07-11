@@ -166,6 +166,12 @@ class Settings(BaseSettings):
     # applied by the operator with the signed-manifest-verifying `vulna` CLI.
     update_channel: str = "stable"
 
+    # ---- Backups (Phase 25) -------------------------------------------------
+    # Display-only in the web UI. Backups are created, verified, and restored by
+    # the operator with the `vulna backup` CLI (encrypted bundles with a
+    # user-controlled recovery passphrase); the app never handles the passphrase.
+    backup_retention_days: int = 30
+
     # ---- Reports (Phase 8) --------------------------------------------------
     # Directory where generated report artifacts (PDF/CSV/JSON) are stored.
     reports_dir: str = "/var/lib/vulna/reports"
