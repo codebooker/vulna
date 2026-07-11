@@ -21,7 +21,9 @@ from app.api.v1 import (
     onboarding,
     organizations,
     pentest,
+    portability,
     presets,
+    privacy,
     probes,
     reports,
     resources,
@@ -52,6 +54,8 @@ api_router.include_router(dashboard.search_router)
 api_router.include_router(networking.router)
 api_router.include_router(onboarding.router)
 api_router.include_router(presets.router)
+api_router.include_router(privacy.router)
+api_router.include_router(portability.router)
 api_router.include_router(resources.router)
 api_router.include_router(assets.router)
 api_router.include_router(changes.router)

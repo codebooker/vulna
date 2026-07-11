@@ -108,6 +108,16 @@ HELP_TOPICS: dict[str, HelpTopic] = {
         "Explore the interface with sample data and no scanning.",
         "docs/demo.md",
     ),
+    "privacy": HelpTopic(
+        "privacy", "Privacy and data ownership",
+        "What leaves the deployment, secret inventory, and telemetry.",
+        "docs/privacy.md",
+    ),
+    "portability": HelpTopic(
+        "portability", "Export and moving to a new host",
+        "Export your data and migrate Vulna to another machine.",
+        "docs/portability.md",
+    ),
 }
 
 # Contextual mappings so callers can look up help by the identifier they already

@@ -14,6 +14,7 @@ import { LoginPage } from './pages/LoginPage';
 import { MaintenancePage } from './pages/MaintenancePage';
 import { NetworkingPage } from './pages/NetworkingPage';
 import { NotificationsPage } from './pages/NotificationsPage';
+import { PrivacyPage } from './pages/PrivacyPage';
 import { OnboardingWizard } from './pages/OnboardingWizard';
 import { PresetsPage } from './pages/PresetsPage';
 import { ReportsPage } from './pages/ReportsPage';
@@ -85,6 +86,7 @@ export function App() {
           <SystemHealthPage />
           <MaintenancePage />
           <NotificationsPage />
+          <PrivacyPage />
           <HelpPage />
           <FindingsPage />
           <SitesPage />

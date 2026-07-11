@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vulna.dev/schemas/export-bundle.schema.json",
+  "title": "Vulna Data Export Bundle",
+  "description": "Versioned, checksummed export of an organization's non-secret data (Phase 31). Contains no keys, tokens, certificates, passwords, or report file bytes. Can be validated independently: recompute sha256 over the canonical JSON of every field except 'checksum'.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "exported_at",
+    "organization",
+    "sites",
+    "network_scopes",
+    "scouts",
+    "assets",
+    "services",
+    "findings",
+    "reports",
+    "risk_acceptances",
+    "finding_notes",
+    "checksum"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "const": "1" },
+    "exported_at": { "type": "string" },
+    "checksum": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "organization": {
+      "type": "object",
+      "required": ["id", "name", "slug"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "slug": { "type": "string" },
+        "default_timezone": { "type": "string" }
+      }
+    },
+    "sites": { "type": "array", "items": { "type": "object" } },
+    "network_scopes": { "type": "array", "items": { "type": "object" } },
+    "scouts": { "type": "array", "items": { "type": "object" } },
+    "assets": { "type": "array", "items": { "type": "object" } },
+    "services": { "type": "array", "items": { "type": "object" } },
+    "findings": { "type": "array", "items": { "type": "object" } },
+    "reports": { "type": "array", "items": { "type": "object" } },
+    "risk_acceptances": { "type": "array", "items": { "type": "object" } },
+    "finding_notes": { "type": "array", "items": { "type": "object" } }
+  }
+}

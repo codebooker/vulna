@@ -60,6 +60,25 @@ strict parsers · content sanitization · least privilege · encrypted evidence 
 RBAC · append-only audit trail · SBOMs · dependency scanning · reproducible
 releases where feasible.
 
+## Privacy and data ownership (Phase 31)
+
+Vulna is self-hosted and does not require an account, license server, hosted
+control plane, or telemetry endpoint, and the running application never contacts a
+release server. The only outbound traffic is intelligence-feed downloads and the
+SMTP/webhook notifications an operator configures; every destination is listed on
+the privacy page. Telemetry is off by default, opt-in only, and strictly
+anonymous (aggregate counts, no PII or cross-installation identifier). Data
+portability is bounded by these controls:
+
+- **Export excludes secrets** — the data export carries only non-secret categories
+  (see the [data map](data-map.md)); keys, credentials, evidence, and raw output
+  never appear.
+- **Untrusted import** — a bundle is validated (schema, checksum, ownership) and
+  never applied automatically; a bundle from another organization is refused, so
+  portability cannot become a cross-organization authorization bypass. Trust roots,
+  privileged users, and signing keys are never overwritten by an import; a host
+  move is a backup/restore that deliberately preserves CA and Scout identity.
+
 ## Out of scope (current)
 
 - Vulnerabilities in third-party scanner tools themselves.

@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 31: privacy, data ownership, and portability
+
+Make Vulna trustworthy for people who self-host to keep control of their data.
+
+- **Outbound transparency** (`app/services/privacy.py`, `/privacy/outbound`):
+  lists every destination the deployment may contact — intelligence feeds, the
+  SMTP/webhook channels you configured — and states that **update checks contact
+  nothing** (the app never phones home; updates are CLI-run). Computed from actual
+  config so it always reflects enabled features.
+- **Opt-in-only, anonymous telemetry**: off by default and never preselected. A
+  field-level **preview** (`/privacy/telemetry/preview`) shows the exact
+  aggregate-counts-only payload, which never contains IPs, hostnames, usernames,
+  findings, CVEs, evidence, credentials, report contents, or a cross-installation
+  identifier. A **local analytics** option reports the same counts and is never
+  transmitted. Toggle changes are audited.
+- **Disabling never breaks core function**: update-check/telemetry/feed toggles
+  live in `settings_json` (no schema change) and are independent of scanning,
+  reporting, remediation, and local intelligence import.
+- **Secret inventory** (`/privacy/secrets`, admin): which secrets are configured,
+  **never their values**.
+- **Complete, verifiable export** (`app/services/export.py`,
+  `/portability/export`): a versioned, checksummed JSON bundle of non-secret data
+  (no keys/tokens/certs/passwords/report bytes) that validates independently
+  against a **published schema** (`shared/schemas/export-bundle.schema.json`).
+- **Untrusted-import validation** (`/portability/validate`): checks schema,
+  checksum, ownership, and conflicts and **never applies anything**; a bundle from
+  another organization is **refused** (no cross-org bypass). The host move is a
+  backup/restore that preserves CA and Scout identity (`/portability/migration-plan`).
+- A **machine-readable data map** (`shared/schemas/data-map.json`,
+  `docs/data-map.md`), a Privacy page (frontend), a threat-model update, and ADR
+  0031.
+
 ### Added — Phase 30: documentation, demo, and guided learning
 
 Documentation as part of the product, plus a safe way to evaluate the interface.

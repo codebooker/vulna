@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vulna.dev/schemas/data-map.json",
+  "title": "Vulna Data Map",
+  "description": "Machine-readable map of what data Vulna stores, where, its sensitivity, and whether it can leave the deployment (Phase 31). Not a JSON Schema for validation; a documented data inventory.",
+  "version": "1",
+  "leaves_deployment": {
+    "intelligence_feeds": {
+      "destinations": ["services.nvd.nist.gov", "www.cisa.gov", "epss.cyentia.com"],
+      "direction": "outbound_download",
+      "contains_org_data": false,
+      "toggle": "intelligence_feeds_enabled"
+    },
+    "smtp": {
+      "destinations": ["operator-configured"],
+      "direction": "outbound",
+      "contains_org_data": "selected_notification_fields",
+      "toggle": "per_channel"
+    },
+    "webhooks": {
+      "destinations": ["operator-configured"],
+      "direction": "outbound",
+      "contains_org_data": "selected_notification_fields",
+      "toggle": "per_channel"
+    },
+    "telemetry": {
+      "destinations": ["operator-configured, none by default"],
+      "direction": "outbound",
+      "contains_org_data": "aggregate_counts_only",
+      "toggle": "telemetry_enabled",
+      "default": "off",
+      "never_contains": [
+        "ip_addresses", "hostnames", "usernames", "findings", "cves",
+        "evidence", "credentials", "report_contents", "install_identifier"
+      ]
+    },
+    "updates": {
+      "destinations": [],
+      "direction": "none",
+      "note": "The application never contacts a release server; updates are CLI-run."
+    }
+  },
+  "stored_locally": [
+    { "category": "organization/sites/scopes", "store": "database", "sensitivity": "low", "in_export": true },
+    { "category": "scouts", "store": "database", "sensitivity": "low", "in_export": "metadata_only" },
+    { "category": "assets/services", "store": "database", "sensitivity": "medium", "in_export": true },
+    { "category": "findings", "store": "database", "sensitivity": "medium", "in_export": true },
+    { "category": "raw scanner output", "store": "database", "sensitivity": "medium", "in_export": false },
+    { "category": "evidence", "store": "reports volume", "sensitivity": "high", "in_export": false },
+    { "category": "reports (files)", "store": "reports volume", "sensitivity": "medium", "in_export": "metadata_only" },
+    { "category": "audit log", "store": "database", "sensitivity": "medium", "in_export": false },
+    { "category": "users/credentials", "store": "database", "sensitivity": "high", "in_export": false },
+    { "category": "internal CA + signing keys", "store": "keys volume", "sensitivity": "critical", "in_export": false },
+    { "category": "notification/SMTP secrets", "store": "database (encrypted)", "sensitivity": "high", "in_export": false }
+  ]
+}

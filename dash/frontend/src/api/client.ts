@@ -25,6 +25,12 @@ import type {
   NotificationEventDef,
 } from '../types/notifications';
 import type { DemoStatus, HelpTopic } from '../types/help';
+import type {
+  OutboundConnection,
+  PrivacySettings,
+  SecretItem,
+  TelemetryPreview,
+} from '../types/privacy';
 import type { Finding, Page as FindingPage } from '../types/finding';
 import type { BrowserTest, NetworkStatus, ValidateResult } from '../types/networking';
 import type { Preset, PresetPreview } from '../types/presets';
@@ -287,6 +293,33 @@ export const api = {
   },
   disableDemo(token: string): Promise<DemoStatus> {
     return request<DemoStatus>('/api/v1/demo/disable', { method: 'POST', token });
+  },
+
+  // --- Privacy & portability (Phase 31) ---
+  privacyOutbound(token: string): Promise<{ connections: OutboundConnection[] }> {
+    return request<{ connections: OutboundConnection[] }>('/api/v1/privacy/outbound', { token });
+  },
+  privacySecrets(token: string): Promise<{ secrets: SecretItem[] }> {
+    return request<{ secrets: SecretItem[] }>('/api/v1/privacy/secrets', { token });
+  },
+  privacySettings(token: string): Promise<{ settings: PrivacySettings }> {
+    return request<{ settings: PrivacySettings }>('/api/v1/privacy/settings', { token });
+  },
+  updatePrivacySettings(
+    token: string,
+    changes: Partial<PrivacySettings>,
+  ): Promise<{ settings: PrivacySettings }> {
+    return request<{ settings: PrivacySettings }>('/api/v1/privacy/settings', {
+      method: 'POST',
+      token,
+      body: changes,
+    });
+  },
+  telemetryPreview(token: string): Promise<TelemetryPreview> {
+    return request<TelemetryPreview>('/api/v1/privacy/telemetry/preview', { token });
+  },
+  exportData(token: string): Promise<Record<string, unknown>> {
+    return request<Record<string, unknown>>('/api/v1/portability/export', { token });
   },
 
   // --- Networking assistant (Phase 23) ---
