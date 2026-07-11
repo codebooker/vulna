@@ -65,6 +65,7 @@ each phase lands on `main` via a pull request with green CI. Current progress:
 | 26 | Vulna Doctor & diagnostics — `vulna doctor` (human/JSON), System Health page, per-check impact/data-safety/next-step, allowlist-redacted support bundle, safe repairs, timeline | ✅ Done |
 | 27 | Low-resource / ARM64 / offline — Lite/Standard/Full profiles + per-stage budgets, fail-closed storage backpressure, durable idempotent Scout result queue for intermittent links, signed data-only offline bundles, preset capability warnings | ✅ Done |
 | 28 | Unified Maintenance Center — one health overview (green/warn/action) across updates, feeds, backups, certs, storage & stuck jobs, storage budgets, fail-closed retention cleanup with preview manifest + legal holds + reauth, certificate-rotation preflight, self-hosting health report | ✅ Done |
+| 29 | Notifications & self-hosted integrations — email + signed webhooks (versioned, HMAC, replay-resistant, selected-fields-only), SSRF-validated destinations, event subscriptions, immediate/digest policies, quiet hours + dedup, encrypted write-only credentials + rotation, decoupled non-blocking delivery, history + test | ✅ Done |
 
 Not yet ready for production use. See the [CHANGELOG](CHANGELOG.md) for details.
 

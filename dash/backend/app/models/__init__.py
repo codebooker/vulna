@@ -41,6 +41,7 @@ from app.models.feed_health import FeedHealth
 from app.models.finding import Finding
 from app.models.finding_note import FindingNote
 from app.models.network_scope import NetworkScope
+from app.models.notification import NotificationChannel, NotificationDelivery
 from app.models.onboarding import OnboardingState
 from app.models.organization import Organization
 from app.models.pentest_session import PentestSession
@@ -80,6 +81,8 @@ __all__ = [
     "JobStatus",
     "MatchConfidence",
     "NetworkScope",
+    "NotificationChannel",
+    "NotificationDelivery",
     "OnboardingState",
     "Organization",
     "PentestSession",

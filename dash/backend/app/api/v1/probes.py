@@ -13,6 +13,7 @@ before the ``/{probe_id}`` routes so they are matched correctly.
 
 from __future__ import annotations
 
+import contextlib
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
@@ -59,6 +60,8 @@ from app.services.enrollment import generate_token, hash_token
 from app.services.findings import ingest_findings
 from app.services.ingest import ingest_nmap_result, store_scan_artifact
 from app.services.nmap_parser import NmapParseError
+from app.services.notifications import EventType, NotificationEvent
+from app.services.notify import emit_event
 from app.services.nuclei_parser import parse_nuclei_jsonl
 from app.services.policy import build_policy_document
 from app.services.remediation import apply_verification
@@ -699,7 +702,36 @@ async def report_job_status(
             job.error_message = payload.error_message
         if payload.summary is not None:
             job.summary_json = payload.summary
+        await _emit_scan_event(session, job, payload.status)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+async def _emit_scan_event(session: AsyncSession, job: ScanJob, job_status: JobStatus) -> None:
+    """Best-effort: queue a scan_completed/scan_failed notification. A notification
+    problem must never block the job-status update, so this never raises."""
+    mapping = {
+        JobStatus.COMPLETED: (EventType.SCAN_COMPLETED, "info", "Scan completed"),
+        JobStatus.FAILED: (EventType.SCAN_FAILED, "high", "Scan failed"),
+    }
+    if job_status not in mapping:
+        return
+    event_type, severity, title = mapping[job_status]
+    # Notifications are never allowed to block a scan status update.
+    with contextlib.suppress(Exception):
+        await emit_event(
+            session,
+            job.organization_id,
+            NotificationEvent(
+                type=event_type,
+                title=title,
+                summary=f"{title} for a scan on this site.",
+                severity=severity,
+                site_id=str(job.site_id),
+                object_type="job",
+                object_id=str(job.id),
+                data={"error_code": job.error_code or ""},
+            ),
+        )
 
 
 @router.post(

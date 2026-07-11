@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 29: simple notifications and self-hosted integrations
+
+Get notified where you already work, without an enterprise ticketing deployment.
+
+- **Email and signed-webhook channels** (`app/services/notify.py`,
+  `app/api/v1/notifications.py`) configured and tested from the UI — no env-file
+  editing. A channel subscribes to events and has a delivery policy.
+- **Signed, replay-resistant webhook payloads** (`app/services/notifications.py`):
+  versioned JSON, `HMAC-SHA256(secret, "<ts>.<body>")` in `X-Vulna-Signature`,
+  per-delivery id, **selected fields only** — never evidence, scanner output,
+  credentials, or report files.
+- **SSRF-safe destinations**: webhook URLs must be `https` and must not resolve to
+  loopback, link-local, cloud-metadata, multicast, or reserved addresses; private
+  addresses require an explicit opt-in; validated at config, test, and send time.
+- **Event catalogue**: Scout offline, scan completed/failed, new critical/high
+  finding, KEV match, verification succeeded/failed, backup stale, feed stale,
+  certificate expiring, storage pressure, update available.
+- **Policies, quiet hours, dedup**: immediate or hourly/daily/weekly digests;
+  quiet hours **delay** (never drop) non-emergency events; repeated identical
+  events are deduplicated.
+- **Non-blocking delivery**: emission only **persists** a pending delivery and is
+  suppressed at its call site, so a notification problem never blocks scan
+  completion or finding persistence; a separate dispatch sends, records history,
+  attempts, and errors.
+- **Credentials encrypted at rest**, never returned by the API (reads show only
+  `has_secret`), and rotatable through a dedicated audited endpoint.
+- A Notifications page (frontend), a representative emit point (scan
+  completed/failed), ADR 0029, and `docs/notifications.md`.
+
 ### Added — Phase 28: Unified Maintenance Center
 
 One place for a self-hoster to tell whether Vulna needs attention.

@@ -12,6 +12,7 @@ import { HomeDashboard } from './pages/HomeDashboard';
 import { LoginPage } from './pages/LoginPage';
 import { MaintenancePage } from './pages/MaintenancePage';
 import { NetworkingPage } from './pages/NetworkingPage';
+import { NotificationsPage } from './pages/NotificationsPage';
 import { OnboardingWizard } from './pages/OnboardingWizard';
 import { PresetsPage } from './pages/PresetsPage';
 import { ReportsPage } from './pages/ReportsPage';
@@ -82,6 +83,7 @@ export function App() {
           <HomeDashboard />
           <SystemHealthPage />
           <MaintenancePage />
+          <NotificationsPage />
           <FindingsPage />
           <SitesPage />
           <PresetsPage />

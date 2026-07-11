@@ -18,6 +18,12 @@ import type { BackupCenter } from '../types/backup';
 import type { DashboardSummary, SearchResults } from '../types/dashboard';
 import type { DiagnosticsResult, SupportBundle, TimelineEvent } from '../types/diagnostics';
 import type { CleanupPreview, MaintenanceOverview, StorageBudgets } from '../types/maintenance';
+import type {
+  NewChannel,
+  NotificationChannel,
+  NotificationDelivery,
+  NotificationEventDef,
+} from '../types/notifications';
 import type { Finding, Page as FindingPage } from '../types/finding';
 import type { BrowserTest, NetworkStatus, ValidateResult } from '../types/networking';
 import type { Preset, PresetPreview } from '../types/presets';
@@ -232,6 +238,36 @@ export const api = {
       method: 'POST',
       token,
       body: { confirm: true, password },
+    });
+  },
+
+  // --- Notifications (Phase 29) ---
+  notificationEvents(
+    token: string,
+  ): Promise<{ events: NotificationEventDef[]; policies: string[] }> {
+    return request<{ events: NotificationEventDef[]; policies: string[] }>(
+      '/api/v1/notifications/events',
+      { token },
+    );
+  },
+  listChannels(token: string): Promise<{ channels: NotificationChannel[] }> {
+    return request<{ channels: NotificationChannel[] }>('/api/v1/notifications/channels', {
+      token,
+    });
+  },
+  createChannel(token: string, body: NewChannel): Promise<NotificationChannel> {
+    return request<NotificationChannel>('/api/v1/notifications/channels', {
+      method: 'POST',
+      token,
+      body,
+    });
+  },
+  testChannel(token: string, id: string): Promise<unknown> {
+    return request<unknown>(`/api/v1/notifications/channels/${id}/test`, { method: 'POST', token });
+  },
+  listDeliveries(token: string): Promise<{ deliveries: NotificationDelivery[] }> {
+    return request<{ deliveries: NotificationDelivery[] }>('/api/v1/notifications/deliveries', {
+      token,
     });
   },
 
