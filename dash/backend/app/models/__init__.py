@@ -24,6 +24,7 @@ from app.models.enums import (
     MatchConfidence,
     PentestSessionStatus,
     ProbeStatus,
+    RelayStatus,
     ReportFormat,
     ReportStatus,
     ReportType,
@@ -47,6 +48,7 @@ from app.models.organization import Organization
 from app.models.pentest_session import PentestSession
 from app.models.probe import Probe
 from app.models.probe_result_upload import ProbeResultUpload
+from app.models.relay import Relay
 from app.models.report import Report
 from app.models.retention_hold import RetentionHold
 from app.models.risk_acceptance import RiskAcceptance
@@ -90,6 +92,8 @@ __all__ = [
     "Probe",
     "ProbeResultUpload",
     "ProbeStatus",
+    "Relay",
+    "RelayStatus",
     "Report",
     "RetentionHold",
     "ReportFormat",

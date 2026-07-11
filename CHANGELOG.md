@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 16: VulnaRelay (optional thin-site tunnel mode)
+
+A thin-site tunnel for constrained sites, **off by default** and enabled in
+Settings; the smart VulnaScout probe stays the default.
+
+- **Off-by-default feature flag** (`app/services/relay.py`, `/relays/settings`):
+  relay mode lives in the org `settings_json` (no schema change) and every relay
+  operation is refused while disabled.
+- **Central egress enforcement** (`relay.egress_decision`): a relay may carry scan
+  traffic to a target only when it is enrolled, its tunnel is up, and the target is
+  within the relay's approved CIDRs and not denied — **fails closed**, out-of-scope
+  blocked at the egress. Pure and unit-tested.
+- **Immediate kill switch** (`/relays/{id}/kill`): tears the tunnel and blocks all
+  scanning; a killed relay's heartbeat is refused so the tunnel stays down.
+- **mTLS enrollment reusing the Scout machinery** (single-use token + CSR + CA):
+  the registration response contains only the control certificate and CA — **never**
+  job-signing keys or scanner credentials (tested). A relay runs no scanners.
+- A `Relay` model + heartbeat, scope approval, resume, and revoke endpoints; a
+  Relay settings page (frontend); `docs/relay.md`; and ADR 0016.
+
 ### Added — Phase 31: privacy, data ownership, and portability
 
 Make Vulna trustworthy for people who self-host to keep control of their data.

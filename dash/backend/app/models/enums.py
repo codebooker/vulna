@@ -322,3 +322,16 @@ class FindingStatus(StrEnum):
     DUPLICATE = "duplicate"
     SUPPRESSED = "suppressed"
 
+
+
+class RelayStatus(StrEnum):
+    """Administrative lifecycle state of a VulnaRelay (Phase 16, opt-in).
+
+    A relay is a thin tunnel endpoint with no scanners. Live tunnel connectivity
+    is tracked separately (``tunnel_up``); this is the stored lifecycle status.
+    """
+
+    PENDING_ENROLLMENT = "pending_enrollment"  # token issued, awaiting registration
+    ENROLLED = "enrolled"  # registered and usable
+    KILLED = "killed"  # kill switch engaged; scanning is blocked
+    REVOKED = "revoked"  # decommissioned

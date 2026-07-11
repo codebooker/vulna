@@ -25,6 +25,7 @@ from app.api.v1 import (
     presets,
     privacy,
     probes,
+    relays,
     reports,
     resources,
     risk_acceptances,
@@ -43,6 +44,7 @@ api_router.include_router(users.router)
 api_router.include_router(sites.router)
 api_router.include_router(scopes.router)
 api_router.include_router(probes.router)
+api_router.include_router(relays.router)
 api_router.include_router(jobs.router)
 api_router.include_router(dashboard.router)
 api_router.include_router(diagnostics.router)

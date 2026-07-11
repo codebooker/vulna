@@ -16,6 +16,12 @@
   <a href="https://github.com/codebooker/vulna/releases">Releases</a>
 </p>
 
+<p align="center">
+  <a href="https://github.com/codebooker/vulna/actions"><img src="https://img.shields.io/github/actions/workflow/status/codebooker/vulna/ci.yml?branch=main&style=flat-square" alt="CI Status"></a>
+  <a href="https://github.com/codebooker/vulna/releases"><img src="https://img.shields.io/github/v/release/codebooker/vulna?style=flat-square" alt="Release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg?style=flat-square" alt="License"></a>
+</p>
+
 Vulna is an open-source, self-hosted, distributed platform for vulnerability
 detection, authorized penetration testing, continuous CVE monitoring, and
 multi-location security assessment. It is an orchestration, safety,
@@ -33,6 +39,11 @@ open-source security tools — **not** another vulnerability engine.
 phases (see the [build plan for phases 1–16](VULNA_BUILD_PLAN%20Phases%201-16.md)
 and the [self-hoster-first roadmap for phases 17–32](VULNA_SELF_HOSTER_FIRST_ROADMAP_PHASES_17_32.md));
 each phase lands on `main` via a pull request with green CI. Current progress:
+
+<details>
+<summary><strong>View detailed development roadmap and phase status</strong></summary>
+
+<br>
 
 | Phase | Scope | Status |
 |---|---|---|
@@ -52,7 +63,7 @@ each phase lands on `main` via a pull request with green CI. Current progress:
 | 13 | Appliance packaging — Docker probe, Debian/ARM64 packages, cloud-init, appliance console, update/rollback (identity & policy preserved) | ✅ Done |
 | 14 | VulnaPulse observability — /metrics (no sensitive labels), Prometheus + Grafana + exporters, provisioned dashboards/alerts, monitoring compose profile | ✅ Done |
 | 15 | Hardening & release — dependency scans (clean), SBOMs, backup/restore, signed+checksummed releases, security review checklist, sample lab | ✅ Done |
-| 16 | VulnaRelay — optional thin tunnel/relay mode for constrained sites (opt-in; smart probe stays the default) | 💤 Optional / future |
+| 16 | VulnaRelay — optional thin tunnel/relay mode for constrained sites: off-by-default, central-egress scope enforcement, immediate kill switch, mTLS enrollment, no signing keys/scanner creds on the relay (opt-in; smart probe stays the default) | ✅ Done |
 | 17 | First-class single-host deployment — one-command stack with an auto-enrolled, scope-gated local Scout, per-component health, migrate-on-start | ✅ Done |
 | 18 | Safe installer & environment preflight — signed `vulna` CLI, verifying bootstrap, preflight checks, generated secrets, idempotent install, dry-run, clean uninstall | ✅ Done |
 | 19 | Guided first run — resumable wizard, recovery codes, advisory network detection, scope guardrails, safe preset, pre-scan summary, isolated demo target | ✅ Done |
@@ -68,6 +79,8 @@ each phase lands on `main` via a pull request with green CI. Current progress:
 | 29 | Notifications & self-hosted integrations — email + signed webhooks (versioned, HMAC, replay-resistant, selected-fields-only), SSRF-validated destinations, event subscriptions, immediate/digest policies, quiet hours + dedup, encrypted write-only credentials + rotation, decoupled non-blocking delivery, history + test | ✅ Done |
 | 30 | Documentation, demo & guided learning — docs home with Simple/Advanced paths + deployment models, task guides (quick start, terminology, findings, troubleshooting), safe demo mode (documentation-range sample data, real scans blocked), contextual help catalogue, exposure checklist, CI doc-integrity + insecure-recommendation lint | ✅ Done |
 | 31 | Privacy, data ownership & portability — outbound-connections transparency (never phones home for updates), opt-in-only anonymous telemetry with field-level preview + local-only analytics, secret inventory (no values), versioned+checksummed data export with published schema + untrusted-import validation (no cross-org bypass), move-host plan, machine-readable data map | ✅ Done |
+
+</details>
 
 Not yet ready for production use. See the [CHANGELOG](CHANGELOG.md) for details.
 

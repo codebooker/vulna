@@ -15,6 +15,7 @@ import { MaintenancePage } from './pages/MaintenancePage';
 import { NetworkingPage } from './pages/NetworkingPage';
 import { NotificationsPage } from './pages/NotificationsPage';
 import { PrivacyPage } from './pages/PrivacyPage';
+import { RelayPage } from './pages/RelayPage';
 import { OnboardingWizard } from './pages/OnboardingWizard';
 import { PresetsPage } from './pages/PresetsPage';
 import { ReportsPage } from './pages/ReportsPage';
@@ -87,6 +88,7 @@ export function App() {
           <MaintenancePage />
           <NotificationsPage />
           <PrivacyPage />
+          <RelayPage />
           <HelpPage />
           <FindingsPage />
           <SitesPage />

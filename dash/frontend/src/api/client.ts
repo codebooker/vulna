@@ -31,6 +31,7 @@ import type {
   SecretItem,
   TelemetryPreview,
 } from '../types/privacy';
+import type { Relay, RelayEnrollment } from '../types/relay';
 import type { Finding, Page as FindingPage } from '../types/finding';
 import type { BrowserTest, NetworkStatus, ValidateResult } from '../types/networking';
 import type { Preset, PresetPreview } from '../types/presets';
@@ -320,6 +321,31 @@ export const api = {
   },
   exportData(token: string): Promise<Record<string, unknown>> {
     return request<Record<string, unknown>>('/api/v1/portability/export', { token });
+  },
+
+  // --- VulnaRelay (Phase 16, opt-in) ---
+  relaySettings(token: string): Promise<{ enabled: boolean }> {
+    return request<{ enabled: boolean }>('/api/v1/relays/settings', { token });
+  },
+  setRelayEnabled(token: string, enabled: boolean): Promise<{ enabled: boolean }> {
+    return request<{ enabled: boolean }>('/api/v1/relays/settings', {
+      method: 'POST',
+      token,
+      body: { enabled },
+    });
+  },
+  listRelays(token: string): Promise<{ relays: Relay[] }> {
+    return request<{ relays: Relay[] }>('/api/v1/relays', { token });
+  },
+  relayEnrollmentCommand(token: string, name: string): Promise<RelayEnrollment> {
+    return request<RelayEnrollment>('/api/v1/relays/enrollment-command', {
+      method: 'POST',
+      token,
+      body: { name },
+    });
+  },
+  killRelay(token: string, id: string): Promise<Relay> {
+    return request<Relay>(`/api/v1/relays/${id}/kill`, { method: 'POST', token });
   },
 
   // --- Networking assistant (Phase 23) ---
