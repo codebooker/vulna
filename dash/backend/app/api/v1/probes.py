@@ -30,7 +30,7 @@ from app.auth.dependencies import CurrentUser, require_admin
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
 from app.models.enrollment_token import EnrollmentToken
-from app.models.enums import ActorType, JobStatus, ProbeStatus
+from app.models.enums import ActorType, JobMode, JobStatus, ProbeStatus
 from app.models.probe import Probe
 from app.models.probe_result_upload import ProbeResultUpload
 from app.models.scan_job import ScanJob
@@ -50,10 +50,14 @@ from app.schemas.probe import (
     CertificateStatus,
     HeartbeatRequest,
     HeartbeatResponse,
+    PentestToggle,
     PolicyStatus,
     ProbeRead,
     serialize_probe,
 )
+from app.services import networks as networks_service
+from app.services import pentest as pentest_service
+from app.services import reaper, workflow_dispatch
 from app.services.audit import record_audit
 from app.services.ca import CertificateAuthorityError, certificate_fingerprint, get_ca
 from app.services.enrollment import generate_token, hash_token
@@ -296,6 +300,10 @@ async def enroll_probe(
     token.used_by_probe_id = probe_id
     await session.flush()
 
+    # Bind to the site's default network (if any) so ranges added to the site via
+    # the /scopes convenience reach this probe's policy.
+    await networks_service.bind_probe_to_default_network(session, probe)
+
     record_audit(
         session,
         action="probe.enrolled",
@@ -451,6 +459,35 @@ async def revoke_probe(
     )
 
 
+@router.post(
+    "/{probe_id}/pentest", response_model=ProbeRead,
+    summary="Enable or disable controlled-pentest execution on a scout",
+)
+async def set_pentest_enabled(
+    probe_id: uuid.UUID,
+    payload: PentestToggle,
+    admin: Annotated[User, Depends(require_admin)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    context: Annotated[RequestContext, Depends(get_request_context)],
+) -> ProbeRead:
+    """Opt a scout in or out of controlled-pentest execution. Only an enabled
+    scout's signed policy permits the controlled_pentest mode, so a disabled scout
+    fails closed on any pentest job (even from a compromised orchestrator). Bumps
+    no scope, but the policy hash changes so the scout re-syncs."""
+    probe = await _get_owned_probe(session, probe_id, admin.organization_id)
+    probe.pentest_enabled = payload.enabled
+    record_audit(
+        session,
+        action="probe.pentest_" + ("enabled" if payload.enabled else "disabled"),
+        actor=admin, organization_id=admin.organization_id,
+        target_type="probe", target_id=probe.id,
+        source_ip=context.source_ip, user_agent=context.user_agent, request_id=context.request_id,
+    )
+    await session.flush()
+    return serialize_probe(probe, offline_after_seconds=settings.probe_offline_after_seconds)
+
+
 @router.post("/{probe_id}/disable", response_model=ProbeRead, summary="Disable a probe")
 async def disable_probe(
     probe_id: uuid.UUID,
@@ -556,6 +593,10 @@ async def heartbeat(
     if payload.policy_hash is not None:
         probe.policy_hash = payload.policy_hash
     await session.flush()
+
+    # Opportunistically reap stale jobs org-wide so a dead scout's work (and any
+    # workflow waiting on it) doesn't hang. Cheap, indexed, and self-healing.
+    await reaper.reap_stale_jobs(session, settings, organization_id=probe.organization_id)
 
     # Advertise the current policy so the probe can detect a stale local policy.
     policy_payload = await build_policy_document(session, probe, settings)
@@ -672,6 +713,7 @@ async def report_job_status(
     payload: JobStatusUpdate,
     probe: CurrentProbe,
     session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> Response:
     """A probe reports progress/outcome for a job it was offered."""
     if probe.id != probe_id:
@@ -703,6 +745,15 @@ async def report_job_status(
         if payload.summary is not None:
             job.summary_json = payload.summary
         await _emit_scan_event(session, job, payload.status)
+        # A workflow's scan job finished: advance its stage and chain the next.
+        await workflow_dispatch.on_scan_job_terminal(session, settings, job, payload.status)
+        # A controlled-pentest job finished: close out its session (evidence is
+        # minimized again server-side; cleanup state follows the teardown guarantee).
+        if job.mode == JobMode.CONTROLLED_PENTEST:
+            await pentest_service.complete_session_for_job(
+                session, job=job, job_status=payload.status,
+                evidence=payload.summary, now=now,
+            )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -747,6 +798,7 @@ async def upload_job_results(
     response: Response,
     probe: CurrentProbe,
     session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
     stage: Annotated[str, Query(max_length=64)] = "discovery",
     scanner: Annotated[str, Query(max_length=64)] = "nmap",
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key", max_length=64)] = None,
@@ -801,7 +853,8 @@ async def upload_job_results(
     try:
         if scanner == "nmap":
             nmap_summary = await ingest_nmap_result(
-                session, job=job, xml_bytes=body, probe_id=probe.id, stage=stage, scanner=scanner
+                session, job=job, xml_bytes=body, probe_id=probe.id, stage=stage,
+                scanner=scanner, master_key=settings.master_key,
             )
             result = ResultIngestSummary(
                 hosts_seen=nmap_summary.hosts_seen,
@@ -813,7 +866,7 @@ async def upload_job_results(
         elif scanner in ("nuclei", "testssl", "zap"):
             store_scan_artifact(
                 session, job=job, probe_id=probe.id, stage=stage, scanner=scanner,
-                raw=body, content_type="application/json",
+                raw=body, content_type="application/json", master_key=settings.master_key,
             )
             if scanner == "nuclei":
                 parsed = parse_nuclei_jsonl(body)

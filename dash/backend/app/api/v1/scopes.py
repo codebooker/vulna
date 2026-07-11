@@ -1,10 +1,15 @@
-"""Network-scope management endpoints.
+"""Network-scope management endpoints (retained as a convenience).
 
-Scopes are the approved address ranges probes may assess, and are therefore
-security-critical. Mutations require the Administrator role, CIDRs are
-normalized and validated (no default routes, public ranges denied by default),
-overlaps within a site are rejected, and every change is audited and bumps the
-scope's ``policy_version`` so probes can detect stale local policy.
+The standalone scope model is retired: a scope is now a range in the site's
+*default network*, and policy is sourced only from networks (see
+``services/policy`` and ``services/networks``). These endpoints remain as a
+simple "approve a range for a site" convenience — creating a scope makes/uses the
+site's default network and binds the site's probes — so existing flows (and the
+onboarding wizard) keep working. New setups should prefer ``/networks`` directly.
+
+CIDRs are normalized and validated (no default routes, public ranges denied by
+default), overlaps within a site are rejected, and mutations require the
+Administrator role and are audited.
 """
 
 from __future__ import annotations
@@ -25,6 +30,7 @@ from app.models.site import Site
 from app.models.user import User
 from app.schemas.common import Page
 from app.schemas.scope import NetworkScopeCreate, NetworkScopeRead, NetworkScopeUpdate
+from app.services import networks
 from app.services.audit import record_audit
 from app.services.scopes import ScopeValidationError, find_overlaps, validate_cidr
 
@@ -138,9 +144,14 @@ async def create_scope(
             detail=f"CIDR {canonical} overlaps existing scope(s): {', '.join(overlaps)}",
         )
 
+    # The standalone scope model is retired: a scope is a range in the site's
+    # default network, and every site probe is bound to that network — preserving
+    # the old site-wide behavior while policy is sourced only from networks.
+    default_network = await networks.ensure_default_network(session, org_id, payload.site_id)
     scope = NetworkScope(
         organization_id=org_id,
         site_id=payload.site_id,
+        network_id=default_network.id,
         name=payload.name,
         cidr=canonical,
         enabled=payload.enabled,
@@ -153,6 +164,7 @@ async def create_scope(
         policy_version=1,
     )
     session.add(scope)
+    await networks.bind_all_site_probes(session, default_network, payload.site_id)
     await session.flush()
 
     record_audit(

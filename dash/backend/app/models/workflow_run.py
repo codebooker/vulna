@@ -33,6 +33,12 @@ class WorkflowRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     site_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("sites.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    # Optional target network: when set, scanning stages run on a scout bound to
+    # this network over the network's ranges. When null, the run falls back to the
+    # site's first enrolled probe and its whole approved scope.
+    network_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("networks.id", ondelete="SET NULL"), nullable=True
+    )
     scan_job_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("scan_jobs.id", ondelete="SET NULL"), nullable=True
     )

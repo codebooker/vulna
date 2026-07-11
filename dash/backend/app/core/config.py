@@ -67,6 +67,17 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 720  # 12 hours
 
+    # Master key for encrypting sensitive evidence (raw scanner output) at rest.
+    # When set (VULNA_MASTER_KEY), stored artifacts are encrypted; when unset
+    # (e.g. local dev), they are stored in plaintext. Any string is accepted — a
+    # Fernet key is derived from it.
+    master_key: str | None = None
+
+    # Background scheduler: fires due scan schedules and reaps stale jobs on an
+    # interval. Disable to run those only via API triggers / heartbeats.
+    scheduler_enabled: bool = True
+    scheduler_interval_seconds: int = 60
+
     # ---- Administrator bootstrap -------------------------------------------
     # If both are provided and no administrator exists yet, a first admin user
     # is created at startup. Never hard-code these; supply via the environment.

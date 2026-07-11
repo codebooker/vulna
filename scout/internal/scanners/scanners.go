@@ -63,6 +63,11 @@ func (w *Workflow) Run(ctx context.Context, job *policy.Job) (executor.Result, e
 		plugin, _ := stage["plugin"].(string)
 		scanner, ok := w.byPlugin[plugin]
 		if !ok {
+			// No scanner installed for this stage. Recorded (not silently
+			// swallowed) so a job that ran nothing is reported failed, not
+			// "completed".
+			res.StagesSkipped++
+			res.Errors = append(res.Errors, fmt.Sprintf("no scanner installed for plugin %q", plugin))
 			continue
 		}
 		if ctx.Err() != nil {
@@ -75,7 +80,11 @@ func (w *Workflow) Run(ctx context.Context, job *policy.Job) (executor.Result, e
 			return res, ctx.Err()
 		}
 		if err != nil {
-			continue // on_failure: continue with warning
+			// The scanner ran but failed — a real error, surfaced (not a silent
+			// success). Other stages still run (continue), but the job is failed.
+			res.StagesFailed++
+			res.Errors = append(res.Errors, fmt.Sprintf("%s failed: %v", scanner.Name(), err))
+			continue
 		}
 		res.Outputs = append(res.Outputs, executor.StageOutput{
 			Stage: scanner.Stage(), Scanner: scanner.Name(), Raw: raw,

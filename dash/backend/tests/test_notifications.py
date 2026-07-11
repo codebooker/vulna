@@ -17,6 +17,8 @@ from app.services.notifications import (
     dedup_key,
     digest_due,
     encrypt_secret,
+    pin_url_to_ip,
+    resolve_validated,
     should_delay,
     validate_destination,
     verify_webhook,
@@ -107,6 +109,31 @@ def test_private_blocked_by_default_but_opt_in_allows() -> None:
 def test_metadata_blocked_even_with_allow_private() -> None:
     with pytest.raises(NotificationError):
         validate_destination("https://169.254.169.254/hook", allow_private=True)
+
+
+def test_resolve_validated_returns_pinned_ip() -> None:
+    # A literal public IP validates and is returned as the pin target.
+    host, ip = resolve_validated("https://8.8.8.8/hook")
+    assert host == "8.8.8.8" and ip == "8.8.8.8"
+
+
+def test_resolve_validated_blocks_rebinding_to_internal(monkeypatch) -> None:
+    # A hostname that resolves to an internal address is rejected at validation,
+    # so no pin (and no connection) is produced.
+    monkeypatch.setattr(
+        "app.services.notifications._resolve", lambda host: ["169.254.169.254"]
+    )
+    with pytest.raises(NotificationError):
+        resolve_validated("https://evil.example/hook")
+
+
+def test_pin_url_to_ip_preserves_path_and_brackets_ipv6() -> None:
+    assert pin_url_to_ip("https://host.example/a/b?x=1", "203.0.113.5") == (
+        "https://203.0.113.5/a/b?x=1"
+    )
+    assert pin_url_to_ip("https://host.example:8443/h", "2001:db8::1") == (
+        "https://[2001:db8::1]:8443/h"
+    )
 
 
 # --- policies / quiet hours ------------------------------------------------- #

@@ -26,6 +26,7 @@ from app.models.scan_job import ScanJob
 from app.models.user import User
 from app.schemas.common import Page
 from app.schemas.job import JobCreate, JobRead
+from app.services import reaper
 from app.services.audit import record_audit
 from app.services.demo import is_demo_mode
 from app.services.jobs import JobValidationError, create_scan_job
@@ -140,6 +141,20 @@ async def create_job(
         },
     )
     return JobRead.model_validate(job)
+
+
+@router.post("/reap", summary="Expire stale (timed-out) jobs")
+async def reap_jobs(
+    current_user: Annotated[User, Depends(_require_operator)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> dict[str, int]:
+    """Expire active jobs past their deadline in the caller's organization and fail
+    any workflow stage waiting on them. Also runs opportunistically on heartbeats."""
+    reaped = await reaper.reap_stale_jobs(
+        session, settings, organization_id=current_user.organization_id
+    )
+    return {"reaped": reaped}
 
 
 @router.get("", response_model=Page[JobRead], summary="List scan jobs")

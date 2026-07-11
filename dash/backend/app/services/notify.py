@@ -335,14 +335,26 @@ class RealSender:
         events: list[core.NotificationEvent], base_url: str,
     ) -> None:
         url = channel.config_json["url"]
-        # Revalidate at send time with the same rules as configuration/test.
-        core.validate_destination(url, allow_private=bool(channel.config_json.get("allow_private")))
+        # Resolve + validate once and pin the connection to that IP. Re-resolving
+        # at send time would reopen a DNS-rebinding window (a name that validates
+        # as public here could point at an internal address by connection time).
+        host, ip = core.resolve_validated(
+            url, allow_private=bool(channel.config_json.get("allow_private"))
+        )
+        pinned_url = core.pin_url_to_ip(url, ip)
         for event in events:
             body, headers = core.webhook_payload(
                 event, signing_key=secret or "", delivery_id=str(uuid.uuid4()), base_url=base_url
             )
+            # Connect to the validated IP (pinned_url) but keep the original host
+            # for HTTP routing and TLS: sni_hostname drives both SNI and the
+            # certificate hostname check (server_hostname).
+            headers["Host"] = host
             with httpx.Client(timeout=10.0) as client:
-                resp = client.post(url, content=body, headers=headers)
+                resp = client.post(
+                    pinned_url, content=body, headers=headers,
+                    extensions={"sni_hostname": host},
+                )
                 resp.raise_for_status()
 
     def _send_email(

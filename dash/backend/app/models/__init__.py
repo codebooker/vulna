@@ -41,6 +41,7 @@ from app.models.enums import (
 from app.models.feed_health import FeedHealth
 from app.models.finding import Finding
 from app.models.finding_note import FindingNote
+from app.models.network import Network, NetworkScout
 from app.models.network_scope import NetworkScope
 from app.models.notification import NotificationChannel, NotificationDelivery
 from app.models.onboarding import OnboardingState
@@ -55,6 +56,7 @@ from app.models.risk_acceptance import RiskAcceptance
 from app.models.rules_of_engagement import RulesOfEngagement
 from app.models.scan_artifact import ScanArtifact
 from app.models.scan_job import ScanJob
+from app.models.scan_schedule import ScanSchedule
 from app.models.service import Service
 from app.models.site import Site
 from app.models.user import User
@@ -82,6 +84,8 @@ __all__ = [
     "JobMode",
     "JobStatus",
     "MatchConfidence",
+    "Network",
+    "NetworkScout",
     "NetworkScope",
     "NotificationChannel",
     "NotificationDelivery",
@@ -104,6 +108,7 @@ __all__ = [
     "RulesOfEngagement",
     "ScanArtifact",
     "ScanJob",
+    "ScanSchedule",
     "Service",
     "ServiceState",
     "ServiceTransport",

@@ -293,3 +293,39 @@ func contains(s []string, v string) bool {
 	}
 	return false
 }
+
+func TestFinalizeReportsFailedOnScannerError(t *testing.T) {
+	f := &fakeOrch{policy: []byte(agentPolicy), job: []byte(agentJob)}
+	pub, _ := policy.ParsePublicKey(agentPub)
+	st, _ := storage.New(t.TempDir())
+	a := New(f, st, pub, stubRunner{raw: []byte("x")})
+	ctx := context.Background()
+	_ = a.SyncPolicy(ctx)
+	running, err := a.PollAndStart(ctx)
+	if err != nil || running == nil {
+		t.Fatalf("expected a running job: %v", err)
+	}
+	res := executor.Result{JobID: running.JobID, StagesTotal: 1, StagesFailed: 1, Errors: []string{"nmap failed"}}
+	_ = a.Finalize(ctx, running, res)
+	if !contains(f.statuses(), "failed") {
+		t.Errorf("a scanner error must report failed, got %v", f.statuses())
+	}
+	if contains(f.statuses(), "completed") {
+		t.Error("a failed scan must not also report completed")
+	}
+}
+
+func TestFinalizeReportsFailedWhenNothingRan(t *testing.T) {
+	f := &fakeOrch{policy: []byte(agentPolicy), job: []byte(agentJob)}
+	pub, _ := policy.ParsePublicKey(agentPub)
+	st, _ := storage.New(t.TempDir())
+	a := New(f, st, pub, stubRunner{raw: []byte("x")})
+	ctx := context.Background()
+	_ = a.SyncPolicy(ctx)
+	running, _ := a.PollAndStart(ctx)
+	res := executor.Result{JobID: running.JobID, StagesTotal: 1, StagesRun: 0, StagesSkipped: 1}
+	_ = a.Finalize(ctx, running, res)
+	if !contains(f.statuses(), "failed") {
+		t.Errorf("a scan that ran nothing must report failed, got %v", f.statuses())
+	}
+}

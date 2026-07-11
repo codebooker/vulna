@@ -112,3 +112,38 @@ func TestWorkflowStopsOnCancel(t *testing.T) {
 		t.Errorf("result should be marked cancelled: %+v", res)
 	}
 }
+
+func TestWorkflowRecordsSkippedStages(t *testing.T) {
+	// A job whose only stage has no installed scanner runs nothing and records it.
+	wf := NewWorkflow() // no scanners registered
+	res, err := wf.Run(context.Background(), jobWith("nmap"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StagesRun != 0 || res.StagesSkipped != 1 {
+		t.Errorf("expected 0 run / 1 skipped, got run=%d skipped=%d", res.StagesRun, res.StagesSkipped)
+	}
+	if len(res.Errors) == 0 {
+		t.Error("a skipped stage must be recorded, not silently swallowed")
+	}
+}
+
+func TestWorkflowRecordsScannerErrors(t *testing.T) {
+	wf := NewWorkflow(
+		stubScanner{stage: "discovery", name: "nmap", raw: []byte("xml")},
+		stubScanner{stage: "vulnerability", name: "nuclei", err: errTest},
+	)
+	res, err := wf.Run(context.Background(), jobWith("nmap", "nuclei"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StagesRun != 1 || res.StagesFailed != 1 {
+		t.Errorf("expected 1 run / 1 failed, got run=%d failed=%d", res.StagesRun, res.StagesFailed)
+	}
+}
+
+var errTest = fmtError("scanner exploded")
+
+type fmtError string
+
+func (e fmtError) Error() string { return string(e) }

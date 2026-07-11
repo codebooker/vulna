@@ -44,6 +44,10 @@ are run by the operator with the signed `vulna` CLI (see [updates](updates.md)).
 Every release includes:
 
 - Signed binaries (`vulna`, `vulnascout`) for `linux/amd64` and `linux/arm64`.
+- A **deployment bundle** (`vulna-deploy_<version>.tar.gz`) with the Compose files,
+  the single-host overlay, `.env.example`, and the backup/restore scripts. The
+  bootstrap downloads this for `install` so the operator gets a working deployment,
+  not just a bare binary. Build it with `deploy/release/build-deploy-bundle.sh`.
 - A `SHA256SUMS` manifest and an **Ed25519 detached signature** over it.
 - **SBOMs** for the images.
 - **Migration notes** (see [migration-notes](migration-notes.md)) and
@@ -53,6 +57,25 @@ Every release includes:
 
 Consumers verify the signature (authenticity) and then the checksums (integrity)
 before running anything — the bootstrap installer does this automatically.
+
+### Assembling and publishing a release
+
+From a staging directory `dist/` holding the built binaries and SBOMs:
+
+```sh
+# 1. Add the deployment bundle so `install` has the Compose files it needs.
+deploy/release/build-deploy-bundle.sh <version> dist/
+
+# 2. Write the checksum manifest and sign it (Ed25519, offline private key).
+VULNA_RELEASE_KEY=release_ed25519.pem deploy/release/sign.sh dist/
+
+# 3. Publish the hosted bootstrap with the release public key embedded, so
+#    `curl … | sh` works without the operator supplying a key.
+deploy/release/embed-release-pubkey.sh release_ed25519.pub > dist/install.sh
+```
+
+Steps 1–2 must run in order: the bundle is checksummed and signed with everything
+else. The hosted `install.sh` from step 3 carries only the **public** key.
 
 ## Signing keys: rotation and compromise recovery
 

@@ -10,10 +10,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
+from app.models.network import Network, NetworkScout
 from app.models.network_scope import NetworkScope
 from app.models.probe import Probe
 
@@ -31,13 +32,23 @@ _DEFAULT_LIMITS = {
 
 
 async def _probe_scopes(session: AsyncSession, probe: Probe) -> list[NetworkScope]:
-    """Return the enabled scopes that apply to this probe (site-wide or assigned)."""
+    """Return the enabled ranges this probe may assess.
+
+    Scope is sourced solely from networks the scout is bound to via
+    :class:`NetworkScout` — the standalone/per-probe-pinned scope model is retired.
+    A site's ranges reach its probes through the site's default network; a scout
+    can also be bound to another site's network to scan it across an SD-WAN/VPN.
+    """
+    bound_networks = (
+        select(NetworkScout.network_id)
+        .join(Network, Network.id == NetworkScout.network_id)
+        .where(NetworkScout.probe_id == probe.id, Network.enabled.is_(True))
+    )
     result = await session.execute(
         select(NetworkScope)
         .where(
-            NetworkScope.site_id == probe.site_id,
             NetworkScope.enabled.is_(True),
-            or_(NetworkScope.probe_id.is_(None), NetworkScope.probe_id == probe.id),
+            NetworkScope.network_id.in_(bound_networks),
         )
         .order_by(NetworkScope.cidr.asc())
     )
@@ -74,6 +85,15 @@ async def build_policy_document(
         "max_duration_seconds": _DEFAULT_LIMITS["max_duration_seconds"],
     }
 
+    # Controlled-pentest mode + the metasploit plugin are permitted only for a
+    # scout an operator has explicitly enabled, so a non-enabled scout fails closed
+    # on any pentest job (both the mode and the plugin are rejected).
+    allowed_modes = list(_DEFAULT_ALLOWED_MODES)
+    allowed_plugins = list(_DEFAULT_ALLOWED_PLUGINS)
+    if getattr(probe, "pentest_enabled", False):
+        allowed_modes.append("controlled_pentest")
+        allowed_plugins.append("metasploit")
+
     # The document is deterministic given the probe's scopes/limits so its hash
     # is stable across fetches; the probe uses that hash for change detection.
     return {
@@ -83,7 +103,7 @@ async def build_policy_document(
         "approved_cidrs": approved,
         "denied_cidrs": [],
         "allow_public_addresses": allow_public,
-        "allowed_modes": list(_DEFAULT_ALLOWED_MODES),
-        "allowed_plugins": list(_DEFAULT_ALLOWED_PLUGINS),
+        "allowed_modes": allowed_modes,
+        "allowed_plugins": allowed_plugins,
         "limits": limits,
     }

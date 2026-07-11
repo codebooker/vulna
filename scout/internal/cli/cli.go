@@ -26,6 +26,7 @@ import (
 	"github.com/codebooker/vulna/scout/internal/policy"
 	"github.com/codebooker/vulna/scout/internal/queue"
 	"github.com/codebooker/vulna/scout/internal/scanners"
+	"github.com/codebooker/vulna/scout/internal/scanners/metasploit"
 	"github.com/codebooker/vulna/scout/internal/scanners/nmap"
 	"github.com/codebooker/vulna/scout/internal/scanners/nuclei"
 	"github.com/codebooker/vulna/scout/internal/scanners/testssl"
@@ -291,9 +292,18 @@ func runRun(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "signing key (re-enroll to obtain it):", err)
 		return 1
 	}
-	workflow := scanners.NewWorkflow(
+	workers := []scanners.Scanner{
 		nmap.NewWorker(), nuclei.NewWorker(), testssl.NewWorker(), zap.NewWorker(),
-	)
+	}
+	// Controlled-pentest execution is opt-in and requires Metasploit. Only a scout
+	// with VULNA_MSF_CONSOLE set registers the exploit worker; without it, a
+	// controlled-pentest job's exploit stage is simply not run here. (The scout's
+	// signed policy must also permit controlled_pentest — see pentest_enabled.)
+	if msf := os.Getenv("VULNA_MSF_CONSOLE"); msf != "" {
+		workers = append(workers, metasploit.NewWorker(&metasploit.ConsoleRunner{Binary: msf}))
+		fmt.Fprintln(stdout, "vulnascout: controlled-pentest execution enabled (metasploit)")
+	}
+	workflow := scanners.NewWorkflow(workers...)
 	scout := agent.New(client, store, pubkey, workflow)
 
 	// Durable result queue: finished work survives an intermittent WAN link and
@@ -309,6 +319,16 @@ func runRun(args []string, stdout, stderr io.Writer) int {
 
 	if err := scout.SyncPolicy(ctx); err != nil {
 		fmt.Fprintln(stderr, "vulnascout: initial policy sync failed:", err)
+		// Fall back to a previously-synced policy so a restart during an outage
+		// keeps enforcing scope and can keep running jobs. With no cached policy
+		// the Scout stays fail-closed (jobs are refused) until a sync succeeds.
+		if loaded, lerr := scout.LoadCachedPolicy(); lerr != nil {
+			fmt.Fprintln(stderr, "vulnascout: cached policy unusable:", lerr)
+		} else if loaded {
+			fmt.Fprintln(stdout, "vulnascout: using last-synced local policy (offline)")
+		} else {
+			fmt.Fprintln(stderr, "vulnascout: no local policy yet; jobs are refused until sync succeeds")
+		}
 	} else {
 		fmt.Fprintln(stdout, "vulnascout: local policy synced")
 	}

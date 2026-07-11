@@ -8,6 +8,9 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/json"
+	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/codebooker/vulna/scout/internal/api"
@@ -106,6 +109,35 @@ func (a *Agent) SyncPolicy(ctx context.Context) error {
 	return a.store.SavePolicy(raw)
 }
 
+// LoadCachedPolicy loads a previously-persisted local policy from disk into
+// memory. Called at startup so a Scout that has already synced keeps enforcing
+// its policy — and can keep running jobs — across restarts and while the
+// orchestrator is unreachable. Returns false (with no error) when no policy has
+// ever been cached, in which case the Scout stays fail-closed until it syncs.
+func (a *Agent) LoadCachedPolicy() (bool, error) {
+	raw, err := a.store.LoadPolicy()
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	if len(raw) == 0 {
+		return false, nil
+	}
+	p, err := policy.Parse(raw, a.pubkey)
+	if err != nil {
+		return false, err
+	}
+	hash, err := policy.DocumentHash(raw)
+	if err != nil {
+		return false, err
+	}
+	a.policy = p
+	a.policyHash = hash
+	return true, nil
+}
+
 // Policy returns the currently cached local policy (nil until synced).
 func (a *Agent) Policy() *policy.Policy { return a.policy }
 
@@ -183,15 +215,33 @@ func (a *Agent) Finalize(ctx context.Context, running *RunningJob, res executor.
 		// Best-effort flush; a failure here leaves work durably queued for retry.
 		_, _ = a.DrainQueue(ctx)
 	}
+	// A scan that had a scanner error, or ran no stages at all (all scanners
+	// missing), is a failure — not a silent "completed". Successful stages'
+	// output is still uploaded above.
 	status := "completed"
-	if res.Cancelled {
+	errCode, errMsg := "", ""
+	switch {
+	case res.Cancelled:
 		status = "cancelled"
+	case res.StagesFailed > 0:
+		status, errCode = "failed", "scanner_error"
+		errMsg = fmt.Sprintf("%d stage(s) failed: %s", res.StagesFailed, strings.Join(res.Errors, "; "))
+	case res.StagesRun == 0:
+		status, errCode = "failed", "no_stages_ran"
+		errMsg = "no scanner stages ran"
+		if len(res.Errors) > 0 {
+			errMsg += ": " + strings.Join(res.Errors, "; ")
+		}
 	}
 	return a.client.ReportJobStatus(ctx, running.JobID, api.JobStatusReport{
-		Status: status,
+		Status:       status,
+		ErrorCode:    errCode,
+		ErrorMessage: errMsg,
 		Summary: map[string]any{
-			"stages_run":   res.StagesRun,
-			"stages_total": res.StagesTotal,
+			"stages_run":     res.StagesRun,
+			"stages_total":   res.StagesTotal,
+			"stages_failed":  res.StagesFailed,
+			"stages_skipped": res.StagesSkipped,
 		},
 	})
 }

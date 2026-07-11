@@ -30,7 +30,7 @@ func TestApplyWritesRestrictiveEnv(t *testing.T) {
 		t.Fatalf("env file must be 0600, got %o", info.Mode().Perm())
 	}
 	env, _ := ReadEnv(envPath)
-	for _, k := range []string{"POSTGRES_PASSWORD", "VULNA_SECRET_KEY", "VULNA_ADMIN_PASSWORD"} {
+	for _, k := range []string{"POSTGRES_PASSWORD", "VULNA_SECRET_KEY", "VULNA_ADMIN_PASSWORD", "VULNA_MASTER_KEY"} {
 		if env[k] == "" {
 			t.Fatalf("missing generated secret %s", k)
 		}
@@ -51,7 +51,7 @@ func TestRerunDoesNotRotateSecrets(t *testing.T) {
 		t.Fatal(err)
 	}
 	after, _ := ReadEnv(filepath.Join(o.InstallDir, EnvFile))
-	for _, k := range []string{"POSTGRES_PASSWORD", "VULNA_SECRET_KEY", "VULNA_ADMIN_PASSWORD"} {
+	for _, k := range []string{"POSTGRES_PASSWORD", "VULNA_SECRET_KEY", "VULNA_ADMIN_PASSWORD", "VULNA_MASTER_KEY"} {
 		if before[k] != after[k] {
 			t.Fatalf("secret %s was rotated on re-run", k)
 		}
@@ -146,5 +146,27 @@ func TestReadEnvIgnoresCommentsAndBlanks(t *testing.T) {
 	m, _ := ReadEnv(p)
 	if m["FOO"] != "bar" || m["BAZ"] != "qux" {
 		t.Fatalf("parse failed: %+v", m)
+	}
+}
+
+func TestSetEnvVersionRewritesVersion(t *testing.T) {
+	dir := t.TempDir()
+	if err := Apply(opts(dir)); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := ReadEnv(filepath.Join(dir, EnvFile))
+	if before["VULNA_VERSION"] == "" {
+		t.Fatal("install must pin a VULNA_VERSION")
+	}
+	if err := SetEnvVersion(dir, "v9.9.9"); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := ReadEnv(filepath.Join(dir, EnvFile))
+	if after["VULNA_VERSION"] != "v9.9.9" {
+		t.Fatalf("VULNA_VERSION not updated: %q", after["VULNA_VERSION"])
+	}
+	// Other secrets are untouched by a version change.
+	if after["POSTGRES_PASSWORD"] != before["POSTGRES_PASSWORD"] {
+		t.Fatal("SetEnvVersion must not disturb other env values")
 	}
 }

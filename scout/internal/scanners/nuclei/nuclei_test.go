@@ -10,7 +10,7 @@ import (
 )
 
 func TestBuildArgsSafePolicy(t *testing.T) {
-	args := BuildArgs("/tmp/out.jsonl", "/tmp/targets.txt", safeSeverities)
+	args := BuildArgs("/tmp/out.jsonl", "/tmp/targets.txt", "", safeSeverities)
 	for _, want := range []string{
 		"-list", "/tmp/targets.txt", "-jsonl", "-output", "/tmp/out.jsonl",
 		"-silent", "-no-color", "-disable-update-check", "-exclude-tags", "-severity",
@@ -37,9 +37,21 @@ func TestBuildArgsSafePolicy(t *testing.T) {
 }
 
 func TestBuildArgsOmitsSeverityWhenEmpty(t *testing.T) {
-	args := BuildArgs("/tmp/o.jsonl", "/tmp/t.txt", nil)
+	args := BuildArgs("/tmp/o.jsonl", "/tmp/t.txt", "", nil)
 	if slices.Contains(args, "-severity") {
 		t.Errorf("should not pass -severity when none configured: %v", args)
+	}
+}
+
+func TestBuildArgsPassesTemplatesDir(t *testing.T) {
+	args := BuildArgs("/tmp/o.jsonl", "/tmp/t.txt", "/opt/nuclei-templates", safeSeverities)
+	i := slices.Index(args, "-templates")
+	if i < 0 || i+1 >= len(args) || args[i+1] != "/opt/nuclei-templates" {
+		t.Errorf("expected -templates /opt/nuclei-templates in args: %v", args)
+	}
+	// No templates dir => no -templates flag (nuclei uses its default location).
+	if slices.Contains(BuildArgs("/tmp/o.jsonl", "/tmp/t.txt", "", safeSeverities), "-templates") {
+		t.Error("should not pass -templates when none configured")
 	}
 }
 

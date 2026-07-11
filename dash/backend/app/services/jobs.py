@@ -19,11 +19,26 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
 from app.models.enums import JobMode, JobStatus, WebScanProfile
+from app.models.network import Network
 from app.models.probe import Probe
 from app.models.scan_job import ScanJob
 from app.services.policy import build_policy_document
 from app.services.scopes import ScopeValidationError, normalize_cidr
 from app.services.signing import get_signer
+
+
+async def _job_site_id(
+    session: AsyncSession, probe: Probe, network_id: uuid.UUID | None
+) -> uuid.UUID:
+    """The site a job's discovered assets belong to. For a network-targeted job
+    that is the network's site (which may differ from the scout's own site when a
+    scout scans another site's network across an SD-WAN), else the scout's site."""
+    if network_id is not None:
+        net = await session.get(Network, network_id)
+        if net is not None:
+            return net.site_id
+    return probe.site_id
+
 
 # The non-intrusive assessment workflow: discovery, then vulnerability and TLS
 # stages. A probe skips any stage whose scanner it does not have installed.
@@ -114,6 +129,34 @@ def _validate_targets(targets: list[str], approved: list[str], *, allow_public: 
     return normalized
 
 
+def _count_hosts(targets: list[str]) -> int:
+    """Total addresses spanned by the targets (a bare IP counts as one host)."""
+    total = 0
+    for target in targets:
+        try:
+            total += normalize_cidr(target).num_addresses
+        except ScopeValidationError:
+            continue
+    return total
+
+
+def _enforce_host_limit(targets: list[str], limits: dict[str, Any]) -> None:
+    """Reject a job whose targets span more hosts than the policy permits.
+
+    The limit is carried in the signed policy and independently re-checked by the
+    probe; enforcing it here stops an oversized job from being created and signed
+    in the first place.
+    """
+    max_hosts = int(limits.get("max_hosts", 0) or 0)
+    if max_hosts <= 0:
+        return
+    requested = _count_hosts(targets)
+    if requested > max_hosts:
+        raise JobValidationError(
+            f"Job spans {requested} hosts, exceeding the scope limit of {max_hosts}"
+        )
+
+
 def build_job_envelope(
     *,
     job_id: uuid.UUID,
@@ -154,8 +197,15 @@ async def create_scan_job(
     web_profile: WebScanProfile | None = None,
     web_start_urls: list[str] | None = None,
     verifies_finding_ids: list[str] | None = None,
+    stages: list[str] | None = None,
+    network_id: uuid.UUID | None = None,
 ) -> ScanJob:
-    """Validate, build, sign, and persist a scan job for a probe (status queued)."""
+    """Validate, build, sign, and persist a scan job for a probe (status queued).
+
+    ``stages`` restricts the job to a subset of the default workflow stages (by
+    stage name, e.g. ``["discovery"]``) so a caller — the full-spectrum workflow —
+    can dispatch one scanner at a time; ``None`` includes them all.
+    """
     if mode not in _SUPPORTED_MODES:
         raise JobValidationError(f"Mode '{mode.value}' is not supported yet")
 
@@ -167,8 +217,14 @@ async def create_scan_job(
     normalized_targets = _validate_targets(
         targets, approved, allow_public=bool(policy["allow_public_addresses"])
     )
+    _enforce_host_limit(normalized_targets, policy["limits"])
 
     workflow = list(_DEFAULT_WORKFLOW)
+    if stages is not None:
+        wanted = set(stages)
+        workflow = [s for s in workflow if s["stage"] in wanted]
+        if not workflow:
+            raise JobValidationError(f"No known scanner stages in {stages}")
     if web_profile is not None and web_start_urls:
         validated_urls = _validate_web_start_urls(web_start_urls, approved)
         workflow.append(_build_web_stage(web_profile, validated_urls, policy["limits"]))
@@ -196,8 +252,9 @@ async def create_scan_job(
     job = ScanJob(
         id=job_id,
         organization_id=probe.organization_id,
-        site_id=probe.site_id,
+        site_id=await _job_site_id(session, probe, network_id),
         probe_id=probe.id,
+        network_id=network_id,
         mode=mode,
         status=JobStatus.QUEUED,
         requested_targets_json=normalized_targets,
@@ -210,6 +267,82 @@ async def create_scan_job(
         expires_at=end,
         created_by=created_by,
         verifies_finding_ids_json=list(verifies_finding_ids or []),
+    )
+    session.add(job)
+    await session.flush()
+    return job
+
+
+async def create_pentest_job(
+    session: AsyncSession,
+    probe: Probe,
+    settings: Settings,
+    *,
+    target: str,
+    module: str,
+    payload: str | None,
+    options: dict[str, Any],
+    max_session_seconds: int,
+    expires_at: datetime,
+    created_by: uuid.UUID | None,
+    network_id: uuid.UUID | None = None,
+) -> ScanJob:
+    """Build, sign, and persist a controlled-pentest job: one authorized module
+    against one in-scope target, time-boxed. The scout re-verifies the module and
+    scope locally before running (fail-closed)."""
+    policy = await build_policy_document(session, probe, settings)
+    approved = list(policy["approved_cidrs"])
+    try:
+        normalized = str(normalize_cidr(target))
+    except ScopeValidationError as exc:
+        raise JobValidationError(str(exc)) from exc
+    if not _target_within_approved(normalized, approved):
+        raise JobValidationError(f"Target {target} is outside the scout's approved scope")
+
+    now = datetime.now(UTC)
+    job_id = uuid.uuid4()
+    workflow = [
+        {
+            "stage": "exploit",
+            "plugin": "metasploit",
+            "config": {
+                "module": module,
+                "payload": payload,
+                "options": dict(options or {}),
+                "max_session_seconds": max_session_seconds,
+            },
+        }
+    ]
+    limits = {"max_session_seconds": max_session_seconds}
+    envelope = build_job_envelope(
+        job_id=job_id,
+        probe=probe,
+        mode=JobMode.CONTROLLED_PENTEST,
+        targets=[normalized],
+        workflow=workflow,
+        limits=limits,
+        policy_version=int(policy["policy_version"]),
+        not_before=now,
+        expires_at=expires_at,
+    )
+    signed = get_signer().sign_document(envelope)
+    job = ScanJob(
+        id=job_id,
+        organization_id=probe.organization_id,
+        site_id=await _job_site_id(session, probe, network_id),
+        probe_id=probe.id,
+        network_id=network_id,
+        mode=JobMode.CONTROLLED_PENTEST,
+        status=JobStatus.QUEUED,
+        requested_targets_json=[normalized],
+        workflow_json=workflow,
+        limits_json=limits,
+        policy_version=int(policy["policy_version"]),
+        envelope_json=signed,
+        job_signature=signed["signature"],
+        not_before=now,
+        expires_at=expires_at,
+        created_by=created_by,
     )
     session.add(job)
     await session.flush()

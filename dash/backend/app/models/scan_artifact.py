@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -31,6 +31,11 @@ class ScanArtifact(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     stage: Mapped[str] = mapped_column(String(64), nullable=False)
     scanner_name: Mapped[str] = mapped_column(String(64), nullable=False)
     content_type: Mapped[str] = mapped_column(String(64), nullable=False, default="application/xml")
+    # sha256 and size_bytes describe the *plaintext* output (for integrity and
+    # retention accounting) regardless of whether raw_output is encrypted at rest.
     sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    # raw_output holds either UTF-8 plaintext or, when ``encrypted`` is set, a
+    # Fernet token derived from VULNA_MASTER_KEY (see services/evidence_crypto).
     raw_output: Mapped[str] = mapped_column(Text, nullable=False)
+    encrypted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

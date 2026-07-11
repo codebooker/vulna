@@ -22,7 +22,12 @@ type Result struct {
 	JobID       string
 	StagesRun   int
 	StagesTotal int
-	Cancelled   bool
+	// StagesFailed is stages whose scanner ran but errored; StagesSkipped is
+	// stages with no matching scanner installed. Errors carries the details.
+	StagesFailed  int
+	StagesSkipped int
+	Errors        []string
+	Cancelled     bool
 	// Outputs holds the raw output of each completed stage (empty for the
 	// simulation worker, which contacts nothing).
 	Outputs []StageOutput

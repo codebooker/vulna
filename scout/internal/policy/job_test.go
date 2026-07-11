@@ -77,6 +77,40 @@ func TestVerifyJobRejectsOutOfScopeTarget(t *testing.T) {
 	}
 }
 
+func TestVerifyJobFailsClosedWithoutPolicy(t *testing.T) {
+	// A correctly-signed job must still be refused when the Scout holds no local
+	// policy: it cannot enforce scope/mode/limits, so it fails closed.
+	pub, _ := ParsePublicKey(jobVectorPub)
+	if _, err := VerifyJob([]byte(jobVectorJob), pub, nil, withinWindow); err != ErrNoPolicy {
+		t.Fatalf("expected ErrNoPolicy, got %v", err)
+	}
+}
+
+func TestHostCount(t *testing.T) {
+	cases := map[string]int{
+		"10.20.0.5":     1,
+		"10.20.0.5/32":  1,
+		"10.20.0.0/24":  256,
+		"10.0.0.0/8":    16777216,
+		"2001:db8::/32": hostSaturation, // huge range saturates, doesn't overflow
+	}
+	for target, want := range cases {
+		if got, err := hostCount(target); err != nil || got != want {
+			t.Errorf("hostCount(%q) = %d, %v; want %d", target, got, err, want)
+		}
+	}
+}
+
+func TestEnforceLimitsRejectsOverrun(t *testing.T) {
+	pol := Limits{MaxHosts: 256, MaxParallelHosts: 8, MaxPacketsPerSecond: 1000, MaxDurationSeconds: 100}
+	if err := enforceLimits(Limits{MaxParallelHosts: 9}, pol); err == nil {
+		t.Fatal("expected a job exceeding max_parallel_hosts to be rejected")
+	}
+	if err := enforceLimits(Limits{MaxParallelHosts: 8, MaxDurationSeconds: 100}, pol); err != nil {
+		t.Fatalf("within-limit job rejected: %v", err)
+	}
+}
+
 func TestVerifyJobRejectsWrongKey(t *testing.T) {
 	// A different (valid) key must not verify this job.
 	otherPub, err := ParsePublicKey(vectorPubKeyB64)

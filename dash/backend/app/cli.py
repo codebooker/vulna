@@ -15,7 +15,11 @@ from app import __version__
 from app.core.config import get_settings
 from app.db.base import Base
 from app.db.session import dispose_engine, get_engine, get_sessionmaker
-from app.services.bootstrap import ensure_bootstrap_admin, ensure_default_organization
+from app.services.bootstrap import (
+    BootstrapError,
+    ensure_bootstrap_admin,
+    ensure_default_organization,
+)
 
 
 async def _bootstrap_admin(create_tables: bool) -> int:
@@ -30,7 +34,12 @@ async def _bootstrap_admin(create_tables: bool) -> int:
     factory = get_sessionmaker()
     async with factory() as session:
         org = await ensure_default_organization(session, settings)
-        admin = await ensure_bootstrap_admin(session, settings)
+        try:
+            admin = await ensure_bootstrap_admin(session, settings)
+        except BootstrapError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            await dispose_engine()
+            return 2
         await session.commit()
 
     if admin is not None:

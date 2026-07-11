@@ -10,8 +10,14 @@ trap 'rm -rf "$work"' EXIT
 echo "smoke: building vulna CLI"
 (cd "$ROOT/cli" && go build -o "$work/vulna" ./cmd/vulna)
 
-# Stand in for a tar.gz produced by deploy/backup/backup.sh.
-printf 'PK\003\004 pretend db.dump + data\n' >"$work/base.tar.gz"
+# Stand in for a tar.gz produced by deploy/backup/backup.sh: a real gzip+tar
+# carrying a database dump and a data/ payload (verification now inspects the
+# archive contents, not just the manifest's declared classes).
+stage="$work/stage"
+mkdir -p "$stage/data/keys"
+printf 'pretend postgres custom-format dump\n' >"$stage/db.dump"
+printf 'pretend CA certificate\n' >"$stage/data/keys/ca_cert.pem"
+tar -czf "$work/base.tar.gz" -C "$stage" .
 
 echo "smoke: (1) create an encrypted bundle and verify it is USABLE"
 VULNA_BACKUP_PASSPHRASE="correct horse battery staple" \

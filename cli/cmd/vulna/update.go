@@ -11,10 +11,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/codebooker/vulna/cli/internal/buildinfo"
+	"github.com/codebooker/vulna/cli/internal/deploy"
 	"github.com/codebooker/vulna/cli/internal/release"
 	"github.com/codebooker/vulna/cli/internal/update"
 )
@@ -242,18 +244,47 @@ func cmdUpdateApply(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 
-	st, _ := update.LoadState(*dir)
-	st.Channel = *channel
-	st = update.RecordApplied(st, m.Version, backupPath, m.Migration.HasMigrations, time.Now())
-	if err := update.SaveState(*dir, st); err != nil {
-		fmt.Fprintln(stderr, "update: could not record state:", err)
+	// Apply the update by pulling the new images and restarting the stack. State
+	// is only recorded AFTER this succeeds, so a failed or not-yet-run update is
+	// never recorded as applied (which would leave a false rollback point).
+	if err := deploy.SourceHasCompose(*dir); err != nil {
+		fmt.Fprintln(stderr, "\nupdate: Compose files not found in", *dir, "-", err)
+		fmt.Fprintln(stderr, "update: cannot apply automatically; not recording this version as applied.")
+		return 1
+	}
+	// Pin the deployment to the new version BEFORE pulling, so `docker compose
+	// pull` actually fetches that release's images (the api/frontend image tags
+	// are ${VULNA_VERSION}).
+	if err := deploy.SetEnvVersion(*dir, m.Version); err != nil {
+		fmt.Fprintln(stderr, "update: could not set the target version:", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "\nPulling images for %s ...\n", m.Version)
+	if err := deploy.Pull(*dir, stdout, stderr); err != nil {
+		fmt.Fprintln(stderr, "update: image pull failed; nothing was changed:", err)
+		return 1
+	}
+	fmt.Fprintln(stdout, "Restarting the stack ...")
+	if err := deploy.Up(*dir, stdout, stderr); err != nil {
+		fmt.Fprintln(stderr, "update: bringing the stack up failed:", err)
+		fmt.Fprintln(stderr, "update: run `vulna rollback` if the stack is unhealthy.")
 		return 1
 	}
 
-	fmt.Fprintln(stdout, "\nApply the new version:")
-	fmt.Fprintf(stdout, "  cd %s && docker compose -f docker-compose.yml -f docker-compose.single-host.yml pull\n", *dir)
-	fmt.Fprintf(stdout, "  docker compose -f docker-compose.yml -f docker-compose.single-host.yml up -d --build\n")
-	fmt.Fprintln(stdout, "Migrations run automatically on API start; watch health afterward.")
+	st, _ := update.LoadState(*dir)
+	st.Channel = *channel
+	// On first update the state file has no current version yet; seed it with the
+	// running version so the rollback point is real, not empty.
+	if st.CurrentVersion == "" {
+		st.CurrentVersion = buildinfo.Version
+	}
+	st = update.RecordApplied(st, m.Version, backupPath, m.Migration.HasMigrations, time.Now())
+	if err := update.SaveState(*dir, st); err != nil {
+		fmt.Fprintln(stderr, "update: applied, but could not record state:", err)
+		return 1
+	}
+
+	fmt.Fprintf(stdout, "\nUpdated to %s. Migrations run automatically on API start; watch health afterward.\n", m.Version)
 	fmt.Fprintln(stdout, "If the stack does not become healthy, run `vulna rollback` to restore the prior version.")
 	return 0
 }
@@ -270,31 +301,103 @@ func cmdRollback(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "rollback:", err)
 		return 1
 	}
-	version, backup, hadMigr, err := update.PrepareRollback(st)
+	version, backupPath, hadMigr, err := update.PrepareRollback(st)
 	if err != nil {
 		fmt.Fprintln(stderr, "rollback:", err)
 		return 1
 	}
+	if err := deploy.SourceHasCompose(*dir); err != nil {
+		fmt.Fprintln(stderr, "rollback: Compose files not found in", *dir, "-", err)
+		return 1
+	}
 	fmt.Fprintf(stdout, "Rolling back to %s.\n", version)
+
+	// Restore the pre-update database first when the update changed the schema.
+	// If this fails we leave the rollback point intact so it can be retried.
 	if hadMigr {
-		if backup == "" {
+		if backupPath == "" {
 			fmt.Fprintln(stderr, "rollback: the update changed the database but no backup was recorded; "+
 				"restore from your own backup before downgrading to avoid an incompatible schema.")
 			return 1
 		}
-		fmt.Fprintf(stdout, "This release changed the database. Restore the pre-update backup first:\n")
-		fmt.Fprintf(stdout, "  deploy/backup/restore.sh %s\n", backup)
+		archive, ok := newestArchive(backupPath)
+		if !ok {
+			fmt.Fprintln(stderr, "rollback: could not find the pre-update backup archive under", backupPath)
+			return 1
+		}
+		script, ok := resolveBackupScript(*dir, "restore.sh")
+		if !ok {
+			fmt.Fprintln(stderr, "rollback: deploy/backup/restore.sh not found; cannot restore the database automatically.")
+			return 1
+		}
+		fmt.Fprintln(stdout, "Restoring the pre-update database ...")
+		cmd := exec.Command("bash", script, archive) //nolint:gosec // fixed in-repo script
+		cmd.Stdout, cmd.Stderr = stdout, stderr
+		if err := cmd.Run(); err != nil {
+			fmt.Fprintln(stderr, "rollback: database restore failed; leaving the rollback point intact:", err)
+			return 1
+		}
 	}
-	fmt.Fprintf(stdout, "Then redeploy the prior version and bring the stack up:\n")
-	fmt.Fprintf(stdout, "  cd %s && docker compose -f docker-compose.yml -f docker-compose.single-host.yml up -d\n", *dir)
 
-	// Record the rollback: current becomes the prior version; clear the pointer.
+	// Pin back to the prior version and pull its images, so the stack actually
+	// runs the old code (not just restarts the current one).
+	if err := deploy.SetEnvVersion(*dir, version); err != nil {
+		fmt.Fprintln(stderr, "rollback: could not set the prior version:", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "Pulling images for %s ...\n", version)
+	if err := deploy.Pull(*dir, stdout, stderr); err != nil {
+		fmt.Fprintln(stderr, "rollback: image pull failed; leaving the rollback point intact:", err)
+		return 1
+	}
+	fmt.Fprintln(stdout, "Bringing the stack up ...")
+	if err := deploy.Up(*dir, stdout, stderr); err != nil {
+		fmt.Fprintln(stderr, "rollback: bringing the stack up failed; leaving the rollback point intact:", err)
+		return 1
+	}
+
+	// Only now that the rollback actually happened: current becomes the prior
+	// version and the (now consumed) rollback pointer is cleared.
 	st.CurrentVersion = version
 	st.PriorVersion = ""
 	st.RollbackBackup = ""
 	st.RollbackHadMigr = false
-	_ = update.SaveState(*dir, st)
+	if err := update.SaveState(*dir, st); err != nil {
+		fmt.Fprintln(stderr, "rollback: rolled back, but could not record state:", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "Rolled back to %s.\n", version)
 	return 0
+}
+
+// newestArchive resolves a recorded backup location to a single archive file: if
+// it is already a file it is returned as-is; if it is a directory the most recent
+// *.tar.gz within it is chosen (backup filenames are timestamped).
+func newestArchive(path string) (string, bool) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", false
+	}
+	if !info.IsDir() {
+		return path, true
+	}
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return "", false
+	}
+	newest := ""
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".tar.gz") {
+			continue
+		}
+		if e.Name() > newest {
+			newest = e.Name()
+		}
+	}
+	if newest == "" {
+		return "", false
+	}
+	return filepath.Join(path, newest), true
 }
 
 // --- helpers ---

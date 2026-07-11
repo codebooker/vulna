@@ -161,7 +161,13 @@ func VerifyBundle(dir string, passphrase []byte) Report {
 		pass("checksum", "archive checksum matches the manifest")
 	} else {
 		fail("checksum", "archive checksum does NOT match the manifest")
+		return r
 	}
+
+	// The manifest's declared Contents come from a CLI flag; confirm the archive
+	// actually carries those payloads so an empty or truncated archive can never
+	// be certified usable.
+	verifyArchiveContents(m, plaintext, pass, fail)
 	return r
 }
 

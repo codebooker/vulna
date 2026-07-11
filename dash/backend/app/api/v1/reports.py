@@ -138,6 +138,17 @@ async def download_report(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Report is not available for download"
         )
+    # Honor the report's expiry: an expired artifact must not be downloadable,
+    # even if retention cleanup has not yet removed the file. Treat a stored
+    # naive timestamp (some backends drop tzinfo) as UTC.
+    if report.expires_at is not None:
+        expires_at = report.expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=UTC)
+        if expires_at <= datetime.now(UTC):
+            raise HTTPException(
+                status_code=status.HTTP_410_GONE, detail="Report has expired"
+            )
     path = Path(report.storage_path)
     if not path.is_file():
         raise HTTPException(

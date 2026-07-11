@@ -8,6 +8,9 @@ application lifespan.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -26,6 +29,30 @@ from app.db.session import dispose_engine, get_engine, get_session, get_sessionm
 from app.schemas.system import HealthResponse
 from app.services.bootstrap import run_bootstrap
 from app.services.metrics import render_metrics
+
+logger = logging.getLogger(__name__)
+
+
+async def _scheduler_loop(settings: Settings) -> None:
+    """Periodically fire due scan schedules and reap stale jobs.
+
+    The single-host deployment has no external scheduler, so this in-process loop
+    provides one. A per-tick failure is logged and never crashes the loop.
+    """
+    from app.services import reaper, scheduler
+
+    factory = get_sessionmaker()
+    while True:
+        await asyncio.sleep(settings.scheduler_interval_seconds)
+        try:
+            async with factory() as session:
+                await scheduler.run_due_schedules(session, settings)
+                await reaper.reap_stale_jobs(session, settings)
+                await session.commit()
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - a background sweep must never die
+            logger.exception("scheduler sweep failed")
 
 
 @asynccontextmanager
@@ -49,9 +76,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await run_bootstrap(session, settings)
         await session.commit()
 
+    scheduler_task = (
+        asyncio.create_task(_scheduler_loop(settings)) if settings.scheduler_enabled else None
+    )
     try:
         yield
     finally:
+        if scheduler_task is not None:
+            scheduler_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await scheduler_task
         await dispose_engine()
 
 

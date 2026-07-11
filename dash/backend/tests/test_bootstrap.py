@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import pytest
 from app.core.config import get_settings
 from app.models.enums import UserRole
 from app.models.organization import Organization
 from app.models.user import User
 from app.services.bootstrap import (
+    BootstrapError,
     ensure_bootstrap_admin,
     ensure_default_organization,
     run_bootstrap,
@@ -43,6 +45,24 @@ async def test_bootstrap_admin_created_from_settings(db_session: AsyncSession) -
     assert admin.role == UserRole.ADMINISTRATOR
     assert admin.email == "boot@example.com"
     assert admin.hashed_password != "a-very-strong-password"  # stored hashed
+
+
+async def test_bootstrap_admin_rejects_login_invalid_email(db_session: AsyncSession) -> None:
+    # A reserved-domain address the login schema (EmailStr) would reject must not
+    # silently create an administrator that can never authenticate.
+    settings = get_settings().model_copy(
+        update={
+            "bootstrap_admin_email": "admin@vulna.test",
+            "bootstrap_admin_password": "a-very-strong-password",
+        }
+    )
+    with pytest.raises(BootstrapError):
+        await ensure_bootstrap_admin(db_session, settings)
+    # No administrator was created.
+    count = await db_session.scalar(
+        select(func.count()).select_from(User).where(User.role == UserRole.ADMINISTRATOR)
+    )
+    assert count == 0
 
 
 async def test_bootstrap_admin_not_created_without_credentials(

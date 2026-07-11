@@ -158,6 +158,25 @@ def advance(
     _activate_next(run, current_index, now)
 
 
+# The scanning stages, each realized by its own single-stage scan job (nmap
+# discovery, nuclei vulnerability, testssl TLS). The workflow dispatches one job
+# per stage and advances that stage on the job's terminal result (see
+# services/workflow_dispatch).
+SCAN_STAGES = ("discovery", "vulnerability_assessment", "web_and_tls")
+
+
+def scanning_stage_active(run: WorkflowRun) -> bool:
+    """True when the run is waiting on the dispatched scan job to finish."""
+    return current_stage_name(run) in SCAN_STAGES
+
+
+def fail_scanning(run: WorkflowRun, *, detail: str, now: datetime) -> None:
+    """Fail the active scanning stage when the dispatched scan job does not
+    complete; the engine then skips to cleanup/verification/reporting."""
+    if scanning_stage_active(run):
+        advance(run, outcome=WorkflowStageStatus.FAILED, detail=detail, now=now)
+
+
 def decide_intrusive(run: WorkflowRun, *, approve: bool, now: datetime) -> None:
     """Approve or deny the intrusive stage at the approval gate. Denial continues
     the workflow safely (validation/evidence/cleanup are skipped, verification and

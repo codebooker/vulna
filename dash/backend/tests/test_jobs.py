@@ -55,6 +55,31 @@ async def test_create_job_signs_and_queues(
     assert body["requested_targets_json"] == ["10.20.0.0/24"]
 
 
+async def test_create_job_over_host_limit_rejected(
+    client: AsyncClient, admin_headers: dict[str, str], enroll_probe: EnrollFactory
+) -> None:
+    probe = await enroll_probe(site_code="HL", probe_name="p-HL")
+    await client.post(f"/api/v1/probes/{probe['probe_id']}/approve", headers=admin_headers)
+    # An approved /24 (256 hosts) but a maximum_hosts of 10.
+    await client.post(
+        "/api/v1/scopes",
+        json={
+            "site_id": probe["site_id"],
+            "name": "lan",
+            "cidr": "10.20.0.0/24",
+            "maximum_hosts": 10,
+        },
+        headers=admin_headers,
+    )
+    resp = await client.post(
+        "/api/v1/jobs",
+        json={"probe_id": probe["probe_id"], "targets": ["10.20.0.0/24"]},
+        headers=admin_headers,
+    )
+    assert resp.status_code == 422
+    assert "exceed" in resp.json()["detail"].lower()
+
+
 async def test_create_job_out_of_scope_rejected(
     client: AsyncClient, admin_headers: dict[str, str], enroll_probe: EnrollFactory
 ) -> None:

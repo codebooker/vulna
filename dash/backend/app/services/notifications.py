@@ -27,7 +27,7 @@ from base64 import urlsafe_b64encode
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 from cryptography.fernet import Fernet, InvalidToken
 
@@ -187,14 +187,36 @@ def verify_webhook(
 # --------------------------------------------------------------------------- #
 
 
-def validate_destination(url: str, *, allow_private: bool = False) -> None:
-    """Validate a webhook destination, raising :class:`NotificationError` if the
-    URL could be used for request forgery.
+def _check_ip(addr: str, *, allow_private: bool) -> None:
+    """Raise :class:`NotificationError` if ``addr`` is not a valid webhook target."""
+    ip = ipaddress.ip_address(addr)
+    # Always blocked, even with allow_private: these are never a valid webhook
+    # target and include the cloud metadata service.
+    if (
+        ip.is_loopback or ip.is_link_local or ip.is_multicast
+        or ip.is_unspecified or ip.is_reserved
+    ):
+        raise NotificationError(
+            f"Webhook host resolves to a blocked address ({addr}); "
+            "loopback, link-local, and metadata addresses are not allowed."
+        )
+    if ip.is_private and not allow_private:
+        raise NotificationError(
+            f"Webhook host resolves to a private address ({addr}). Enable "
+            "'allow private destination' only for a trusted service on your own network."
+        )
 
-    Requires ``https``. Resolves the host and rejects loopback, link-local,
-    cloud-metadata, multicast, unspecified, and reserved addresses. Private
-    (RFC1918/ULA) addresses are rejected unless ``allow_private`` is set, which an
-    operator opts into for a trusted service on their own LAN.
+
+def resolve_validated(url: str, *, allow_private: bool = False) -> tuple[str, str]:
+    """Validate a webhook destination and return ``(host, pinned_ip)``.
+
+    Requires ``https``. Resolves the host, rejects loopback, link-local,
+    cloud-metadata, multicast, unspecified, and reserved addresses (and private
+    ones unless ``allow_private``), and returns the host together with the single
+    IP the caller must connect to. Callers **must** connect to ``pinned_ip``
+    rather than re-resolving the host, otherwise a DNS-rebinding attacker can
+    return a public IP here and an internal one at connection time. See
+    :func:`pin_url_to_ip`.
     """
     parts = urlsplit(url)
     if parts.scheme != "https":
@@ -203,23 +225,31 @@ def validate_destination(url: str, *, allow_private: bool = False) -> None:
     if not host:
         raise NotificationError("Webhook URL has no host.")
 
-    for addr in _resolve(host):
-        ip = ipaddress.ip_address(addr)
-        # Always blocked, even with allow_private: these are never a valid webhook
-        # target and include the cloud metadata service.
-        if (
-            ip.is_loopback or ip.is_link_local or ip.is_multicast
-            or ip.is_unspecified or ip.is_reserved
-        ):
-            raise NotificationError(
-                f"Webhook host resolves to a blocked address ({addr}); "
-                "loopback, link-local, and metadata addresses are not allowed."
-            )
-        if ip.is_private and not allow_private:
-            raise NotificationError(
-                f"Webhook host resolves to a private address ({addr}). Enable "
-                "'allow private destination' only for a trusted service on your own network."
-            )
+    addrs = _resolve(host)
+    if not addrs:
+        raise NotificationError(f"Could not resolve webhook host '{host}'.")
+    for addr in addrs:
+        _check_ip(addr, allow_private=allow_private)
+    return host, addrs[0]
+
+
+def validate_destination(url: str, *, allow_private: bool = False) -> None:
+    """Validate a webhook destination, raising :class:`NotificationError` if the
+    URL could be used for request forgery. Used by the config/test path, which
+    does not itself send; delivery uses :func:`resolve_validated` to pin the IP.
+    """
+    resolve_validated(url, allow_private=allow_private)
+
+
+def pin_url_to_ip(url: str, ip: str) -> str:
+    """Return ``url`` with its host replaced by ``ip`` (IPv6 bracketed), preserving
+    scheme, port, path, and query. Combined with an ``sni_hostname`` request
+    extension set to the original host, this connects to the validated IP while
+    still verifying the host's TLS certificate — closing the rebinding window."""
+    parts = urlsplit(url)
+    hostpart = f"[{ip}]" if ":" in ip else ip
+    netloc = f"{hostpart}:{parts.port}" if parts.port else hostpart
+    return urlunsplit((parts.scheme, netloc, parts.path or "/", parts.query, parts.fragment))
 
 
 def _resolve(host: str) -> list[str]:

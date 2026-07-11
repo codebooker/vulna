@@ -69,6 +69,31 @@ func TestValidatePublicRequiresURLAndACME(t *testing.T) {
 	}
 }
 
+func TestValidateLANAllowsHostnameOrIP(t *testing.T) {
+	// The single-host profile serves probe mTLS on its own :8443 listener, so the
+	// browser :443 accepts a no-SNI (raw IP) handshake — LAN access works by
+	// hostname or IP, and an empty URL (defaults to the localhost site) is fine.
+	o := validLocalhost()
+	o.AccessMode = AccessLAN
+	for _, url := range []string{"", "vulna.lan", "192.168.1.10", "[2001:db8::1]"} {
+		o.URL = url
+		if err := o.Validate(); err != nil {
+			t.Fatalf("LAN mode with url %q should pass: %v", url, err)
+		}
+	}
+}
+
+func TestValidatePublicRejectsIPHost(t *testing.T) {
+	// Public mode uses Let's Encrypt, which cannot issue for a bare IP.
+	o := validLocalhost()
+	o.AccessMode = AccessPublic
+	o.ACMEEmail = "ops@example.com"
+	o.URL = "203.0.113.5"
+	if err := o.Validate(); err == nil {
+		t.Fatal("public mode with an IP host should fail")
+	}
+}
+
 func TestValidateAdminEmail(t *testing.T) {
 	o := validLocalhost()
 	o.AdminEmail = "not-an-email"

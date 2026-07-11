@@ -1,9 +1,12 @@
 """VulnaRelay endpoints (Phase 16, opt-in).
 
-Relay mode is **off by default** and must be enabled in settings. When disabled,
-every relay operation is refused. Scope is enforced at the central egress; the
-relay never receives job-signing keys or scanner credentials. Kill switch,
-enrollment (token + mTLS), heartbeat, and egress checks live here.
+Relay mode is **off by default** and must be enabled in settings. While disabled,
+new enrollment and scope changes are refused, and — because disabling must fail
+closed — the central egress blocks all relay traffic and heartbeats cannot mark a
+tunnel up, so already-enrolled relays stop carrying scans. Scope is enforced at
+the central egress; the relay never receives job-signing keys or scanner
+credentials. Kill switch, enrollment (token + mTLS), heartbeat, and egress checks
+live here.
 """
 
 from __future__ import annotations
@@ -240,7 +243,10 @@ async def heartbeat(
             detail="Relay kill switch is engaged; tunnel must stay down.",
         )
     relay.last_seen_at = datetime.now(UTC)
-    relay.tunnel_up = payload.tunnel_up
+    # Fail closed when relay mode is disabled: the tunnel may not be marked up, so
+    # a relay left enrolled after an admin turns the feature off stops carrying scans.
+    org = await _org(session, relay.organization_id)
+    relay.tunnel_up = payload.tunnel_up and relay_svc.relay_enabled(org)
     await session.commit()
     return {"status": relay.status.value, "tunnel_up": relay.tunnel_up}
 
@@ -284,6 +290,15 @@ async def egress_check(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict[str, Any]:
     relay = await _get_relay(session, relay_id, current_user.organization_id)
+    # Fail closed when relay mode is disabled: the central egress is the security
+    # boundary, so a disabled feature blocks all relay traffic regardless of the
+    # relay's stored scope/tunnel state.
+    org = await _org(session, current_user.organization_id)
+    if not relay_svc.relay_enabled(org):
+        return {
+            "allowed": False,
+            "reason": "Relay mode is disabled; the central egress blocks all relay traffic.",
+        }
     decision = relay_svc.egress_decision(
         payload.target, relay.approved_cidrs_json, relay.denied_cidrs_json,
         status=relay.status, tunnel_up=relay.tunnel_up,

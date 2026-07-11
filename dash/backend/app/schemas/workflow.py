@@ -13,6 +13,9 @@ from app.models.enums import JobMode, WorkflowRunStatus, WorkflowStageStatus
 
 class WorkflowRunCreate(BaseModel):
     site_id: uuid.UUID
+    # Optional target network; when set, scanning runs on a scout bound to it over
+    # the network's ranges (else the site's first probe over its whole scope).
+    network_id: uuid.UUID | None = None
     include_web: bool = False
     include_intrusive: bool = False
 
@@ -34,6 +37,7 @@ class WorkflowRunRead(BaseModel):
     id: uuid.UUID
     organization_id: uuid.UUID
     site_id: uuid.UUID
+    network_id: uuid.UUID | None
     scan_job_id: uuid.UUID | None
     mode: JobMode
     status: WorkflowRunStatus

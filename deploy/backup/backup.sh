@@ -24,6 +24,14 @@ elif [ -n "${VULNA_DB_DUMP:-}" ] && [ -f "$VULNA_DB_DUMP" ]; then
 	cp "$VULNA_DB_DUMP" "$STAGE/db.dump"
 else
 	echo "backup: no database dump source (set DATABASE_URL or VULNA_DB_DUMP)" >&2
+	echo "backup: refusing to write a backup with no database dump." >&2
+	exit 1
+fi
+
+# A zero-byte dump is a failed pg_dump, not a backup; fail rather than certify it.
+if [ ! -s "$STAGE/db.dump" ]; then
+	echo "backup: database dump is empty; aborting." >&2
+	exit 1
 fi
 
 # 2. Persistent data directory (keys, reports, evidence, config).

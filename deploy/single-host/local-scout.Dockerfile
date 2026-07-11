@@ -46,6 +46,15 @@ RUN set -eu; \
     grep " ${zip}\$" nuclei_checksums.txt | sha256sum -c -; \
     unzip -j "$zip" nuclei -d /out; \
     chmod +x /out/nuclei
+# nuclei-templates — pinned tag. Bundled so out-of-the-box (and offline) vuln
+# scans have templates to match against; without them nuclei loads zero
+# templates (update checks are disabled by policy) and every scan finds nothing.
+ARG NUCLEI_TEMPLATES_VERSION=10.4.5
+RUN set -eu; \
+    curl -fsSL -o /tmp/nuclei-templates.tar.gz \
+      "https://github.com/projectdiscovery/nuclei-templates/archive/refs/tags/v${NUCLEI_TEMPLATES_VERSION}.tar.gz"; \
+    mkdir -p /opt/nuclei-templates; \
+    tar -xzf /tmp/nuclei-templates.tar.gz -C /opt/nuclei-templates --strip-components=1
 # testssl.sh — pinned stable tag.
 ARG TESTSSL_VERSION=3.0.9
 RUN set -eu; \
@@ -65,12 +74,15 @@ RUN apk add --no-cache \
 
 COPY --from=build /out/vulnascout /usr/local/bin/vulnascout
 COPY --from=tools /out/nuclei /usr/local/bin/nuclei
+COPY --from=tools /opt/nuclei-templates /opt/nuclei-templates
 COPY --from=tools /opt/testssl /opt/testssl
 RUN ln -s /opt/testssl/testssl.sh /usr/local/bin/testssl.sh
 COPY deploy/single-host/local-scout-entrypoint.sh /usr/local/bin/local-scout-entrypoint.sh
 RUN chmod +x /usr/local/bin/local-scout-entrypoint.sh
 
-# nuclei writes its template cache and config under $HOME.
-ENV HOME=/var/lib/vulna
+# nuclei writes its config under $HOME; VULNA_NUCLEI_TEMPLATES points the Scout's
+# nuclei adapter at the bundled template set (see scanners/nuclei).
+ENV HOME=/var/lib/vulna \
+    VULNA_NUCLEI_TEMPLATES=/opt/nuclei-templates
 USER vulna
 ENTRYPOINT ["/usr/local/bin/local-scout-entrypoint.sh"]

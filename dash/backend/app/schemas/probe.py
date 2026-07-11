@@ -36,12 +36,19 @@ class ProbeRead(BaseModel):
     health: dict[str, Any]
     policy_hash: str | None
     upgrade_channel: str
+    pentest_enabled: bool = False
     last_seen_at: datetime | None
     last_job_at: datetime | None
     enrolled_at: datetime | None
     approved_at: datetime | None
     created_at: datetime
     updated_at: datetime
+
+
+class PentestToggle(BaseModel):
+    """Enable or disable controlled-pentest execution on a scout."""
+
+    enabled: bool
 
 
 def is_probe_online(
@@ -78,6 +85,7 @@ def serialize_probe(probe: Probe, *, offline_after_seconds: int) -> ProbeRead:
         health=probe.health_json,
         policy_hash=probe.policy_hash,
         upgrade_channel=probe.upgrade_channel,
+        pentest_enabled=probe.pentest_enabled,
         last_seen_at=probe.last_seen_at,
         last_job_at=probe.last_job_at,
         enrolled_at=probe.enrolled_at,

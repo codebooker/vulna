@@ -12,7 +12,8 @@
 # and is consumed on first use.
 set -eu
 
-SERVER_URL="${VULNA_SERVER_URL:-https://vulna-dash}"
+# Probe mTLS is served on :8443 (the browser UI on :443 has no client_auth).
+SERVER_URL="${VULNA_SERVER_URL:-https://vulna-dash:8443}"
 STATE_DIR="${VULNA_STATE_DIR:-/var/lib/vulna}"
 TOKEN_FILE="${VULNA_ENROLL_TOKEN_FILE:-/var/lib/vulna/bootstrap/local-scout-enroll.token}"
 # Caddy's public internal root CA, published to the shared bootstrap volume by

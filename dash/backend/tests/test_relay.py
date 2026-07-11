@@ -38,6 +38,15 @@ def test_egress_blocks_denied_range() -> None:
     assert d.allowed is False and "denied" in d.reason.lower()
 
 
+def test_egress_blocks_broad_target_overlapping_denied_host() -> None:
+    # A denied single host inside a broad approved target must block the whole
+    # target (overlap semantics), not slip through because it isn't fully denied.
+    d = egress_decision(
+        "10.9.0.0/16", ["10.0.0.0/8"], ["10.9.9.9/32"], status=ENROLLED, tunnel_up=True
+    )
+    assert d.allowed is False and "denied" in d.reason.lower()
+
+
 def test_egress_blocks_when_tunnel_down() -> None:
     d = egress_decision("10.1.2.3", ["10.0.0.0/8"], [], status=ENROLLED, tunnel_up=False)
     assert d.allowed is False and "tunnel" in d.reason.lower()
@@ -163,3 +172,37 @@ async def test_enroll_scope_and_egress_and_killswitch(
     # Resume clears the kill switch.
     resumed = await client.post(f"/api/v1/relays/{relay_id}/resume", headers=admin_headers)
     assert resumed.json()["status"] == "enrolled"
+
+
+async def test_disabling_relay_mode_fails_closed(
+    client: AsyncClient, admin_headers: dict[str, str]
+) -> None:
+    relay_id = await _enable_and_enroll(client, admin_headers)
+    await client.post(
+        f"/api/v1/relays/{relay_id}/scope",
+        json={"approved_cidrs": ["10.0.0.0/8"]},
+        headers=admin_headers,
+    )
+    fp = next(
+        r["certificate_fingerprint"]
+        for r in (await client.get("/api/v1/relays", headers=admin_headers)).json()["relays"]
+        if r["id"] == relay_id
+    )
+    # Turn relay mode OFF while a relay is still enrolled.
+    await client.post("/api/v1/relays/settings", json={"enabled": False}, headers=admin_headers)
+
+    # Egress is blocked at the central egress ...
+    blocked = await client.post(
+        f"/api/v1/relays/{relay_id}/egress-check",
+        json={"target": "10.1.2.3"},
+        headers=admin_headers,
+    )
+    assert blocked.json()["allowed"] is False and "disabled" in blocked.json()["reason"].lower()
+
+    # ... and a heartbeat cannot mark the tunnel up.
+    hb = await client.post(
+        "/api/v1/relays/heartbeat",
+        json={"tunnel_up": True, "health": {}},
+        headers=probe_cert_headers(fp),
+    )
+    assert hb.status_code == 200 and hb.json()["tunnel_up"] is False

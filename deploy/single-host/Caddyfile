@@ -1,17 +1,23 @@
 # Caddy reverse proxy for the single-host Vulna deployment (Phase 17).
 #
 # Unlike the base deploy/Caddyfile (which leaves mTLS commented out for the
-# operator to enable), this file has probe mutual-TLS ENABLED, because the
-# single-host profile ships a co-located "local Scout" that must authenticate
+# operator to enable), this file ships probe mutual-TLS ENABLED, because the
+# single-host profile runs a co-located "local Scout" that must authenticate
 # exactly like any remote VulnaScout — same security boundary (see ADR 0017 and
-# app/api/probe_auth.py). Nothing here is single-host-specific except that the
-# trust and the internal name are wired up for you.
+# app/api/probe_auth.py).
 #
-# Two site addresses share one behavior:
-#   {$VULNA_DOMAIN:localhost}  — how the operator's browser reaches the UI
-#   https://vulna-dash         — a stable internal name (a Docker network alias
-#                                for this container) so the co-located Scout has
-#                                a constant SNI to pin the mTLS handshake against
+# Listener split (Phase 17 fix): probe mTLS lives on its OWN listener (:8443),
+# NOT on the :443 the browser uses. Enabling client_auth on a listener makes
+# Caddy require SNI on it, and a browser (or curl) reaching the box by raw IP
+# sends no SNI — so sharing :443 broke IP access entirely. With the browser UI on
+# a plain :443 (no client_auth) and all probe mTLS on :8443, the dashboard is
+# reachable by hostname AND by raw IP, while probes still get a verified client
+# certificate.
+#
+#   :443   {$VULNA_DOMAIN}          — operator browser UI + JWT API (no mTLS)
+#   :8443  {$VULNA_DOMAIN}          — remote VulnaScout mTLS (growth to N scouts)
+#   :8443  https://vulna-dash       — a stable internal name (Docker alias) the
+#                                     co-located local Scout pins mTLS against
 #
 # client_auth mode is "verify_if_given", NOT "require_and_verify": enrollment
 # (POST /api/v1/probes/enroll) is certless by design — a fresh probe has no
@@ -21,33 +27,26 @@
 # at the handshake), and heartbeat/poll endpoints reject a certless request at
 # the application layer because no fingerprint header is set. Do NOT use "request"
 # — it does not verify at all.
-
 {
 	email {$CADDY_TLS}
 }
 
-# Shared behavior: mTLS-verified fingerprint forwarding + API/SPA routing.
-(vulna_site) {
-	# API and docs to the backend.
+# Shared routing to the API/SPA. Two variants differ ONLY in how the probe
+# client-certificate fingerprint header is handled.
+
+# Browser/JWT variant (no mTLS): STRIP any inbound fingerprint header so a browser
+# can never spoof a probe identity. Operators authenticate with a JWT, not a cert.
+(vulna_site_browser) {
 	@api path /api/* /openapi.json /docs /docs/* /health
 	handle @api {
 		reverse_proxy api:8000 {
-			# Overwrite any client-supplied value with the fingerprint of the
-			# certificate Caddy verified. For a certless request (enrollment) the
-			# placeholder is empty, which the API treats as "no probe identity".
-			# A lone "set" both injects the verified value and defeats spoofing;
-			# do NOT add a matching "-delete", which would drop the header entirely.
-			header_up X-Vulna-Client-Cert-Fingerprint {http.request.tls.client.fingerprint}
+			header_up -X-Vulna-Client-Cert-Fingerprint
 		}
 	}
-
-	# Everything else to the frontend SPA.
 	handle {
 		reverse_proxy frontend:8080
 	}
-
 	encode gzip
-
 	header {
 		X-Content-Type-Options nosniff
 		X-Frame-Options DENY
@@ -56,10 +55,41 @@
 	}
 }
 
-# Operator-facing site. tls uses {$CADDY_TLS} so a real domain + email gets
-# Let's Encrypt; the default (localhost / "internal") uses Caddy's internal CA.
+# mTLS variant: overwrite any client-supplied value with the fingerprint of the
+# certificate Caddy verified. For a certless request (enrollment) the placeholder
+# is empty, which the API treats as "no probe identity". A lone "set" both injects
+# the verified value and defeats spoofing; do NOT add a matching "-delete".
+(vulna_site_mtls) {
+	@api path /api/* /openapi.json /docs /docs/* /health
+	handle @api {
+		reverse_proxy api:8000 {
+			header_up X-Vulna-Client-Cert-Fingerprint {http.request.tls.client.fingerprint}
+		}
+	}
+	handle {
+		reverse_proxy frontend:8080
+	}
+	encode gzip
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy no-referrer
+		-Server
+	}
+}
+
+# Operator-facing browser site on :443 — NO client_auth, so the dashboard is
+# reachable by hostname or by raw IP (a no-SNI handshake is accepted). Probes
+# never use this listener.
 {$VULNA_DOMAIN:localhost} {
-	import vulna_site
+	import vulna_site_browser
+	tls {$CADDY_TLS}
+}
+
+# Remote VulnaScout mTLS on :8443 (single-host growth to multiple Scouts). Same
+# managed cert as :443, plus client-certificate verification against the CA.
+{$VULNA_DOMAIN:localhost}:8443 {
+	import vulna_site_mtls
 	tls {$CADDY_TLS} {
 		client_auth {
 			mode verify_if_given
@@ -68,10 +98,10 @@
 	}
 }
 
-# Internal name for the co-located local Scout. Always the internal CA (this
-# name is never public), with the same probe mTLS trust.
-https://vulna-dash {
-	import vulna_site
+# Internal name for the co-located local Scout on :8443. Always the internal CA
+# (this name is never public), with the same probe mTLS trust.
+https://vulna-dash:8443 {
+	import vulna_site_mtls
 	tls internal {
 		client_auth {
 			mode verify_if_given

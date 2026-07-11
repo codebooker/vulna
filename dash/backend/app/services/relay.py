@@ -83,6 +83,26 @@ def _within(target: _Net, cidrs: list[str]) -> bool:
     return False
 
 
+def _overlaps_any(target: _Net, cidrs: list[str]) -> bool:
+    """True if ``target`` overlaps any of ``cidrs`` at all (same IP version).
+
+    Deny rules use overlap, not containment: a denied host inside a larger target
+    block must still block the whole block, otherwise a broad target (e.g. a /16
+    that contains one denied host) would slip past the deny list.
+    """
+    t_lo, t_hi = int(target.network_address), int(target.broadcast_address)
+    for c in cidrs:
+        try:
+            net = ipaddress.ip_network(c.strip(), strict=False)
+        except ValueError:
+            continue
+        if target.version != net.version:
+            continue
+        if int(net.network_address) <= t_hi and t_lo <= int(net.broadcast_address):
+            return True
+    return False
+
+
 def egress_decision(
     target: str,
     approved_cidrs: list[str],
@@ -108,8 +128,8 @@ def egress_decision(
     except ScopeValidationError as exc:
         return EgressDecision(False, str(exc))
 
-    if _within(net, denied_cidrs):
-        return EgressDecision(False, f"Target {target} is in an explicitly denied range.")
+    if _overlaps_any(net, denied_cidrs):
+        return EgressDecision(False, f"Target {target} overlaps an explicitly denied range.")
     if not _within(net, approved_cidrs):
         return EgressDecision(
             False,

@@ -21,6 +21,11 @@ import (
 const (
 	defaultBinary  = "nuclei"
 	defaultTimeout = 30 * time.Minute
+	// templatesEnv points nuclei at a bundled templates directory. The scanner
+	// image sets it so offline, out-of-the-box vulnerability scans have templates
+	// to match against (without it, and with update checks disabled, nuclei loads
+	// zero templates and every scan finds nothing).
+	templatesEnv = "VULNA_NUCLEI_TEMPLATES"
 )
 
 // Excluded template tags for the safe policy: anything intrusive or destructive.
@@ -30,8 +35,10 @@ var excludedTags = []string{"dos", "intrusive", "fuzzing", "fuzz", "brute-force"
 var safeSeverities = []string{"low", "medium", "high", "critical"}
 
 // BuildArgs builds allowlisted nuclei arguments: read targets from targetFile,
-// write JSONL to outPath, applying the safe template policy.
-func BuildArgs(outPath, targetFile string, severities []string) []string {
+// write JSONL to outPath, applying the safe template policy. When templatesDir is
+// non-empty it is passed via -templates so nuclei loads the bundled template set
+// instead of relying on an (update-disabled, possibly empty) default directory.
+func BuildArgs(outPath, targetFile, templatesDir string, severities []string) []string {
 	args := []string{
 		"-list", targetFile,
 		"-jsonl",
@@ -41,6 +48,9 @@ func BuildArgs(outPath, targetFile string, severities []string) []string {
 		"-disable-update-check",
 		"-exclude-tags", strings.Join(excludedTags, ","),
 	}
+	if templatesDir != "" {
+		args = append(args, "-templates", templatesDir)
+	}
 	if len(severities) > 0 {
 		args = append(args, "-severity", strings.Join(severities, ","))
 	}
@@ -49,14 +59,22 @@ func BuildArgs(outPath, targetFile string, severities []string) []string {
 
 // Worker runs Nuclei scans. It satisfies scanners.Scanner.
 type Worker struct {
-	Binary     string
-	Timeout    time.Duration
-	Severities []string
+	Binary       string
+	Timeout      time.Duration
+	Severities   []string
+	TemplatesDir string
 }
 
-// NewWorker returns a Worker with the safe policy.
+// NewWorker returns a Worker with the safe policy. The templates directory is
+// taken from VULNA_NUCLEI_TEMPLATES (set by the scanner image); when unset,
+// nuclei uses its own default template location.
 func NewWorker() *Worker {
-	return &Worker{Binary: defaultBinary, Timeout: defaultTimeout, Severities: safeSeverities}
+	return &Worker{
+		Binary:       defaultBinary,
+		Timeout:      defaultTimeout,
+		Severities:   safeSeverities,
+		TemplatesDir: os.Getenv(templatesEnv),
+	}
 }
 
 func (w *Worker) Stage() string { return "vulnerability" }
@@ -107,7 +125,7 @@ func (w *Worker) Run(ctx context.Context, job *policy.Job) ([]byte, error) {
 	_ = outFile.Close()
 	defer func() { _ = os.Remove(outPath) }()
 
-	args := BuildArgs(outPath, targetPath, w.Severities)
+	args := BuildArgs(outPath, targetPath, w.TemplatesDir, w.Severities)
 	runCtx, cancel := context.WithTimeout(ctx, w.timeout())
 	defer cancel()
 	cmd := exec.CommandContext(runCtx, w.binary(), args...)

@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 from datetime import UTC, datetime, timedelta
 
+from pydantic import EmailStr, TypeAdapter, ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,6 +26,29 @@ from app.models.user import User
 from app.services.audit import record_audit
 from app.services.ca import get_ca
 from app.services.enrollment import generate_token
+
+# The login schema validates credentials with pydantic's EmailStr, which rejects
+# special-use / reserved domains (e.g. .test, .local, .example). Seed the admin
+# with the SAME validator so a configured address that cannot be used to log in
+# is caught up front with a clear error, instead of silently creating an
+# administrator that can never authenticate.
+_EMAIL_ADAPTER: TypeAdapter[str] = TypeAdapter(EmailStr)
+
+
+class BootstrapError(RuntimeError):
+    """Raised when bootstrap configuration is invalid and must be corrected."""
+
+
+def _validate_admin_email(email: str) -> str:
+    try:
+        return _EMAIL_ADAPTER.validate_python(email.strip())
+    except ValidationError as exc:
+        reason = exc.errors()[0].get("msg", "invalid email address")
+        raise BootstrapError(
+            f"VULNA_ADMIN_EMAIL '{email}' cannot be used to log in: {reason}. "
+            "Use a real, routable email address (reserved domains such as .test, "
+            ".local, and .example are rejected by login)."
+        ) from exc
 
 
 async def ensure_default_organization(session: AsyncSession, settings: Settings) -> Organization:
@@ -66,6 +90,10 @@ async def ensure_bootstrap_admin(session: AsyncSession, settings: Settings) -> U
     if not email or not password:
         return None
 
+    # Validate before doing any work so a bad address fails fast with a clear
+    # message rather than seeding an administrator that login will reject.
+    validated_email = _validate_admin_email(email)
+
     # Skip if any administrator already exists.
     existing_admins = await session.scalar(
         select(func.count()).select_from(User).where(User.role == UserRole.ADMINISTRATOR)
@@ -75,7 +103,7 @@ async def ensure_bootstrap_admin(session: AsyncSession, settings: Settings) -> U
 
     org = await ensure_default_organization(session, settings)
 
-    normalized_email = email.strip().lower()
+    normalized_email = validated_email.strip().lower()
     admin = User(
         organization_id=org.id,
         email=normalized_email,

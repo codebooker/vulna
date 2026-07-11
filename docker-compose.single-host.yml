@@ -33,6 +33,11 @@ services:
       - bootstrap:/var/lib/vulna/bootstrap
 
   caddy:
+    # Publish the probe mTLS listener (:8443) in addition to the base 80/443.
+    # The browser UI stays on :443 (no mTLS, so raw-IP access works); probes —
+    # including the co-located local Scout — use :8443.
+    ports:
+      - "8443:8443"
     volumes:
       - ./deploy/single-host/Caddyfile:/etc/caddy/Caddyfile:ro
       - keys:/etc/caddy/keys:ro
@@ -75,7 +80,9 @@ services:
       dockerfile: deploy/single-host/local-scout.Dockerfile
     restart: unless-stopped
     environment:
-      VULNA_SERVER_URL: https://vulna-dash
+      # Probe mTLS is served on :8443 (the browser UI on :443 has no client_auth
+      # so raw-IP access works); the local Scout authenticates against :8443.
+      VULNA_SERVER_URL: https://vulna-dash:8443
       VULNA_STATE_DIR: /var/lib/vulna
       VULNA_ENROLL_TOKEN_FILE: /var/lib/vulna/bootstrap/local-scout-enroll.token
       VULNA_SERVER_CA: /var/lib/vulna/bootstrap/orchestrator-ca.crt

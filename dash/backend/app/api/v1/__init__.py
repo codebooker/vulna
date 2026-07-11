@@ -17,6 +17,7 @@ from app.api.v1 import (
     jobs,
     maintenance,
     networking,
+    networks,
     notifications,
     onboarding,
     organizations,
@@ -29,6 +30,7 @@ from app.api.v1 import (
     reports,
     resources,
     risk_acceptances,
+    schedules,
     scopes,
     sites,
     system,
@@ -43,6 +45,8 @@ api_router.include_router(organizations.router)
 api_router.include_router(users.router)
 api_router.include_router(sites.router)
 api_router.include_router(scopes.router)
+api_router.include_router(networks.router)
+api_router.include_router(schedules.router)
 api_router.include_router(probes.router)
 api_router.include_router(relays.router)
 api_router.include_router(jobs.router)

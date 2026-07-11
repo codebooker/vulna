@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -97,6 +98,15 @@ func cmdBackupCreate(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
+	// Describe what the archive REALLY holds (derived), not what a flag claims —
+	// so the manifest can never over-claim a content class. --contents is kept as
+	// an intent hint but the archive is authoritative.
+	classes, err := backup.ClassesInArchive(data)
+	if err != nil {
+		fmt.Fprintln(stderr, "backup create: archive is not a valid tar.gz:", err)
+		return 1
+	}
+	_ = contents // superseded by derived classes; flag retained for compatibility
 	m := backup.Manifest{
 		BackupVersion: backup.CurrentBackupVersion,
 		CreatedAt:     time.Now().UTC().Format(time.RFC3339),
@@ -105,7 +115,7 @@ func cmdBackupCreate(args []string, stdout, stderr io.Writer) int {
 		OrgID:         *orgID,
 		OrgSlug:       *orgSlug,
 		ArchiveSHA256: sum,
-		Contents:      splitCSV(*contents),
+		Contents:      classes,
 		SizeBytes:     int64(len(data)),
 	}
 
@@ -262,16 +272,83 @@ func cmdBackupRestore(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "         A safety backup of the current state will be taken first.")
 		return 1
 	}
-	if existing {
-		fmt.Fprintln(stdout, "Taking a safety backup of the current deployment before restoring ...")
-		fmt.Fprintln(stdout, "  deploy/backup/backup.sh   # keep this alongside your existing backups")
+
+	// The restore script does the destructive DB + data work; locate it before
+	// touching anything so a missing script fails early, not half-way through.
+	restoreScript, ok := resolveBackupScript(*dir, "restore.sh")
+	if !ok {
+		fmt.Fprintln(stderr, "restore: deploy/backup/restore.sh not found in this deployment; cannot apply the backup.")
+		return 1
 	}
 
+	// 4. Take a safety backup of the current deployment first. If it fails we
+	//    abort before any destructive step rather than leave the host unprotected.
+	if existing {
+		fmt.Fprintln(stdout, "Taking a safety backup of the current deployment before restoring ...")
+		if _, err := runBackup(*dir, stdout, stderr); err != nil {
+			fmt.Fprintln(stderr, "restore: safety backup failed; aborting before any destructive step:", err)
+			return 1
+		}
+	}
+
+	// 5. Decrypt (if needed) and stage the plaintext archive with a checksum
+	//    sidecar so restore.sh re-verifies integrity before it applies anything.
+	archivePath := filepath.Join(bundle, rep.Manifest.Archive)
+	data, err := os.ReadFile(archivePath) //nolint:gosec // path from a verified bundle
+	if err != nil {
+		fmt.Fprintln(stderr, "restore:", err)
+		return 1
+	}
+	plaintext := data
+	if rep.Manifest.Encrypted {
+		plaintext, err = backup.Decrypt(data, passphraseFrom(*passEnv))
+		if err != nil {
+			fmt.Fprintln(stderr, "restore: could not decrypt the bundle:", err)
+			return 1
+		}
+	}
+	stage, err := os.MkdirTemp("", "vulna-restore-")
+	if err != nil {
+		fmt.Fprintln(stderr, "restore:", err)
+		return 1
+	}
+	defer os.RemoveAll(stage)
+	tarPath := filepath.Join(stage, "vulna-backup.tar.gz")
+	if err := os.WriteFile(tarPath, plaintext, 0o600); err != nil {
+		fmt.Fprintln(stderr, "restore:", err)
+		return 1
+	}
+	sidecar := fmt.Sprintf("%s  vulna-backup.tar.gz\n", backup.SHA256Hex(plaintext))
+	if err := os.WriteFile(tarPath+".sha256", []byte(sidecar), 0o600); err != nil {
+		fmt.Fprintln(stderr, "restore:", err)
+		return 1
+	}
+
+	// 6. Apply. restore.sh verifies the checksum, extracts, restores data + DB.
 	fmt.Fprintf(stdout, "Restoring %s (app %s, schema %s) ...\n",
 		bundle, rep.Manifest.AppVersion, orDashB(rep.Manifest.SchemaVersion))
-	fmt.Fprintln(stdout, "  deploy/backup/restore.sh <extracted-archive>   # applies DB + data")
-	fmt.Fprintln(stdout, "After restore, re-check URL/TLS and Scout settings in the Networking assistant.")
+	cmd := exec.Command("bash", restoreScript, tarPath) //nolint:gosec // fixed in-repo script
+	cmd.Stdout, cmd.Stderr = stdout, stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintln(stderr, "restore: restore.sh failed:", err)
+		return 1
+	}
+	fmt.Fprintln(stdout, "Restore complete. Re-check URL/TLS and Scout settings in the Networking assistant.")
 	return 0
+}
+
+// resolveBackupScript finds a deploy/backup script either under the deployment
+// directory or relative to the current working directory.
+func resolveBackupScript(dir, name string) (string, bool) {
+	for _, cand := range []string{
+		filepath.Join(dir, "deploy", "backup", name),
+		filepath.Join("deploy", "backup", name),
+	} {
+		if _, err := os.Stat(cand); err == nil {
+			return cand, true
+		}
+	}
+	return "", false
 }
 
 func cmdBackupPrune(args []string, stdout, stderr io.Writer) int {

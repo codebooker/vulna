@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/codebooker/vulna/cli/internal/buildinfo"
 	"github.com/codebooker/vulna/cli/internal/config"
 	"github.com/codebooker/vulna/cli/internal/secrets"
 )
@@ -93,10 +94,25 @@ func BuildEnv(o config.Options, existing map[string]string) (map[string]string, 
 			return nil, err
 		}
 	}
+	// Master key for at-rest evidence encryption. Generated once and NEVER rotated
+	// on re-runs (rotating it would orphan already-encrypted evidence). Without it
+	// the backend stores raw scanner output in plaintext.
+	masterKey := existing["VULNA_MASTER_KEY"]
+	if masterKey == "" {
+		var err error
+		if masterKey, err = secrets.SessionKey(); err != nil {
+			return nil, err
+		}
+	}
 
 	env["POSTGRES_PASSWORD"] = pgpw
 	env["VULNA_SECRET_KEY"] = secret
 	env["VULNA_ADMIN_PASSWORD"] = adminpw
+	env["VULNA_MASTER_KEY"] = masterKey
+	// The released version the stack runs. Compose pins the api/frontend image
+	// tags to this, so `vulna update` (which rewrites it) actually changes what
+	// runs. Preserve an existing value; default to the installer's own version.
+	env["VULNA_VERSION"] = pick(existing, "VULNA_VERSION", defaultVersion())
 	// Non-secret settings: preserve an operator's manual edits if present.
 	env["VULNA_ADMIN_EMAIL"] = pick(existing, "VULNA_ADMIN_EMAIL", o.AdminEmail)
 	env["VULNA_DOMAIN"] = pick(existing, "VULNA_DOMAIN", o.Domain())
@@ -254,6 +270,37 @@ func SourceHasCompose(installDir string) error {
 		}
 	}
 	return nil
+}
+
+// defaultVersion is the version a fresh install pins to (the CLI's own build).
+func defaultVersion() string {
+	if v := buildinfo.Version; v != "" && v != "unknown" {
+		return v
+	}
+	return "dev"
+}
+
+// SetEnvVersion rewrites VULNA_VERSION in the deployment .env, so a subsequent
+// `docker compose pull` fetches that version's images. Used by update/rollback to
+// actually change the running version (not just record it).
+func SetEnvVersion(installDir, version string) error {
+	envPath := filepath.Join(installDir, EnvFile)
+	env, err := ReadEnv(envPath)
+	if err != nil {
+		return err
+	}
+	env["VULNA_VERSION"] = version
+	return WriteEnv(envPath, env)
+}
+
+// Pull fetches the images referenced by the Compose files (e.g. after an update
+// changed the pinned tags). It does not touch the running stack.
+func Pull(installDir string, stdout, stderr io.Writer) error {
+	args := append(ComposeArgs(installDir), "--env-file", filepath.Join(installDir, EnvFile), "pull")
+	cmd := exec.Command("docker", args...)
+	cmd.Dir = installDir
+	cmd.Stdout, cmd.Stderr = stdout, stderr
+	return cmd.Run()
 }
 
 // Up starts the stack. envFile is passed so Compose reads the generated secrets.

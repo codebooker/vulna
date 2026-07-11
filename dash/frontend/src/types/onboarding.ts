@@ -82,6 +82,7 @@ export interface ProbeSummary {
   name: string;
   status: string;
   site_id: string;
+  pentest_enabled?: boolean;
 }
 
 export interface JobSummary {

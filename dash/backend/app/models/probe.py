@@ -12,7 +12,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, Enum, ForeignKey, String
+from sqlalchemy import JSON, Boolean, DateTime, Enum, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -59,6 +59,11 @@ class Probe(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     health_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
     policy_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     upgrade_channel: Mapped[str] = mapped_column(String(32), nullable=False, default="stable")
+    # Operator opt-in for controlled-pentest execution. Only when true does the
+    # scout's signed policy permit the controlled_pentest mode, so a scout that is
+    # not explicitly enabled fails closed on any pentest job — even from a
+    # compromised orchestrator.
+    pentest_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     # Lifecycle timestamps.
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

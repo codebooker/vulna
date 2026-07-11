@@ -27,6 +27,7 @@ from app.models.enums import (
 from app.models.scan_artifact import ScanArtifact
 from app.models.scan_job import ScanJob
 from app.models.service import Service
+from app.services.evidence_crypto import encrypt_evidence
 from app.services.nmap_parser import ParsedHost, ParsedService, parse_nmap_xml
 
 
@@ -50,8 +51,11 @@ def store_scan_artifact(
     scanner: str,
     raw: bytes,
     content_type: str,
+    master_key: str | None = None,
 ) -> None:
-    """Persist raw scanner output verbatim as a scan artifact."""
+    """Persist raw scanner output as a scan artifact, encrypted at rest when a
+    master key is configured. The sha256/size describe the plaintext output."""
+    stored, encrypted = encrypt_evidence(raw, master_key)
     session.add(
         ScanArtifact(
             scan_job_id=job.id,
@@ -61,7 +65,8 @@ def store_scan_artifact(
             content_type=content_type,
             sha256=hashlib.sha256(raw).hexdigest(),
             size_bytes=len(raw),
-            raw_output=raw.decode("utf-8", errors="replace"),
+            raw_output=stored,
+            encrypted=encrypted,
         )
     )
 
@@ -295,11 +300,12 @@ async def ingest_nmap_result(
     probe_id: uuid.UUID | None,
     stage: str = "discovery",
     scanner: str = "nmap",
+    master_key: str | None = None,
 ) -> IngestSummary:
     """Retain the raw output, parse it, and upsert assets/services for a job."""
     store_scan_artifact(
         session, job=job, probe_id=probe_id, stage=stage, scanner=scanner,
-        raw=xml_bytes, content_type="application/xml",
+        raw=xml_bytes, content_type="application/xml", master_key=master_key,
     )
     hosts = parse_nmap_xml(xml_bytes)
     now = datetime.now(UTC)

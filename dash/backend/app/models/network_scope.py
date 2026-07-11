@@ -34,8 +34,14 @@ class NetworkScope(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         nullable=False,
         index=True,
     )
-    # Populated in Phase 2 once probes exist; a scope may be site-wide until then.
+    # Deprecated: the per-probe scope pin is retired (scouts bind to networks
+    # instead). Retained nullable for backward compatibility; no longer consulted.
     probe_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True, index=True)
+    # A scope is a range of a Network; scouts are bound to the network. Every scope
+    # now has a network_id (its site's default network for /scopes-created ranges).
+    network_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("networks.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     # Stored in normalized/canonical form (e.g. "10.20.0.0/24").

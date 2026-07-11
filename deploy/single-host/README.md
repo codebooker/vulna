@@ -27,12 +27,20 @@ Set at least these in `.env`:
 |---|---|
 | `POSTGRES_PASSWORD` | Database password. |
 | `VULNA_SECRET_KEY` | Session/JWT signing secret (e.g. `openssl rand -base64 48`). |
-| `VULNA_ADMIN_EMAIL` | First administrator login. |
+| `VULNA_ADMIN_EMAIL` | First administrator login. Must be a real, routable address — reserved domains such as `.test`, `.local`, and `.example` are rejected by login, and the app refuses to start if this address can't be used to sign in. |
 | `VULNA_ADMIN_PASSWORD` | First administrator password. |
-| `VULNA_DOMAIN` | Leave as `localhost` for a local box, or set a real hostname. |
+| `VULNA_DOMAIN` | Leave as `localhost` for a local box, a hostname, or a bare IP for LAN access. Public (Let's Encrypt) mode needs a real domain. |
 | `CADDY_TLS` | `internal` for a self-signed local CA, or your email for Let's Encrypt when `VULNA_DOMAIN` is public. |
 
 Never commit `.env`; it is git-ignored.
+
+> **Probe mTLS runs on its own `:8443` listener.** The browser UI is served on
+> `:443` with no client-certificate requirement, so the dashboard is reachable by
+> hostname **or by raw IP** (a self-signed cert warning is expected with the
+> internal CA). VulnaScout probes — including the co-located local Scout —
+> authenticate on `:8443`. If you grow to remote Scouts, point them at
+> `https://<host>:8443`. Public mode still needs a real domain because Let's
+> Encrypt cannot issue a certificate for a bare IP.
 
 ## 2. Start
 
@@ -58,7 +66,7 @@ docker compose -f docker-compose.yml -f docker-compose.single-host.yml logs -f l
 ```
 
 You should see `local-scout: enrolled` followed by `running as probe … against
-https://vulna-dash`.
+https://vulna-dash:8443`.
 
 ## 3. Verify
 

@@ -13,6 +13,9 @@ import { HomeDashboard } from './pages/HomeDashboard';
 import { LoginPage } from './pages/LoginPage';
 import { MaintenancePage } from './pages/MaintenancePage';
 import { NetworkingPage } from './pages/NetworkingPage';
+import { NetworksPage } from './pages/NetworksPage';
+import { PentestPage } from './pages/PentestPage';
+import { SchedulesPage } from './pages/SchedulesPage';
 import { NotificationsPage } from './pages/NotificationsPage';
 import { PrivacyPage } from './pages/PrivacyPage';
 import { RelayPage } from './pages/RelayPage';
@@ -92,6 +95,9 @@ export function App() {
           <HelpPage />
           <FindingsPage />
           <SitesPage />
+          <NetworksPage />
+          <SchedulesPage />
+          <PentestPage />
           <PresetsPage />
           <AddScoutPage />
           <NetworkingPage />

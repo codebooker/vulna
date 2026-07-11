@@ -23,7 +23,11 @@ services:
       - "80:80"
       - "443:443"
     environment:
-      VULNA_DOMAIN: ${VULNA_DOMAIN:-}
+      # Caddy's `{$VULNA_DOMAIN:localhost}` default only applies when the var is
+      # UNSET; Compose interpolation always sets it (to "" when blank), which
+      # defeats that default and yields a keyless — invalid — Caddy site block.
+      # So resolve the lab default here: blank VULNA_DOMAIN => localhost.
+      VULNA_DOMAIN: ${VULNA_DOMAIN:-localhost}
       CADDY_TLS: ${CADDY_TLS:-internal}
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
@@ -36,6 +40,7 @@ services:
         condition: service_healthy
 
   frontend:
+    image: ${VULNA_REGISTRY:-ghcr.io/codebooker}/vulna-frontend:${VULNA_VERSION:-dev}
     build:
       context: ./dash/frontend
       dockerfile: Dockerfile
@@ -51,6 +56,10 @@ services:
       retries: 5
 
   api:
+    # Versioned published image so `vulna update` (docker compose pull) actually
+    # fetches the requested release. `build:` is a dev convenience for building
+    # locally; a real deployment pulls the image for VULNA_VERSION.
+    image: ${VULNA_REGISTRY:-ghcr.io/codebooker}/vulna-api:${VULNA_VERSION:-dev}
     build:
       context: ./dash/backend
       dockerfile: Dockerfile

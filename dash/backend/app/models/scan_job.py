@@ -11,18 +11,33 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, Enum, ForeignKey, Integer, String
+from sqlalchemy import JSON, DateTime, Enum, ForeignKey, Index, Integer, String, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
 from app.db.mixins import TimestampMixin, UUIDPrimaryKeyMixin
 from app.models.enums import JobMode, JobStatus
 
+# The active (non-terminal) statuses. A partial unique index over these enforces,
+# at the database level, at most one active job per network — closing the race in
+# the app-level "network already under test" check (no row lock there). The values
+# are the stored enum NAMES (native_enum=False stores JobStatus.name, uppercase).
+_ACTIVE_STATUS_SQL = "status IN ('QUEUED', 'OFFERED', 'ACCEPTED', 'RUNNING')"
+
 
 class ScanJob(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     """A signed assessment job targeted at a probe."""
 
     __tablename__ = "scan_jobs"
+    __table_args__ = (
+        Index(
+            "uq_scan_jobs_active_network",
+            "network_id",
+            unique=True,
+            sqlite_where=text(f"network_id IS NOT NULL AND {_ACTIVE_STATUS_SQL}"),
+            postgresql_where=text(f"network_id IS NOT NULL AND {_ACTIVE_STATUS_SQL}"),
+        ),
+    )
 
     organization_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
@@ -32,6 +47,11 @@ class ScanJob(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     probe_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("probes.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # Set for network-targeted jobs (workflow/schedule dispatch). Used to enforce
+    # at most one active test per network at a time — no two scouts on one network.
+    network_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("networks.id", ondelete="SET NULL"), nullable=True, index=True
     )
 
     mode: Mapped[JobMode] = mapped_column(

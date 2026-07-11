@@ -6,6 +6,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -120,15 +121,42 @@ func (o Options) Validate() error {
 	if o.AdminEmail == "" || !strings.Contains(o.AdminEmail, "@") {
 		return fmt.Errorf("admin_email must be a valid email address")
 	}
+	// Public mode uses automatic TLS (Let's Encrypt), which needs a real domain: a
+	// certificate cannot be issued for a bare IP. LAN mode uses the internal CA
+	// and works by hostname OR raw IP — the single-host profile serves probe mTLS
+	// on its own :8443 listener, so the browser :443 accepts a no-SNI (IP)
+	// handshake (see deploy/single-host/Caddyfile).
 	if o.AccessMode == AccessPublic {
 		if o.URL == "" {
 			return fmt.Errorf("url (public hostname) is required for access_mode public")
+		}
+		if isIPHost(o.URL) {
+			return fmt.Errorf(
+				"url %q is an IP address, but public mode uses Let's Encrypt, which cannot "+
+					"issue a certificate for a bare IP; use a domain name", o.URL)
 		}
 		if o.ACMEEmail == "" || !strings.Contains(o.ACMEEmail, "@") {
 			return fmt.Errorf("acme_email is required for public TLS (Let's Encrypt)")
 		}
 	}
 	return nil
+}
+
+// isIPHost reports whether s (a hostname, host:port, or URL) is a raw IP literal
+// rather than a DNS name.
+func isIPHost(s string) bool {
+	h := s
+	if i := strings.Index(h, "://"); i >= 0 {
+		h = h[i+3:]
+	}
+	if i := strings.IndexAny(h, "/"); i >= 0 {
+		h = h[:i]
+	}
+	if host, _, err := net.SplitHostPort(h); err == nil {
+		h = host
+	}
+	h = strings.Trim(h, "[]") // unwrap an IPv6 literal
+	return net.ParseIP(h) != nil
 }
 
 // Domain returns the value for VULNA_DOMAIN given the access mode.

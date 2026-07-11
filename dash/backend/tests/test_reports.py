@@ -29,6 +29,7 @@ from app.models.enums import (
 from app.models.finding import Finding
 from app.models.organization import Organization
 from app.models.probe import Probe
+from app.models.report import Report
 from app.models.scan_job import ScanJob
 from app.models.service import Service
 from app.models.site import Site
@@ -167,6 +168,32 @@ async def test_generate_all_formats_and_download(
     assert jb.status_code == 200
     bundle = json.loads(jb.content)
     assert bundle["snapshot"]["findings"][0]["cve_ids"] == ["CVE-2021-44228"]
+
+
+async def test_expired_report_is_not_downloadable(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    organization: Organization,
+    admin_headers: dict[str, str],
+) -> None:
+    scan = await _seed_scan(db_session, organization)
+    resp = await client.post(
+        "/api/v1/reports", json={"scan_job_id": str(scan.id)}, headers=admin_headers
+    )
+    assert resp.status_code == 201
+    report_id = resp.json()[0]["id"]
+
+    # Downloadable now ...
+    ok = await client.get(f"/api/v1/reports/{report_id}/download", headers=admin_headers)
+    assert ok.status_code == 200
+
+    # ... but not once expired, even though the file still exists on disk.
+    report = await db_session.get(Report, uuid.UUID(report_id))
+    report.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+    await db_session.commit()
+
+    gone = await client.get(f"/api/v1/reports/{report_id}/download", headers=admin_headers)
+    assert gone.status_code == 410
 
 
 async def test_findings_csv_columns_via_api(

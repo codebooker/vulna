@@ -1,5 +1,8 @@
 import type { CurrentUser, TokenResponse } from '../types/auth';
 import type { ChangeEvent, NetworkScope, NewScope, NewSite, Page, Site } from '../types/inventory';
+import type { Network, NewNetwork } from '../types/network';
+import type { PentestSession, RulesOfEngagement } from '../types/pentest';
+import type { NewSchedule, ScanSchedule } from '../types/schedule';
 import type { FeedHealth, SyncResult } from '../types/intelligence';
 import type {
   ComponentHealth,
@@ -119,6 +122,65 @@ export const api = {
   createScope(token: string, payload: NewScope): Promise<NetworkScope> {
     return request<NetworkScope>('/api/v1/scopes', { method: 'POST', token, body: payload });
   },
+  // --- Networks (named range groups bound to scouts) ---
+  listNetworks(token: string): Promise<Network[]> {
+    return request<Network[]>('/api/v1/networks', { token });
+  },
+  createNetwork(token: string, payload: NewNetwork): Promise<Network> {
+    return request<Network>('/api/v1/networks', { method: 'POST', token, body: payload });
+  },
+  addNetworkRange(token: string, networkId: string, cidr: string): Promise<Network> {
+    return request<Network>(`/api/v1/networks/${networkId}/ranges`, {
+      method: 'POST',
+      token,
+      body: { cidr },
+    });
+  },
+  bindNetworkScout(
+    token: string,
+    networkId: string,
+    probeId: string,
+    isPrimary: boolean,
+  ): Promise<Network> {
+    return request<Network>(`/api/v1/networks/${networkId}/scouts`, {
+      method: 'POST',
+      token,
+      body: { probe_id: probeId, is_primary: isPrimary },
+    });
+  },
+  unbindNetworkScout(token: string, networkId: string, probeId: string): Promise<Network> {
+    return request<Network>(`/api/v1/networks/${networkId}/scouts/${probeId}`, {
+      method: 'DELETE',
+      token,
+    });
+  },
+  deleteNetwork(token: string, networkId: string): Promise<void> {
+    return request<void>(`/api/v1/networks/${networkId}`, { method: 'DELETE', token });
+  },
+  // --- Scheduled scans ---
+  listSchedules(token: string): Promise<ScanSchedule[]> {
+    return request<ScanSchedule[]>('/api/v1/schedules', { token });
+  },
+  createSchedule(token: string, payload: NewSchedule): Promise<ScanSchedule> {
+    return request<ScanSchedule>('/api/v1/schedules', { method: 'POST', token, body: payload });
+  },
+  updateSchedule(
+    token: string,
+    id: string,
+    patch: { enabled?: boolean; interval_minutes?: number; name?: string },
+  ): Promise<ScanSchedule> {
+    return request<ScanSchedule>(`/api/v1/schedules/${id}`, {
+      method: 'PATCH',
+      token,
+      body: patch,
+    });
+  },
+  runSchedule(token: string, id: string): Promise<ScanSchedule> {
+    return request<ScanSchedule>(`/api/v1/schedules/${id}/run`, { method: 'POST', token });
+  },
+  deleteSchedule(token: string, id: string): Promise<void> {
+    return request<void>(`/api/v1/schedules/${id}`, { method: 'DELETE', token });
+  },
   listChanges(token: string, limit = 20): Promise<Page<ChangeEvent>> {
     return request<Page<ChangeEvent>>(`/api/v1/changes?limit=${limit}`, { token });
   },
@@ -194,6 +256,37 @@ export const api = {
   },
   listProbes(token: string): Promise<Page<ProbeSummary>> {
     return request<Page<ProbeSummary>>('/api/v1/probes', { token });
+  },
+  setProbePentest(token: string, probeId: string, enabled: boolean): Promise<ProbeSummary> {
+    return request<ProbeSummary>(`/api/v1/probes/${probeId}/pentest`, {
+      method: 'POST',
+      token,
+      body: { enabled },
+    });
+  },
+  // --- Controlled pentest ---
+  listRoE(token: string): Promise<RulesOfEngagement[]> {
+    return request<RulesOfEngagement[]>('/api/v1/pentest/rules-of-engagement', { token });
+  },
+  createRoE(
+    token: string,
+    payload: { name: string; allowed_actions: string[]; cleanup_required: boolean },
+  ): Promise<RulesOfEngagement> {
+    return request<RulesOfEngagement>('/api/v1/pentest/rules-of-engagement', {
+      method: 'POST',
+      token,
+      body: payload,
+    });
+  },
+  listPentestSessions(token: string): Promise<Page<PentestSession>> {
+    return request<Page<PentestSession>>('/api/v1/pentest/sessions', { token });
+  },
+  decidePentestSession(token: string, id: string, approve: boolean): Promise<PentestSession> {
+    return request<PentestSession>(`/api/v1/pentest/sessions/${id}`, {
+      method: 'PATCH',
+      token,
+      body: { approve },
+    });
   },
   createJob(token: string, probeId: string, targets: string[]): Promise<JobSummary> {
     return request<JobSummary>('/api/v1/jobs', {

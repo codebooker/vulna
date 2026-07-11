@@ -80,6 +80,22 @@ func (p *Policy) AllowsMode(mode string) error {
 	return fmt.Errorf("mode %q is not permitted by local policy", mode)
 }
 
+// AllowsPlugins reports whether every plugin named in the job workflow is
+// permitted by the local policy. An empty AllowedPlugins list permits none: a
+// policy that grants no plugins cannot run a workflow that names any.
+func (p *Policy) AllowsPlugins(workflow []map[string]any) error {
+	for _, stage := range workflow {
+		name, ok := stage["plugin"].(string)
+		if !ok || name == "" {
+			continue
+		}
+		if !slices.Contains(p.AllowedPlugins, name) {
+			return fmt.Errorf("plugin %q is not permitted by local policy", name)
+		}
+	}
+	return nil
+}
+
 // AllowsTarget reports whether an IP or CIDR target is within approved scope,
 // not within a denied range, and (unless allowed) not a public address.
 func (p *Policy) AllowsTarget(target string) error {
