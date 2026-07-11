@@ -18,7 +18,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 from cryptography.hazmat.primitives import serialization
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,6 +31,7 @@ from app.db.session import get_session
 from app.models.enrollment_token import EnrollmentToken
 from app.models.enums import ActorType, JobStatus, ProbeStatus
 from app.models.probe import Probe
+from app.models.probe_result_upload import ProbeResultUpload
 from app.models.scan_job import ScanJob
 from app.models.site import Site
 from app.models.user import User
@@ -711,15 +712,22 @@ async def upload_job_results(
     probe_id: uuid.UUID,
     job_id: uuid.UUID,
     request: Request,
+    response: Response,
     probe: CurrentProbe,
     session: Annotated[AsyncSession, Depends(get_session)],
     stage: Annotated[str, Query(max_length=64)] = "discovery",
     scanner: Annotated[str, Query(max_length=64)] = "nmap",
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key", max_length=64)] = None,
 ) -> ResultIngestSummary:
     """Ingest a probe's raw scanner output for a job.
 
     Nmap XML becomes assets/services; Nuclei JSONL and testssl.sh JSON become
     normalized findings. Raw output is retained verbatim and parsed defensively.
+
+    A Scout on an intermittent link may re-upload a result after a lost
+    acknowledgement. When it supplies a stable ``Idempotency-Key`` we record the
+    processed keys per job and treat a repeat as a no-op, so resuming an upload
+    never produces duplicate observations.
     """
     if probe.id != probe_id:
         raise HTTPException(
@@ -729,6 +737,17 @@ async def upload_job_results(
     job = await session.get(ScanJob, job_id)
     if job is None or job.probe_id != probe.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+
+    if idempotency_key:
+        already = await session.scalar(
+            select(ProbeResultUpload.id).where(
+                ProbeResultUpload.scan_job_id == job.id,
+                ProbeResultUpload.idempotency_key == idempotency_key,
+            )
+        )
+        if already is not None:
+            response.status_code = status.HTTP_200_OK
+            return ResultIngestSummary(duplicate=True)
 
     # Bound the payload size before reading it.
     content_length = request.headers.get("content-length")
@@ -793,4 +812,8 @@ async def upload_job_results(
 
     if job.started_at is None:
         job.started_at = now
+    if idempotency_key:
+        session.add(
+            ProbeResultUpload(scan_job_id=job.id, idempotency_key=idempotency_key)
+        )
     return result

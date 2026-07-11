@@ -204,7 +204,7 @@ func runDoctor(args []string, stdout, stderr io.Writer) int {
 				deps.Heartbeat = func() error {
 					ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 					defer cancel()
-					_, e := client.Heartbeat(ctx, buildHeartbeat())
+					_, e := client.Heartbeat(ctx, buildHeartbeat(cfg.StateDir))
 					return e
 				}
 				deps.UploadReach = func() error {

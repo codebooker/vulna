@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	"github.com/codebooker/vulna/scout/internal/api"
 	"github.com/codebooker/vulna/scout/internal/executor"
 	"github.com/codebooker/vulna/scout/internal/policy"
+	"github.com/codebooker/vulna/scout/internal/queue"
 	"github.com/codebooker/vulna/scout/internal/storage"
 )
 
@@ -29,6 +31,7 @@ type fakeOrch struct {
 	reports   []api.JobStatusReport
 	uploads   int
 	uploaded  []byte
+	uploadErr error // when set, uploads fail (simulates an offline link)
 }
 
 func (f *fakeOrch) FetchPolicy(context.Context) ([]byte, error) { return f.policy, nil }
@@ -36,9 +39,18 @@ func (f *fakeOrch) FetchPolicy(context.Context) ([]byte, error) { return f.polic
 func (f *fakeOrch) UploadResults(_ context.Context, _ string, raw []byte, _, _ string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.uploadErr != nil {
+		return f.uploadErr
+	}
 	f.uploads++
 	f.uploaded = raw
 	return nil
+}
+
+func (f *fakeOrch) setUploadErr(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.uploadErr = err
 }
 
 func (f *fakeOrch) PollJob(context.Context) ([]byte, bool, error) {
@@ -213,6 +225,63 @@ func TestFinalizeUploadsResults(t *testing.T) {
 	}
 	if !contains(f.statuses(), "completed") {
 		t.Errorf("expected completed status, got %v", f.statuses())
+	}
+}
+
+func TestFinalizeQueuesWhenOfflineAndResumes(t *testing.T) {
+	f := &fakeOrch{policy: []byte(agentPolicy), job: []byte(agentJob)}
+	f.setUploadErr(errors.New("network down"))
+
+	pub, err := policy.ParsePublicKey(agentPub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := storage.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := New(f, st, pub, stubRunner{raw: []byte("<nmaprun/>")})
+	q, err := queue.Open(t.TempDir(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.SetQueue(q)
+
+	ctx := context.Background()
+	if err := a.SyncPolicy(ctx); err != nil {
+		t.Fatal(err)
+	}
+	running, err := a.PollAndStart(ctx)
+	if err != nil || running == nil {
+		t.Fatalf("expected a running job, err=%v", err)
+	}
+	res := <-running.Done()
+
+	// Offline: Finalize preserves the work and still reports the job completed.
+	if err := a.Finalize(ctx, running, res); err != nil {
+		t.Fatal(err)
+	}
+	if !contains(f.statuses(), "completed") {
+		t.Errorf("job should complete even when offline, got %v", f.statuses())
+	}
+	if f.uploads != 0 {
+		t.Errorf("nothing should have uploaded while offline, got %d", f.uploads)
+	}
+	if n, _ := a.QueueBacklog(); n != 1 {
+		t.Fatalf("expected 1 item preserved in the queue, got %d", n)
+	}
+
+	// Reconnect: the backlog drains exactly once, no duplicate observation.
+	f.setUploadErr(nil)
+	uploaded, err := a.DrainQueue(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if uploaded != 1 || f.uploads != 1 {
+		t.Errorf("expected exactly 1 upload on resume, drained=%d uploads=%d", uploaded, f.uploads)
+	}
+	if n, _ := a.QueueBacklog(); n != 0 {
+		t.Errorf("queue should be empty after resume, got %d", n)
 	}
 }
 

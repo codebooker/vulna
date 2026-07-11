@@ -6,8 +6,10 @@ package api
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,6 +18,17 @@ import (
 	"strings"
 	"time"
 )
+
+// ResultKey is the stable idempotency key for a result upload. It is derived
+// only from the job, stage, scanner, and payload, so a Scout that re-uploads the
+// same batch after a lost acknowledgement produces the same key and the server
+// treats the retry as a no-op — no duplicate observations on resume.
+func ResultKey(jobID, stage, scanner string, raw []byte) string {
+	h := sha256.New()
+	h.Write([]byte(jobID + "\x00" + stage + "\x00" + scanner + "\x00"))
+	h.Write(raw)
+	return hex.EncodeToString(h.Sum(nil))
+}
 
 const (
 	maxResponseBytes = 1 << 20 // 1 MiB
@@ -238,6 +251,7 @@ func (c *Client) UploadResults(
 		contentType = "application/xml"
 	}
 	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("Idempotency-Key", ResultKey(jobID, stage, scanner, raw))
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return fmt.Errorf("upload results: %w", err)

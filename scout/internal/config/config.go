@@ -20,6 +20,10 @@ const (
 	DefaultStateDir                 = "/var/lib/vulna"
 	DefaultConfigPath               = "/etc/vulna/agent.json"
 	DefaultHeartbeatIntervalSeconds = 60
+	// DefaultResultQueueMaxBytes caps the durable result backlog held for an
+	// intermittent link (256 MiB). At the cap the Scout applies backpressure
+	// rather than filling the disk.
+	DefaultResultQueueMaxBytes = 256 << 20
 )
 
 // Config holds VulnaScout agent configuration.
@@ -36,6 +40,9 @@ type Config struct {
 	HeartbeatIntervalSeconds int `json:"heartbeat_interval_seconds"`
 	// InsecureSkipVerify disables orchestrator TLS verification. DEV/LAB ONLY.
 	InsecureSkipVerify bool `json:"insecure_skip_verify,omitempty"`
+	// ResultQueueMaxBytes caps the durable result backlog (payload bytes) kept
+	// while the orchestrator is unreachable. Zero disables the cap.
+	ResultQueueMaxBytes int64 `json:"result_queue_max_bytes,omitempty"`
 }
 
 // Default returns a Config populated with default values.
@@ -43,6 +50,7 @@ func Default() Config {
 	return Config{
 		StateDir:                 DefaultStateDir,
 		HeartbeatIntervalSeconds: DefaultHeartbeatIntervalSeconds,
+		ResultQueueMaxBytes:      DefaultResultQueueMaxBytes,
 	}
 }
 

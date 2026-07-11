@@ -74,6 +74,8 @@ class PreviewResponse(BaseModel):
     estimate: dict[str, str]
     tuning: RateOut
     scanners: list[ScannerStatusOut]
+    profile: str | None = None
+    capability_warning: str | None = None
 
 
 class CustomValidateRequest(BaseModel):

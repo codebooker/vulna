@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"syscall"
 	"time"
@@ -23,6 +24,7 @@ import (
 	"github.com/codebooker/vulna/scout/internal/enrollment"
 	"github.com/codebooker/vulna/scout/internal/netdetect"
 	"github.com/codebooker/vulna/scout/internal/policy"
+	"github.com/codebooker/vulna/scout/internal/queue"
 	"github.com/codebooker/vulna/scout/internal/scanners"
 	"github.com/codebooker/vulna/scout/internal/scanners/nmap"
 	"github.com/codebooker/vulna/scout/internal/scanners/nuclei"
@@ -30,6 +32,7 @@ import (
 	"github.com/codebooker/vulna/scout/internal/scanners/zap"
 	"github.com/codebooker/vulna/scout/internal/selftest"
 	"github.com/codebooker/vulna/scout/internal/storage"
+	"github.com/codebooker/vulna/scout/internal/telemetry"
 )
 
 const usage = `vulnascout — Vulna remote assessment appliance (VulnaScout)
@@ -293,6 +296,14 @@ func runRun(args []string, stdout, stderr io.Writer) int {
 	)
 	scout := agent.New(client, store, pubkey, workflow)
 
+	// Durable result queue: finished work survives an intermittent WAN link and
+	// resumes upload without duplicating observations.
+	if q, qerr := queue.Open(filepath.Join(cfg.StateDir, "queue"), cfg.ResultQueueMaxBytes); qerr != nil {
+		fmt.Fprintln(stderr, "vulnascout: durable queue unavailable:", qerr)
+	} else {
+		scout.SetQueue(q)
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -305,7 +316,7 @@ func runRun(args []string, stdout, stderr io.Writer) int {
 	interval := time.Duration(cfg.HeartbeatIntervalSeconds) * time.Second
 	fmt.Fprintf(stdout, "vulnascout: running as probe %s against %s\n", state.ProbeID, cfg.ServerURL)
 
-	hb := buildHeartbeat()
+	hb := buildHeartbeat(cfg.StateDir)
 	var running *agent.RunningJob
 	for {
 		// Local emergency stop is authoritative even if the orchestrator is
@@ -318,6 +329,15 @@ func runRun(args []string, stdout, stderr io.Writer) int {
 			break
 		}
 		hb.PolicyHash = scout.PolicyHash()
+		// Surface the durable upload backlog so the operator can see accumulated
+		// work and its storage footprint during a WAN outage.
+		if n, b := scout.QueueBacklog(); n > 0 {
+			hb.Health["queue_backlog"] = n
+			hb.Health["queue_backlog_bytes"] = b
+		} else {
+			delete(hb.Health, "queue_backlog")
+			delete(hb.Health, "queue_backlog_bytes")
+		}
 		resp, hbErr := client.Heartbeat(ctx, hb)
 		if hbErr != nil {
 			var rejected api.ErrRejected
@@ -335,6 +355,15 @@ func runRun(args []string, stdout, stderr io.Writer) int {
 		} else {
 			if resp.HeartbeatIntervalSeconds > 0 {
 				interval = time.Duration(resp.HeartbeatIntervalSeconds) * time.Second
+			}
+			// The link is up: flush any results queued during an outage. Uploads
+			// are idempotent, so a retried batch never duplicates observations.
+			if drained, derr := scout.DrainQueue(ctx); derr != nil {
+				if ctx.Err() == nil {
+					fmt.Fprintln(stderr, "vulnascout: result upload backlog draining:", derr)
+				}
+			} else if drained > 0 {
+				fmt.Fprintf(stdout, "vulnascout: uploaded %d queued result batch(es)\n", drained)
 			}
 			if resp.Policy.UpdateAvailable {
 				if err := scout.SyncPolicy(ctx); err != nil {
@@ -401,9 +430,11 @@ func runRun(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func buildHeartbeat() api.HeartbeatRequest {
+func buildHeartbeat(dataDir string) api.HeartbeatRequest {
 	host, _ := os.Hostname()
-	health := map[string]any{"cpu_count": runtime.NumCPU()}
+	// Measured host resources let VulnaDash pick a Lite/Standard/Full profile and
+	// warn when a preset exceeds this Scout's capability (Phase 27).
+	health := telemetry.Probe(dataDir).AsHealth()
 	// Advisory only: suggest private ranges the operator may choose to approve in
 	// the first-run wizard. Never an approved scope (see docs/adr/0019).
 	if candidates := netdetect.PrivateCandidates(); len(candidates) > 0 {

@@ -45,6 +45,7 @@ from app.models.onboarding import OnboardingState
 from app.models.organization import Organization
 from app.models.pentest_session import PentestSession
 from app.models.probe import Probe
+from app.models.probe_result_upload import ProbeResultUpload
 from app.models.report import Report
 from app.models.risk_acceptance import RiskAcceptance
 from app.models.rules_of_engagement import RulesOfEngagement
@@ -83,6 +84,7 @@ __all__ = [
     "PentestSession",
     "PentestSessionStatus",
     "Probe",
+    "ProbeResultUpload",
     "ProbeStatus",
     "Report",
     "ReportFormat",

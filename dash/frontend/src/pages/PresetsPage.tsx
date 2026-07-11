@@ -78,6 +78,11 @@ export function PresetsPage() {
               before running.
             </p>
           )}
+          {preview.capability_warning && (
+            <p className="warn" role="alert">
+              ⚠ {preview.capability_warning}
+            </p>
+          )}
           <p className="detail">
             Estimate: {preview.estimate.workload_class} workload, {preview.estimate.duration_range}{' '}
             (~{preview.estimate.size_class} scope). Suggested rate{' '}

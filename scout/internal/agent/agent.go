@@ -13,6 +13,7 @@ import (
 	"github.com/codebooker/vulna/scout/internal/api"
 	"github.com/codebooker/vulna/scout/internal/executor"
 	"github.com/codebooker/vulna/scout/internal/policy"
+	"github.com/codebooker/vulna/scout/internal/queue"
 	"github.com/codebooker/vulna/scout/internal/storage"
 )
 
@@ -30,6 +31,7 @@ type Agent struct {
 	store  *storage.Store
 	pubkey ed25519.PublicKey
 	worker executor.JobRunner
+	queue  *queue.Queue
 
 	policy     *policy.Policy
 	policyHash string
@@ -40,6 +42,35 @@ func New(
 	client Orchestrator, store *storage.Store, pubkey ed25519.PublicKey, worker executor.JobRunner,
 ) *Agent {
 	return &Agent{client: client, store: store, pubkey: pubkey, worker: worker}
+}
+
+// SetQueue attaches a durable result queue. When set, finished results are
+// enqueued and drained (uploaded) best-effort, so work survives an intermittent
+// link and resumes without duplicating observations. When nil, results upload
+// directly.
+func (a *Agent) SetQueue(q *queue.Queue) { a.queue = q }
+
+// uploadItem uploads one queued result batch.
+func (a *Agent) uploadItem(ctx context.Context, it queue.Item) error {
+	return a.client.UploadResults(ctx, it.JobID, it.Raw, it.Stage, it.Scanner)
+}
+
+// DrainQueue flushes any durably-queued results, returning how many uploaded.
+// Called opportunistically from the run loop each heartbeat.
+func (a *Agent) DrainQueue(ctx context.Context) (int, error) {
+	if a.queue == nil {
+		return 0, nil
+	}
+	return a.queue.Drain(ctx, a.uploadItem)
+}
+
+// QueueBacklog reports the pending item count and payload bytes for the heartbeat.
+func (a *Agent) QueueBacklog() (count int, bytes int64) {
+	if a.queue == nil {
+		return 0, 0
+	}
+	count, bytes, _ = a.queue.Backlog()
+	return count, bytes
 }
 
 // RunningJob is a job currently executing in the test worker.
@@ -115,11 +146,28 @@ func (a *Agent) PollAndStart(ctx context.Context) (*RunningJob, error) {
 	return &RunningJob{JobID: job.JobID, cancel: cancel, done: done}, nil
 }
 
-// Finalize uploads each stage's scanner output and reports the terminal status.
+// Finalize delivers each stage's scanner output and reports the terminal status.
+//
+// With a durable queue attached, outputs are enqueued (surviving a crash or an
+// offline link) and then drained best-effort; a drain failure is not fatal —
+// the job still completes and the backlog uploads on a later heartbeat. Without
+// a queue, outputs upload directly and an upload failure fails the job.
 func (a *Agent) Finalize(ctx context.Context, running *RunningJob, res executor.Result) error {
 	if !res.Cancelled {
 		for _, out := range res.Outputs {
 			if len(out.Raw) == 0 {
+				continue
+			}
+			if a.queue != nil {
+				if err := a.queue.Enqueue(queue.Item{
+					JobID: running.JobID, Stage: out.Stage, Scanner: out.Scanner, Raw: out.Raw,
+				}); err != nil {
+					return a.client.ReportJobStatus(ctx, running.JobID, api.JobStatusReport{
+						Status:       "failed",
+						ErrorCode:    "queue_full",
+						ErrorMessage: err.Error(),
+					})
+				}
 				continue
 			}
 			if err := a.client.UploadResults(
@@ -132,6 +180,8 @@ func (a *Agent) Finalize(ctx context.Context, running *RunningJob, res executor.
 				})
 			}
 		}
+		// Best-effort flush; a failure here leaves work durably queued for retry.
+		_, _ = a.DrainQueue(ctx)
 	}
 	status := "completed"
 	if res.Cancelled {

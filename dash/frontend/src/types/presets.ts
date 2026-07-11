@@ -48,4 +48,6 @@ export interface PresetPreview {
   estimate: Record<string, string>;
   tuning: PresetRate;
   scanners: ScannerStatus[];
+  profile: string | null;
+  capability_warning: string | null;
 }

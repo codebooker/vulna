@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 27: low-resource, ARM64, intermittent, and offline operation
+
+Make Vulna practical on the hardware and connectivity common in homelabs.
+
+- A resource-aware **operating profile** (Lite / Standard / Full) chosen from the
+  Scout's reported CPU, memory, and disk (`app/services/resources.py`): dynamic
+  concurrency/queue limits **clamped to signed policy**, one-heavy-stage-at-a-time
+  on constrained hosts, per-stage hard budgets, and expensive components (active
+  ZAP, full-text indexing, large report rendering, high-frequency feed matching)
+  disabled under Lite. The Scout reports resources via a stdlib-only, build-tagged
+  probe (`scout/internal/telemetry`).
+- **Fail-closed backpressure** (`resources.admit`): heavy work pauses at low disk
+  and is refused at critical disk to protect evidence and the database; a full
+  queue or large ingestion backlog pauses admission. Intrusive/scope-sensitive
+  stages are refused under any pressure. Every decision names component, impact,
+  and next step.
+- A **durable, idempotent Scout result queue** (`scout/internal/queue`) for
+  intermittent WAN links: finished work is kept on disk (surviving restarts),
+  drained when connectivity returns, capped for backpressure, and reported as a
+  visible backlog. A content-derived `Idempotency-Key` plus a server-side record
+  (`probe_result_uploads`) makes resumed uploads exactly-once — no duplicate
+  observations.
+- **Signed, data-only offline bundles** (`app/services/offline_bundle.py`,
+  `GET/POST /resources/offline-bundle/...`) for air-gapped sites: Ed25519-verified,
+  restricted to an `intel`/`feeds`/`templates`/`update` allowlist (never an
+  executable or plugin), exposing creation time, feed age, and content versions,
+  admin-only and audited (which is the import history). Fails closed on a bad
+  signature.
+- A **capability warning** on the preset preview when a preset exceeds the Scout's
+  recommended tier, and a display-only operating-profile endpoint
+  (`GET /resources`).
+- ADR 0027 and `docs/low-resource.md` (profiles, architecture baselines, offline
+  bundles, tuning knobs).
+
 ### Added — Phase 26: Vulna Doctor, diagnostics, and safe self-healing
 
 See which component is failing without grepping logs across containers.

@@ -61,6 +61,8 @@ describe('PresetsPage', () => {
             estimate: { workload_class: 'moderate', size_class: 'medium', duration_range: 'a few minutes' },
             tuning: { packets_per_second: 150, concurrency: 4 },
             scanners: [{ scanner: 'nmap', status: 'installed', detail: 'available' }],
+            profile: 'lite',
+            capability_warning: 'This is a heavy preset and the Scout is on Lite-tier hardware.',
           });
         }
         return jsonResponse({ detail: 'not found' }, 404);
@@ -83,5 +85,7 @@ describe('PresetsPage', () => {
     fireEvent.click(card);
     await waitFor(() => expect(screen.getByText(/Stages that will run/)).toBeInTheDocument());
     expect(screen.getByText(/needs nuclei/)).toBeInTheDocument();
+    // Phase 27: a heavy preset on Lite-tier hardware warns.
+    expect(screen.getByText(/Lite-tier hardware/)).toBeInTheDocument();
   });
 });

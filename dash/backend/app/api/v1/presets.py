@@ -30,6 +30,7 @@ from app.schemas.presets import (
     StageOut,
 )
 from app.services import presets as presetsvc
+from app.services import resources
 from app.services.capabilities import capability_report, installed_scanners
 from app.services.presets import KNOWN_SCANNERS, PresetError
 
@@ -132,6 +133,11 @@ async def preview(
         max_concurrency=None,
     )
 
+    # Phase 27: warn when a preset exceeds the Scout's recommended capability.
+    host = resources.host_resources_from_health(probe.health_json if probe else None)
+    profile = resources.choose_profile(host) if probe is not None else None
+    warn = resources.capability_warning(host, workload_class=preset.workload_class)
+
     return PreviewResponse(
         preset=preset.key,
         preset_version=preset.version,
@@ -155,6 +161,8 @@ async def preview(
                 probe.health_json if probe else None,
             )
         ],
+        profile=profile,
+        capability_warning=warn.message if warn else None,
     )
 
 

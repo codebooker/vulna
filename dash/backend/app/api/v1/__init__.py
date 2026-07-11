@@ -20,6 +20,7 @@ from app.api.v1 import (
     presets,
     probes,
     reports,
+    resources,
     risk_acceptances,
     scopes,
     sites,
@@ -43,6 +44,7 @@ api_router.include_router(dashboard.search_router)
 api_router.include_router(networking.router)
 api_router.include_router(onboarding.router)
 api_router.include_router(presets.router)
+api_router.include_router(resources.router)
 api_router.include_router(assets.router)
 api_router.include_router(changes.router)
 api_router.include_router(findings.router)

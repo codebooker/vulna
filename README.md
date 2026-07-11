@@ -63,6 +63,7 @@ each phase lands on `main` via a pull request with green CI. Current progress:
 | 24 | Boring, safe updates & rollback — signed release-manifest verification, `vulna update`/`rollback`, pre-update checks + auto backup, display-only update center | ✅ Done |
 | 25 | Backups, restore & recovery — `vulna backup` (create/verify/restore/prune), versioned secret-free manifest, AES-256-GCM encryption, restore safety, recovery sheet | ✅ Done |
 | 26 | Vulna Doctor & diagnostics — `vulna doctor` (human/JSON), System Health page, per-check impact/data-safety/next-step, allowlist-redacted support bundle, safe repairs, timeline | ✅ Done |
+| 27 | Low-resource / ARM64 / offline — Lite/Standard/Full profiles + per-stage budgets, fail-closed storage backpressure, durable idempotent Scout result queue for intermittent links, signed data-only offline bundles, preset capability warnings | ✅ Done |
 
 Not yet ready for production use. See the [CHANGELOG](CHANGELOG.md) for details.
 

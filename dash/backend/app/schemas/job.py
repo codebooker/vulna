@@ -78,3 +78,4 @@ class ResultIngestSummary(BaseModel):
     findings_created: int = 0
     findings_updated: int = 0
     findings_reopened: int = 0
+    duplicate: bool = False
