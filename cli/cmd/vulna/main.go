@@ -28,6 +28,7 @@ Usage:
 Commands:
   install        Preflight, generate config/secrets, and materialize the deployment
   preflight      Run environment checks only (no changes)
+  doctor         Diagnose the host environment (human or --json output)
   uninstall      Stop the stack and remove generated files (data is preserved)
   update check   Check for a newer signed release on a channel (no changes)
   update         Pre-update checks + backup, then print the apply steps
@@ -60,6 +61,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 0
 	case "preflight":
 		return cmdPreflight(args[1:], stdout, stderr)
+	case "doctor":
+		return cmdDoctor(args[1:], stdout, stderr)
 	case "install":
 		return cmdInstall(args[1:], stdout, stderr)
 	case "uninstall":

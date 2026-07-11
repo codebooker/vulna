@@ -16,6 +16,7 @@ import type {
 } from '../types/onboarding';
 import type { BackupCenter } from '../types/backup';
 import type { DashboardSummary, SearchResults } from '../types/dashboard';
+import type { DiagnosticsResult, SupportBundle, TimelineEvent } from '../types/diagnostics';
 import type { Finding, Page as FindingPage } from '../types/finding';
 import type { BrowserTest, NetworkStatus, ValidateResult } from '../types/networking';
 import type { Preset, PresetPreview } from '../types/presets';
@@ -195,6 +196,24 @@ export const api = {
   // --- Backup center (Phase 25, display only) ---
   backupCenter(token: string): Promise<BackupCenter> {
     return request<BackupCenter>('/api/v1/system/backups', { token });
+  },
+
+  // --- Diagnostics / Vulna Doctor (Phase 26) ---
+  diagnostics(token: string): Promise<DiagnosticsResult> {
+    return request<DiagnosticsResult>('/api/v1/diagnostics', { token });
+  },
+  diagnosticsTimeline(token: string): Promise<{ events: TimelineEvent[] }> {
+    return request<{ events: TimelineEvent[] }>('/api/v1/diagnostics/timeline', { token });
+  },
+  supportBundle(token: string): Promise<SupportBundle> {
+    return request<SupportBundle>('/api/v1/diagnostics/support-bundle', { token });
+  },
+  repair(token: string, action: string): Promise<unknown> {
+    return request<unknown>('/api/v1/diagnostics/repair', {
+      method: 'POST',
+      token,
+      body: { action, confirm: true },
+    });
   },
 
   // --- Networking assistant (Phase 23) ---

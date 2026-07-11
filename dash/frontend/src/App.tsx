@@ -15,6 +15,7 @@ import { OnboardingWizard } from './pages/OnboardingWizard';
 import { PresetsPage } from './pages/PresetsPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { SitesPage } from './pages/SitesPage';
+import { SystemHealthPage } from './pages/SystemHealthPage';
 import { UpdateCenterPage } from './pages/UpdateCenterPage';
 import type { OnboardingState } from './types/onboarding';
 
@@ -78,6 +79,7 @@ export function App() {
             />
           )}
           <HomeDashboard />
+          <SystemHealthPage />
           <FindingsPage />
           <SitesPage />
           <PresetsPage />

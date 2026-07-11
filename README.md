@@ -52,6 +52,7 @@ each phase lands on `main` via a pull request with green CI. Current progress:
 | 23 | Networking/URL/TLS assistant — five access modes, trusted-proxy anti-spoofing, cert/DNS/clock validation, reverse-proxy snippet, safe URL-change plan, browser/Scout tests | ✅ Done |
 | 24 | Boring, safe updates & rollback — signed release-manifest verification, `vulna update`/`rollback`, pre-update checks + auto backup, display-only update center | ✅ Done |
 | 25 | Backups, restore & recovery — `vulna backup` (create/verify/restore/prune), versioned secret-free manifest, AES-256-GCM encryption, restore safety, recovery sheet | ✅ Done |
+| 26 | Vulna Doctor & diagnostics — `vulna doctor` (human/JSON), System Health page, per-check impact/data-safety/next-step, allowlist-redacted support bundle, safe repairs, timeline | ✅ Done |
 
 Not yet ready for production use. See the [CHANGELOG](CHANGELOG.md) for details.
 

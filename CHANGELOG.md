@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 26: Vulna Doctor, diagnostics, and safe self-healing
+
+See which component is failing without grepping logs across containers.
+
+- **`vulna doctor`** (host) with human-readable and `--json` output, diagnosing
+  OS/arch, container runtime, disk, ports, clock, DNS/outbound, and permissions.
+- A **System Health** aggregation (`GET /diagnostics`, `app/services/diagnostics.py`)
+  covering application/database, local and remote Scouts, scanner capabilities,
+  feed freshness, CA and Scout certificate expiry, storage use, failed
+  jobs/reports, and update/backup posture. Every check names the component,
+  impact, **data-safety** status, and next step, linked to docs. Read-only.
+- A **redacted support bundle** (`GET /diagnostics/support-bundle`) built from an
+  **allowlist** (never passwords, tokens, private keys, authorization headers, raw
+  credentials, unrestricted evidence, or full scanner output), with a secret
+  scanner as a second check and a preview + manifest to review before export.
+  Admin-only and audited.
+- A small set of **safe, confirmed, audited repairs** (`POST /diagnostics/repair`)
+  over derived state (recreate a missing storage directory) that never alter
+  scopes, permissions, users, credentials, retention, or any security setting.
+- A local **event timeline** (`GET /diagnostics/timeline`) of recent audited
+  actions and failed jobs (action/type/timestamp only).
+- A frontend System Health page, ADR 0026, `docs/diagnostics.md`, and backend + Go
+  tests (including a seeded expired-certificate failure verifying the diagnosis).
+
 ### Added — Phase 25: Backups, restore, and recovery
 
 Make data ownership real with an understandable, verifiable recovery process.
