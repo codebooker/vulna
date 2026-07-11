@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/codebooker/vulna/actions"><img src="https://img.shields.io/github/actions/workflow/status/codebooker/vulna/ci.yml?branch=main&style=flat-square" alt="CI Status"></a>
+  <a href="https://github.com/codebooker/vulna/actions/workflows/backend.yml"><img src="https://img.shields.io/github/actions/workflow/status/codebooker/vulna/backend.yml?branch=main&style=flat-square" alt="CI Status"></a>
   <a href="https://github.com/codebooker/vulna/releases"><img src="https://img.shields.io/github/v/release/codebooker/vulna?style=flat-square" alt="Release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg?style=flat-square" alt="License"></a>
 </p>
