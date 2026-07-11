@@ -36,9 +36,7 @@ open-source security tools — **not** another vulnerability engine.
 ## Project status
 
 **Pre-release / active development.** Vulna is being built in reviewed, testable
-phases (see the [build plan for phases 1–16](VULNA_BUILD_PLAN%20Phases%201-16.md)
-and the [self-hoster-first roadmap for phases 17–32](VULNA_SELF_HOSTER_FIRST_ROADMAP_PHASES_17_32.md));
-each phase lands on `main` via a pull request with green CI. Current progress:
+phases; each phase lands on `main` via a pull request with green CI. Current progress:
 
 <details>
 <summary><strong>View detailed development roadmap and phase status</strong></summary>
