@@ -7,21 +7,22 @@ func TestUnhealthyClassification(t *testing.T) {
 	states := []composePS{
 		{Service: "api", State: "running", Health: "healthy"},
 		{Service: "postgres", State: "running", Health: "healthy"},
-		{Service: "redis", State: "running", Health: ""}, // no healthcheck, running -> ok
+		{Service: "redis", State: "running", Health: ""},                       // no healthcheck, running -> ok
+		{Service: "scout-ca-export", State: "exited", Health: "", ExitCode: 0}, // one-shot done -> ok
 	}
 	if bad := unhealthy(states); len(bad) != 0 {
-		t.Errorf("all-healthy stack should report none unhealthy, got %v", bad)
+		t.Errorf("all-healthy stack (incl. a completed one-shot) should report none unhealthy, got %v", bad)
 	}
 
 	states = []composePS{
 		{Service: "api", State: "running", Health: "starting"}, // still starting -> not yet
 		{Service: "frontend", State: "running", Health: "unhealthy"},
-		{Service: "caddy", State: "exited", Health: ""}, // not running -> bad
+		{Service: "caddy", State: "exited", Health: "", ExitCode: 1}, // crashed -> bad
 		{Service: "redis", State: "running", Health: ""},
 	}
 	bad := unhealthy(states)
 	if len(bad) != 3 {
-		t.Errorf("expected 3 unhealthy (api starting, frontend unhealthy, caddy exited), got %v", bad)
+		t.Errorf("expected 3 unhealthy (api starting, frontend unhealthy, caddy exited nonzero), got %v", bad)
 	}
 }
 

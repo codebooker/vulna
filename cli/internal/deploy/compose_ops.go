@@ -147,9 +147,10 @@ func CopyToContainer(installDir, service, src, dest string) error {
 
 // composePS is the subset of `docker compose ps --format json` we read.
 type composePS struct {
-	Service string `json:"Service"`
-	State   string `json:"State"`
-	Health  string `json:"Health"`
+	Service  string `json:"Service"`
+	State    string `json:"State"`
+	Health   string `json:"Health"`
+	ExitCode int    `json:"ExitCode"`
 }
 
 // serviceStates returns the current per-service state/health.
@@ -184,8 +185,12 @@ func serviceStates(installDir string) ([]composePS, error) {
 	return states, nil
 }
 
-// unhealthy returns the services that are not yet healthy: a service WITH a health
-// check must be "healthy"; one without must at least be "running".
+// unhealthy returns the services that are not yet healthy:
+//   - a service WITH a health check must be "healthy";
+//   - a long-running service without one must be "running";
+//   - a one-shot/init service (e.g. scout-ca-export, which copies the CA once and
+//     stops) that has "exited" with code 0 is DONE, not broken — so it does not
+//     block readiness. Only a non-zero exit or an unhealthy/other state is bad.
 func unhealthy(states []composePS) []string {
 	var bad []string
 	for _, s := range states {
@@ -194,10 +199,14 @@ func unhealthy(states []composePS) []string {
 			continue
 		case s.Health == "" && s.State == "running":
 			continue
+		case s.Health == "" && s.State == "exited" && s.ExitCode == 0:
+			continue
 		default:
 			detail := s.State
 			if s.Health != "" {
 				detail = s.Health
+			} else if s.State == "exited" {
+				detail = fmt.Sprintf("exited code %d", s.ExitCode)
 			}
 			bad = append(bad, fmt.Sprintf("%s (%s)", s.Service, detail))
 		}
