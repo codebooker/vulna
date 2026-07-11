@@ -8,6 +8,7 @@ import { ChangesPage } from './pages/ChangesPage';
 import { FeedsPage } from './pages/FeedsPage';
 import { FindingsPage } from './pages/FindingsPage';
 import { HealthPage } from './pages/HealthPage';
+import { HelpPage } from './pages/HelpPage';
 import { HomeDashboard } from './pages/HomeDashboard';
 import { LoginPage } from './pages/LoginPage';
 import { MaintenancePage } from './pages/MaintenancePage';
@@ -84,6 +85,7 @@ export function App() {
           <SystemHealthPage />
           <MaintenancePage />
           <NotificationsPage />
+          <HelpPage />
           <FindingsPage />
           <SitesPage />
           <PresetsPage />

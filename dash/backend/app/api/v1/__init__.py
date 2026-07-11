@@ -9,9 +9,11 @@ from app.api.v1 import (
     changes,
     cve,
     dashboard,
+    demo,
     diagnostics,
     feeds,
     findings,
+    help,
     jobs,
     maintenance,
     networking,
@@ -42,6 +44,8 @@ api_router.include_router(probes.router)
 api_router.include_router(jobs.router)
 api_router.include_router(dashboard.router)
 api_router.include_router(diagnostics.router)
+api_router.include_router(demo.router)
+api_router.include_router(help.router)
 api_router.include_router(maintenance.router)
 api_router.include_router(notifications.router)
 api_router.include_router(dashboard.search_router)

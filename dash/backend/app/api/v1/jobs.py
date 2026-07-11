@@ -20,12 +20,14 @@ from app.auth.dependencies import CurrentUser, require_roles
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
 from app.models.enums import JobStatus, ProbeStatus, UserRole, WebScanProfile
+from app.models.organization import Organization
 from app.models.probe import Probe
 from app.models.scan_job import ScanJob
 from app.models.user import User
 from app.schemas.common import Page
 from app.schemas.job import JobCreate, JobRead
 from app.services.audit import record_audit
+from app.services.demo import is_demo_mode
 from app.services.jobs import JobValidationError, create_scan_job
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
@@ -67,6 +69,16 @@ async def create_job(
     an active web assessment is intrusive and requires approval — only an
     administrator or pentest approver may request the limited-active profile.
     """
+    org = await session.get(Organization, operator.organization_id)
+    if org is not None and is_demo_mode(org):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Demo mode is read-only and cannot run real scans. Disable demo mode "
+                "in Settings to scan real targets."
+            ),
+        )
+
     probe = await session.get(Probe, payload.probe_id)
     if probe is None or probe.organization_id != operator.organization_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Probe not found")

@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 30: documentation, demo, and guided learning
+
+Documentation as part of the product, plus a safe way to evaluate the interface.
+
+- A **documentation home** (`docs/README.md`) with **Simple** and **Advanced**
+  paths, the three **deployment models** (single-host, distributed Scouts, Relay)
+  on one page, and a task-guide index. New guides: **quick start**
+  (`docs/quickstart.md`), **terminology**, **understanding/fixing/verifying
+  findings**, **troubleshooting** (symptom-first), **demo mode**, **exposure
+  checklist**, and **migration notes**.
+- **Safe demo mode** (`app/services/demo.py`, `/demo` API): seeds a self-contained
+  Demo Environment with sample assets/services/findings using only **reserved
+  documentation address ranges**, and **blocks real scan-job creation** while on,
+  so the demo can never contact a target. Admin-only, audited; disabling removes
+  the sample data. The flag lives in the org `settings_json` (no schema change).
+- A **contextual help catalogue** (`app/services/help_topics.py`, `/help` API):
+  topic → title/summary/doc, plus lookups by job error code and maintenance
+  domain, and the administrator exposure checklist, so the UI deep-links to the
+  right guide instead of a generic log page.
+- **Documentation is tested**: every help-topic doc must exist (a renamed guide
+  fails CI), and a lint forbids the new/security-sensitive guides from
+  recommending insecure practices (disabling TLS verification, privileged runs,
+  open database ports, default secrets).
+- A Help & demo page (frontend), and ADR 0030.
+
 ### Added — Phase 29: simple notifications and self-hosted integrations
 
 Get notified where you already work, without an enterprise ticketing deployment.

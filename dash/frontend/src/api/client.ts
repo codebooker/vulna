@@ -24,6 +24,7 @@ import type {
   NotificationDelivery,
   NotificationEventDef,
 } from '../types/notifications';
+import type { DemoStatus, HelpTopic } from '../types/help';
 import type { Finding, Page as FindingPage } from '../types/finding';
 import type { BrowserTest, NetworkStatus, ValidateResult } from '../types/networking';
 import type { Preset, PresetPreview } from '../types/presets';
@@ -269,6 +270,23 @@ export const api = {
     return request<{ deliveries: NotificationDelivery[] }>('/api/v1/notifications/deliveries', {
       token,
     });
+  },
+
+  // --- Help & demo (Phase 30) ---
+  helpTopics(token: string): Promise<{ topics: HelpTopic[] }> {
+    return request<{ topics: HelpTopic[] }>('/api/v1/help/topics', { token });
+  },
+  exposureChecklist(token: string): Promise<{ checklist: string[] }> {
+    return request<{ checklist: string[] }>('/api/v1/help/exposure-checklist', { token });
+  },
+  demoStatus(token: string): Promise<DemoStatus> {
+    return request<DemoStatus>('/api/v1/demo/status', { token });
+  },
+  enableDemo(token: string): Promise<DemoStatus> {
+    return request<DemoStatus>('/api/v1/demo/enable', { method: 'POST', token });
+  },
+  disableDemo(token: string): Promise<DemoStatus> {
+    return request<DemoStatus>('/api/v1/demo/disable', { method: 'POST', token });
   },
 
   // --- Networking assistant (Phase 23) ---
