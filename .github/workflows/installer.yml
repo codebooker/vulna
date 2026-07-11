@@ -118,4 +118,13 @@ jobs:
           CGO_ENABLED: "0"
           GOOS: linux
           GOARCH: ${{ matrix.goarch }}
-        run: go build -o bin/vulna-linux-${{ matrix.goarch }} ./cmd/vulna
+        run: |
+          # Inject the version so a released binary pins the deployment to the
+          # matching published image tag (bare, e.g. 1.0.0). On a tag build use the
+          # bare tag; otherwise "dev" (build-from-source path). Must agree with the
+          # release manifest version and release-images.yml image tags.
+          ver="dev"
+          case "${GITHUB_REF}" in refs/tags/*) ver="${GITHUB_REF_NAME#v}";; esac
+          pkg=github.com/codebooker/vulna/cli/internal/buildinfo
+          go build -ldflags "-X ${pkg}.Version=${ver} -X ${pkg}.Commit=${GITHUB_SHA::12}" \
+            -o bin/vulna-linux-${{ matrix.goarch }} ./cmd/vulna

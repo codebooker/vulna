@@ -57,9 +57,31 @@ func (c *ConsoleRunner) RunModule(ctx context.Context, spec ModuleSpec) (RunResu
 		Success:  runErr == nil,
 	}
 	if ctx.Err() != nil {
+		// Timed out/cancelled: the in-band "sessions -K" may not have run, so
+		// teardown is uncertain. Leave CleanupVerified false; the deferred
+		// killAllSessions still best-effort tears down.
 		return res, ctx.Err()
 	}
+	// The resource script ran "sessions -K" in-band; confirm no session actually
+	// remains before claiming a verified cleanup. A remaining session (kill failed)
+	// or a msfconsole error yields false so the backend flags it for follow-up.
+	res.CleanupVerified = c.noSessionsRemain()
 	return res, runErr
+}
+
+// noSessionsRemain reports whether msfconsole lists no active sessions, confirming
+// teardown actually completed. Any error or an unexpected listing is treated as
+// "not confirmed" (fail-closed).
+func (c *ConsoleRunner) noSessionsRemain() bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(
+		ctx, c.binary(), "-q", "-n", "-x", "sessions -l; exit -y",
+	).CombinedOutput()
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(out), "No active sessions")
 }
 
 // StopSession kills one session by id.
@@ -105,6 +127,14 @@ func buildResourceScript(spec ModuleSpec) (string, error) {
 	}
 	sort.Strings(keys) // deterministic
 	for _, k := range keys {
+		// Never let an option re-set the validated target or approved payload: those
+		// are written above from scope-checked fields, and a later `set RHOSTS ...`
+		// would silently override the authorized target. Defense in depth — policy
+		// validation already rejects these keys before we get here.
+		switch strings.ToLower(strings.TrimSpace(k)) {
+		case "rhosts", "rhost", "payload":
+			return "", fmt.Errorf("option %q may not override the validated target/payload", k)
+		}
 		v := fmt.Sprintf("%v", spec.Options[k])
 		if err := safeToken("option key", k); err != nil {
 			return "", err

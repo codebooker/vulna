@@ -15,6 +15,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlsplit
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
@@ -92,6 +93,24 @@ def _build_web_stage(
 
 class JobValidationError(ValueError):
     """Raised when a job request is invalid or out of scope."""
+
+
+async def _persist_job(session: AsyncSession, job: ScanJob) -> ScanJob:
+    """Insert a job inside a SAVEPOINT so the partial-unique "one active job per
+    network" index turns a lost race into a clean ``JobValidationError`` instead of
+    an IntegrityError that poisons the surrounding transaction. The app-level check
+    (``network_has_active_job``) handles the common case; this closes the race
+    window between that check and the insert without rolling back the caller's other
+    work (e.g. a scheduler sweep processing many schedules in one transaction)."""
+    try:
+        async with session.begin_nested():
+            session.add(job)
+            await session.flush()
+    except IntegrityError as exc:
+        if job.network_id is not None:
+            raise JobValidationError("the network is already under test") from exc
+        raise
+    return job
 
 
 def _target_within_approved(target: str, approved: list[str]) -> bool:
@@ -268,9 +287,7 @@ async def create_scan_job(
         created_by=created_by,
         verifies_finding_ids_json=list(verifies_finding_ids or []),
     )
-    session.add(job)
-    await session.flush()
-    return job
+    return await _persist_job(session, job)
 
 
 async def create_pentest_job(
@@ -344,6 +361,4 @@ async def create_pentest_job(
         expires_at=expires_at,
         created_by=created_by,
     )
-    session.add(job)
-    await session.flush()
-    return job
+    return await _persist_job(session, job)

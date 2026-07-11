@@ -35,6 +35,13 @@ type RunResult struct {
 	Evidence map[string]any
 	Sessions []Session
 	Success  bool
+	// CleanupVerified is true only when the runner has confirmed it left no live
+	// session behind (e.g. by listing sessions after teardown), or has handed every
+	// session it opened back in Sessions for the Worker to stop. It is false when
+	// teardown could not be confirmed (timeout, cancel, kill error) — the Worker
+	// then reports cleanup as unverified so the dashboard flags it for follow-up
+	// instead of falsely claiming the host was cleaned.
+	CleanupVerified bool
 }
 
 // Runner drives Metasploit (real impl talks to msfrpcd). Kept minimal so the
@@ -89,17 +96,23 @@ func (w *Worker) Run(ctx context.Context, job *policy.Job) ([]byte, error) {
 
 	// MANDATORY: tear down any session opened, even on error/timeout/cancel, on a
 	// fresh context so teardown still runs after the run context expired.
-	w.teardown(res.Sessions)
+	teardownOK := w.teardown(res.Sessions)
 
 	if runErr != nil {
 		return nil, runErr
 	}
+	// Cleanup is "verified" only when the runner confirmed no live session remains
+	// AND every session handed back for the Worker to stop was stopped without
+	// error. Anything less is reported unverified so the backend flags it for
+	// manual verification rather than claiming the host was cleaned.
+	cleanupVerified := res.CleanupVerified && teardownOK
 	// Minimize at the edge: proof, not secrets, before anything leaves the site.
 	out := map[string]any{
-		"module":   spec.Module,
-		"target":   spec.Target,
-		"success":  res.Success,
-		"evidence": pentest.Minimize(res.Evidence),
+		"module":           spec.Module,
+		"target":           spec.Target,
+		"success":          res.Success,
+		"cleanup_verified": cleanupVerified,
+		"evidence":         pentest.Minimize(res.Evidence),
 	}
 	return json.Marshal(out)
 }
@@ -117,9 +130,16 @@ func (w *Worker) boundedTimeout(maxSecs int) time.Duration {
 	return d
 }
 
-func (w *Worker) teardown(sessions []Session) {
-	if len(sessions) == 0 || w.Runner == nil {
-		return
+// teardown stops every session handed back by the runner and reports whether all
+// stops succeeded. No sessions to stop counts as success (the ConsoleRunner tears
+// down in-band and returns none); a nil runner or any StopSession error is a
+// failure, so the caller does not claim a verified cleanup.
+func (w *Worker) teardown(sessions []Session) bool {
+	if len(sessions) == 0 {
+		return true
+	}
+	if w.Runner == nil {
+		return false
 	}
 	ttl := w.TeardownTTL
 	if ttl <= 0 {
@@ -127,9 +147,13 @@ func (w *Worker) teardown(sessions []Session) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), ttl)
 	defer cancel()
+	ok := true
 	for _, s := range sessions {
-		_ = w.Runner.StopSession(ctx, s.ID)
+		if err := w.Runner.StopSession(ctx, s.ID); err != nil {
+			ok = false
+		}
 	}
+	return ok
 }
 
 // parseStage extracts the module spec and time-box from the job's metasploit

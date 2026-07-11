@@ -90,7 +90,9 @@ func writeBundle(t *testing.T, encrypted bool, pass []byte) (string, Manifest) {
 	archiveBytes := makeArchive(t, map[string]string{
 		"db.dump":               "pretend postgres custom-format dump",
 		"data/keys/ca_cert.pem": "pretend CA certificate",
-		"data/config.env":       "SETTING=1",
+		// The deployment .env is archived under config/ (not data/) — that is what
+		// vouches for the "config" class now.
+		"config/env": "VULNA_MASTER_KEY=secret\nPOSTGRES_PASSWORD=pw",
 	})
 	sum := sha256Hex(archiveBytes)
 

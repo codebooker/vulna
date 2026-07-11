@@ -252,6 +252,12 @@ func cmdUpdateApply(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "update: cannot apply automatically; not recording this version as applied.")
 		return 1
 	}
+	// Remember the version currently pinned so a failed pull/up can revert it —
+	// otherwise .env is left pointing at a release that never came up, and a later
+	// restart would try (and fail, or half-activate) that partial version.
+	priorEnv, _ := deploy.ReadEnv(filepath.Join(*dir, deploy.EnvFile))
+	priorVersion := priorEnv["VULNA_VERSION"]
+
 	// Pin the deployment to the new version BEFORE pulling, so `docker compose
 	// pull` actually fetches that release's images (the api/frontend image tags
 	// are ${VULNA_VERSION}).
@@ -259,13 +265,25 @@ func cmdUpdateApply(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "update: could not set the target version:", err)
 		return 1
 	}
+	revertVersion := func() {
+		if priorVersion != "" {
+			if err := deploy.SetEnvVersion(*dir, priorVersion); err != nil {
+				fmt.Fprintln(stderr, "update: WARNING could not revert VULNA_VERSION to",
+					priorVersion, "-", err)
+			} else {
+				fmt.Fprintln(stderr, "update: reverted the pinned version to", priorVersion)
+			}
+		}
+	}
 	fmt.Fprintf(stdout, "\nPulling images for %s ...\n", m.Version)
 	if err := deploy.Pull(*dir, stdout, stderr); err != nil {
+		revertVersion()
 		fmt.Fprintln(stderr, "update: image pull failed; nothing was changed:", err)
 		return 1
 	}
 	fmt.Fprintln(stdout, "Restarting the stack ...")
 	if err := deploy.Up(*dir, stdout, stderr); err != nil {
+		revertVersion()
 		fmt.Fprintln(stderr, "update: bringing the stack up failed:", err)
 		fmt.Fprintln(stderr, "update: run `vulna rollback` if the stack is unhealthy.")
 		return 1
@@ -437,16 +455,25 @@ func backupPresent(dir string) (bool, string) {
 }
 
 func runBackup(dir string, stdout, stderr io.Writer) (string, error) {
-	script := "deploy/backup/backup.sh"
-	if _, err := os.Stat(script); err != nil {
-		// Backup script not present in this deployment layout; warn but continue.
-		fmt.Fprintln(stdout, "note: deploy/backup/backup.sh not found; skipping automatic backup.")
-		return "", nil
+	// Locate the script under the deployment dir OR the cwd (same resolution as
+	// restore). Fail closed if it is missing: a caller that promised a safety backup
+	// (pre-update, pre-restore) must not silently proceed unprotected.
+	script, ok := resolveBackupScript(dir, "backup.sh")
+	if !ok {
+		return "", fmt.Errorf("deploy/backup/backup.sh not found under %s or the current "+
+			"directory; cannot take a safety backup (pass --no-backup to skip intentionally)", dir)
 	}
 	out := filepath.Join(dir, "backups")
-	_ = os.MkdirAll(out, 0o700)
-	cmd := exec.Command("bash", script) //nolint:gosec // fixed in-repo script
-	cmd.Env = append(os.Environ(), "VULNA_BACKUP_DIR="+out)
+	if err := os.MkdirAll(out, 0o700); err != nil {
+		return "", err
+	}
+	// The script reads its output dir from the positional arg ($1); pass it there so
+	// the backup lands where we record it. Also point it at the deployment .env so
+	// the DB password + evidence master key (which live in the install dir, NOT
+	// under VULNA_DATA) are captured — without them a restored DB can't be opened
+	// and encrypted evidence can't be decrypted.
+	cmd := exec.Command("bash", script, out) //nolint:gosec // fixed in-repo script
+	cmd.Env = append(os.Environ(), "VULNA_ENV_FILE="+filepath.Join(dir, deploy.EnvFile))
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 	if err := cmd.Run(); err != nil {
 		return "", err

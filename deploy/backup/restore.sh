@@ -29,6 +29,19 @@ if [ -d "$STAGE/data" ]; then
 	cp -a "$STAGE/data/." "$VULNA_DATA/"
 fi
 
+# 2b. Restore the deployment .env (DB password + evidence master key) if it was
+# captured. Written to VULNA_ENV_FILE when set, else left beside the data dir so
+# the operator can place it — never silently discarded.
+if [ -f "$STAGE/config/env" ]; then
+	if [ -n "${VULNA_ENV_FILE:-}" ]; then
+		install -m 0600 "$STAGE/config/env" "$VULNA_ENV_FILE"
+		echo "restore: deployment .env restored to $VULNA_ENV_FILE"
+	else
+		install -m 0600 "$STAGE/config/env" "$VULNA_DATA/restored.env"
+		echo "restore: deployment .env left at $VULNA_DATA/restored.env (set VULNA_ENV_FILE to place it automatically)" >&2
+	fi
+fi
+
 # 3. Restore the database.
 if [ -f "$STAGE/db.dump" ]; then
 	if [ -n "${DATABASE_URL:-}" ] && command -v pg_restore >/dev/null 2>&1; then

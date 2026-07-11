@@ -10,16 +10,18 @@ trap 'rm -rf "$WORK"' EXIT
 
 export VULNA_DATA="$WORK/data"
 export VULNA_DB_DUMP="$WORK/source-db.dump"
+export VULNA_ENV_FILE="$WORK/.env"
 BACKUPS="$WORK/backups"
 
 check() { if [ "$2" = "$3" ]; then echo "  ok: $1"; else echo "  FAIL: $1 (expected '$2' got '$3')" >&2; exit 1; fi; }
 
-echo "== seed a data dir (keys/config/reports) + a DB dump =="
+echo "== seed a data dir (keys/reports), a DB dump, and a deployment .env =="
 mkdir -p "$VULNA_DATA/keys" "$VULNA_DATA/reports"
 echo "ca-private-key" > "$VULNA_DATA/keys/ca_key.pem"
 echo "signing-key"    > "$VULNA_DATA/keys/job_signing"
 echo "report-bytes"   > "$VULNA_DATA/reports/r1.pdf"
 echo "PGDUMP-CONTENTS" > "$VULNA_DB_DUMP"
+printf 'VULNA_MASTER_KEY=master-secret\nPOSTGRES_PASSWORD=db-secret\n' > "$VULNA_ENV_FILE"
 
 echo "== back up =="
 bash "$HERE/backup.sh" "$BACKUPS" >/dev/null
@@ -29,11 +31,13 @@ check "checksum file exists" "yes" "$([ -f "$ARCHIVE.sha256" ] && echo yes || ec
 echo "== wipe the live data dir, then restore =="
 rm -rf "$VULNA_DATA"
 export VULNA_DATA="$WORK/restored"
+export VULNA_ENV_FILE="$WORK/restored.env"
 bash "$HERE/restore.sh" "$ARCHIVE" >/dev/null
 check "CA key restored"     "ca-private-key" "$(cat "$VULNA_DATA/keys/ca_key.pem")"
 check "signing key restored" "signing-key"   "$(cat "$VULNA_DATA/keys/job_signing")"
 check "report restored"     "report-bytes"   "$(cat "$VULNA_DATA/reports/r1.pdf")"
 check "db dump restored"    "PGDUMP-CONTENTS" "$(cat "$VULNA_DATA/restored-db.dump")"
+check "deployment .env restored" "master-secret" "$(sed -n 's/^VULNA_MASTER_KEY=//p' "$VULNA_ENV_FILE")"
 
 echo "== tampered archive is refused =="
 printf 'corruption' >> "$ARCHIVE"   # invalidate the checksum

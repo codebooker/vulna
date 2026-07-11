@@ -13,6 +13,7 @@ import (
 
 	"github.com/codebooker/vulna/cli/internal/backup"
 	"github.com/codebooker/vulna/cli/internal/buildinfo"
+	"github.com/codebooker/vulna/cli/internal/deploy"
 )
 
 func cmdBackup(args []string, stdout, stderr io.Writer) int {
@@ -328,6 +329,9 @@ func cmdBackupRestore(args []string, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "Restoring %s (app %s, schema %s) ...\n",
 		bundle, rep.Manifest.AppVersion, orDashB(rep.Manifest.SchemaVersion))
 	cmd := exec.Command("bash", restoreScript, tarPath) //nolint:gosec // fixed in-repo script
+	// Point restore.sh at the deployment .env so a captured config is put back in
+	// place (DB password + evidence master key) rather than left as a loose file.
+	cmd.Env = append(os.Environ(), "VULNA_ENV_FILE="+filepath.Join(*dir, deploy.EnvFile))
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 	if err := cmd.Run(); err != nil {
 		fmt.Fprintln(stderr, "restore: restore.sh failed:", err)

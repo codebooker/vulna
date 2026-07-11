@@ -36,11 +36,13 @@ jobs:
       - name: Resolve version
         id: ver
         run: |
-          if [ -n "${{ github.event.inputs.version }}" ]; then
-            echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
-          fi
+          # Git tags are v-prefixed (v1.0.0) but the release manifest, the CLI's
+          # buildinfo.Version, and VULNA_VERSION in the deployment .env are all bare
+          # (1.0.0). Compose pins vulna-api:${VULNA_VERSION}, so the published image
+          # tag MUST be bare too — strip a leading 'v' so pull finds it.
+          raw="${{ github.event.inputs.version }}"
+          [ -n "$raw" ] || raw="${GITHUB_REF_NAME}"
+          echo "version=${raw#v}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3

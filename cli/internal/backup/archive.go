@@ -66,8 +66,10 @@ func verifyArchiveContents(m *Manifest, plaintext []byte, pass, fail func(name, 
 
 // classSatisfied reports whether the archive actually carries a content class.
 // Paths follow deploy/backup/backup.sh, which copies VULNA_DATA under data/
-// (keys under data/keys, reports under data/reports, ...). Evidence lives in the
-// database, so it is carried by db.dump.
+// (keys under data/keys, reports under data/reports, ...), the deployment .env
+// under config/, and the database dump as db.dump (which also carries evidence).
+// Each class checks its OWN distinct location so one stray file cannot vouch for
+// several classes at once.
 func classSatisfied(class string, files map[string]int64) bool {
 	switch class {
 	case ClassDatabase, ClassEvidence:
@@ -82,9 +84,16 @@ func classSatisfied(class string, files map[string]int64) bool {
 		return anyFileUnder(files, "data/branding/")
 	case ClassPresets:
 		return anyFileUnder(files, "data/presets/")
-	case ClassConfig, ClassScoutState:
-		// Config/scout-state files live loose under data/.
-		return anyFileUnder(files, "data/")
+	case ClassConfig:
+		// The deployment .env (DB password + evidence master key) is archived under
+		// config/ by backup.sh. Require it explicitly: a data-dir file must NOT vouch
+		// for config, or a backup missing the .env would be certified usable and a
+		// restore would come up with no secrets.
+		return anyFileUnder(files, "config/")
+	case ClassScoutState:
+		// Scout identity/state has its own path; a generic data/ file does not prove
+		// it is present.
+		return anyFileUnder(files, "data/scout/") || anyFileUnder(files, "data/scout_state/")
 	default:
 		return anyFileUnder(files, "data/")
 	}

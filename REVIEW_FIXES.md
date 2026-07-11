@@ -255,6 +255,72 @@ whole stack was re-deployed to a real Hetzner VM to validate them on live infra.
 
 ---
 
+## Tier 7 — third Codex pass (1 P0, 6 P1, 2 P2)
+
+### P0 — Pentest options bypass the authorized target scope ✅
+- **Where:** `scout/.../metasploit/console.go`, `services/pentest_policy.py`,
+  `pentest/policy.go`, `PentestPage.tsx`
+- **Problem:** the scout set the validated `RHOSTS`, then applied free-form user
+  options AFTER it, so `{"RHOSTS":"8.8.8.8"}` overrode the signed, in-scope target;
+  the approval UI showed only the module, so the override was invisible.
+- **Fix:** `RHOSTS`/`RHOST`/`PAYLOAD` are now reserved — rejected as options for
+  every module on the **server** (`validate_module_allowed`), mirrored on the
+  **scout** (`ValidateModule`), and re-checked at the edge in `buildResourceScript`.
+  The session now pins the resolved `target` at request time (new column) and
+  dispatch runs that exact target; the approval UI shows target, payload, options,
+  and RoE so the approver sees what they authorize.
+
+### P1 — Restore could proceed without its safety backup ✅
+- `runBackup` used a cwd-relative script path and silently "skipped" (returning
+  success) when absent, so a destructive restore continued unprotected; it also set
+  `VULNA_BACKUP_DIR` while the script reads its dir from `$1`. Now it resolves the
+  script under the deployment dir (or cwd), **fails closed** if missing, and passes
+  the output dir positionally.
+
+### P1 — Backups claimed configuration they did not contain ✅
+- `backup.sh` copied only `VULNA_DATA`, never the deployment `.env` (DB password +
+  evidence master key), yet the classifier treated any `data/` file as proof of both
+  `config` and `scout_state`. Now `backup.sh` archives the `.env` under `config/`,
+  `restore.sh` restores it, and the classifier requires each class's OWN path
+  (`config/` for config; `data/scout*/` for scout_state) — so a `.env`-less backup is
+  correctly UNUSABLE.
+
+### P1 — Published image tags didn't match update/install versions ✅
+- The image workflow published `v1.0.0` while compose/CLI use `1.0.0`. The workflow
+  now strips the leading `v`; the CLI build injects `buildinfo.Version` via ldflags
+  on a tag, and its default is now `dev` (not a real-looking `0.1.0` that would pull
+  a nonexistent tag).
+
+### P1 — Failed updates left `.env` at the failed version ✅
+- `update` rewrote `VULNA_VERSION` before pulling; a failed pull/up left it pinned to
+  a release that never came up. It now captures the prior version and reverts it on
+  any pull/up failure.
+
+### P1 — Metasploit cleanup failures were reported as cleaned ✅
+- Teardown errors were discarded and every finished exploit job was marked `CLEANED`.
+  The scout now **verifies** teardown (`sessions -l` shows none / all Worker stops
+  succeeded) and reports `cleanup_verified`; the backend marks `CLEANED` only when
+  verified, else `CLEANUP_PENDING` for manual follow-up.
+
+### P1 — Pentest image ran an unpinned remote script as root ✅
+- The Dockerfile fetched the Metasploit installer from `master` and ran it as root.
+  It is now pinned to an immutable commit and its SHA-256 is verified before it runs.
+
+### P2 — Most Rules-of-Engagement fields were decorative ✅
+- `allowed_hours` (permitted days/hours, tz-aware) is now enforced at dispatch — a
+  session firing outside the window is not dispatched (`within_allowed_hours`).
+
+### P2 — The network lock turned races into unhandled 500s ✅
+- `create_scan_job` now inserts inside a SAVEPOINT and converts the unique-index
+  `IntegrityError` into a graceful `JobValidationError`, so a lost race can't 500 or
+  roll back an entire scheduler sweep.
+
+All suites green: backend (mypy/ruff/pytest + release gate), scout & CLI
+(gofmt/vet/test), frontend (build/lint/test), backup smoke + shellcheck, migrations
+up/down, `docker build --check` on the pentest image.
+
+---
+
 ## #6 expansion — Networks, staged jobs, timeout (Phases 1–3)
 
 Follow-on work turning the workflow orchestration into a real product capability.

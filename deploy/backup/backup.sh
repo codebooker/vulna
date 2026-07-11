@@ -39,6 +39,15 @@ if [ -d "$VULNA_DATA" ]; then
 	cp -a "$VULNA_DATA/." "$STAGE/data/"
 fi
 
+# 2b. Deployment configuration (.env): the DB password and evidence master key
+# live here, NOT under VULNA_DATA. Without them a restored database can't be
+# opened and encrypted evidence can't be decrypted. Stored under config/ so the
+# backup classifier can distinguish "config present" from mere data-dir files.
+if [ -n "${VULNA_ENV_FILE:-}" ] && [ -f "$VULNA_ENV_FILE" ]; then
+	mkdir -p "$STAGE/config"
+	cp "$VULNA_ENV_FILE" "$STAGE/config/env"
+fi
+
 # 3. Archive + checksum.
 ARCHIVE="$OUT_DIR/vulna-backup-$STAMP.tar.gz"
 tar -czf "$ARCHIVE" -C "$STAGE" .

@@ -43,6 +43,21 @@ func TestBuildResourceScriptRejectsInjection(t *testing.T) {
 	}
 }
 
+func TestBuildResourceScriptRejectsReservedOptions(t *testing.T) {
+	// RHOSTS/RHOST/PAYLOAD are set from the validated target/payload; an option that
+	// re-sets them would override the authorized target after the fact.
+	for _, key := range []string{"RHOSTS", "rhost", "PAYLOAD", "Rhosts"} {
+		_, err := buildResourceScript(ModuleSpec{
+			Module:  "exploit/x/y",
+			Target:  "10.20.0.5",
+			Options: map[string]any{key: "8.8.8.8"},
+		})
+		if err == nil {
+			t.Errorf("reserved option %q must be rejected", key)
+		}
+	}
+}
+
 func TestStopSessionArgsRejectsUnsafeID(t *testing.T) {
 	if _, err := stopSessionArgs("1"); err != nil {
 		t.Errorf("a plain id should be accepted: %v", err)

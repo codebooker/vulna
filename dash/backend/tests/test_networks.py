@@ -219,12 +219,13 @@ async def test_db_rejects_two_active_jobs_per_network(
 ) -> None:
     from app.core.config import get_settings
     from app.models.enums import JobMode
-    from app.services.jobs import create_scan_job
-    from sqlalchemy.exc import IntegrityError
+    from app.services.jobs import JobValidationError, create_scan_job
 
     # The per-network lock is also enforced at the DB level (partial unique index),
     # so even a race that slips past the app-level check cannot create a second
-    # active job for the same network.
+    # active job for the same network. create_scan_job inserts inside a SAVEPOINT and
+    # surfaces the constraint as a graceful JobValidationError (not an IntegrityError
+    # that would poison the surrounding transaction / roll back a scheduler sweep).
     probe = await _approved_probe(client, admin_headers, enroll_probe, "RACE", "race")
     net = (
         await client.post(
@@ -246,12 +247,15 @@ async def test_db_rejects_two_active_jobs_per_network(
         targets=["10.50.0.0/24"], mode=JobMode.VULNERABILITY_ASSESSMENT,
         created_by=None, network_id=net_id,
     )
-    with pytest.raises(IntegrityError):
+    with pytest.raises(JobValidationError, match="already under test"):
         await create_scan_job(
             db_session, probe_obj, get_settings(),
             targets=["10.50.0.0/24"], mode=JobMode.VULNERABILITY_ASSESSMENT,
             created_by=None, network_id=net_id,
         )
+    # The savepoint kept the surrounding transaction usable after the rejection:
+    # a normal query still works (an IntegrityError would have poisoned it).
+    assert await db_session.get(Probe, probe_obj.id) is not None
 
 
 async def test_networks_require_admin(
