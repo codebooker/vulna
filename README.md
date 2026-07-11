@@ -6,6 +6,16 @@
   <strong>Self-hosted security assessment across every site.</strong>
 </p>
 
+<p align="center">
+  <a href="https://vulna.dev"><strong>vulna.dev</strong></a>
+  ·
+  <a href="#single-host-deployment">Install</a>
+  ·
+  <a href="docs/">Docs</a>
+  ·
+  <a href="https://github.com/codebooker/vulna/releases">Releases</a>
+</p>
+
 Vulna is an open-source, self-hosted, distributed platform for vulnerability
 detection, authorized penetration testing, continuous CVE monitoring, and
 multi-location security assessment. It is an orchestration, safety,
@@ -130,10 +140,19 @@ deployment; it is safe to re-run, dry-run, and uninstall without deleting data.
 
 ```bash
 # Verified bootstrap: downloads a pinned, signed release and checks it before running.
-curl -fsSLO https://github.com/codebooker/vulna/releases/latest/download/install.sh
+curl -fsSLO https://vulna.dev/install.sh
 less install.sh                       # review it first
-VULNA_VERSION=v1.0.0 sh install.sh -- install
+sh install.sh -- install
 ```
+
+The bootstrap is hosted at [`vulna.dev/install.sh`](https://vulna.dev/install.sh)
+(and, for enrolling a remote probe, [`vulna.dev/install-scout.sh`](https://vulna.dev/install-scout.sh)).
+Both are mirrored verbatim from [`scripts/`](scripts/), so what you review at that
+URL is exactly what this repository ships. They are verify-first: each downloads a
+pinned, signed release and checks a SHA-256 checksum plus an Ed25519 signature
+before running anything, so they refuse to run until a signed release is published
+rather than executing unverified content. The equivalent from a checkout is
+`sh scripts/install.sh -- install`.
 
 See [`docs/installation/`](docs/installation/README.md) for the manual
 (no-pipeline) path and [ADR 0018](docs/adr/0018-installer-and-preflight.md).
