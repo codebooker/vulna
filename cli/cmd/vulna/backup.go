@@ -325,20 +325,88 @@ func cmdBackupRestore(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	// 6. Apply. restore.sh verifies the checksum, extracts, restores data + DB.
+	// 6. Apply.
 	fmt.Fprintf(stdout, "Restoring %s (app %s, schema %s) ...\n",
 		bundle, rep.Manifest.AppVersion, orDashB(rep.Manifest.SchemaVersion))
-	cmd := exec.Command("bash", restoreScript, tarPath) //nolint:gosec // fixed in-repo script
-	// Point restore.sh at the deployment .env so a captured config is put back in
-	// place (DB password + evidence master key) rather than left as a loose file.
-	cmd.Env = append(os.Environ(), "VULNA_ENV_FILE="+filepath.Join(*dir, deploy.EnvFile))
-	cmd.Stdout, cmd.Stderr = stdout, stderr
-	if err := cmd.Run(); err != nil {
-		fmt.Fprintln(stderr, "restore: restore.sh failed:", err)
-		return 1
+	if deploy.PostgresReady(*dir) {
+		// Compose deployment: restore the DB inside the postgres container and the
+		// data volumes into the api container (the host has no DATABASE_URL / data dir).
+		if err := restoreCompose(*dir, tarPath, stdout, stderr); err != nil {
+			fmt.Fprintln(stderr, "restore:", err)
+			return 1
+		}
+	} else {
+		// Host/dev deployment: restore.sh verifies the checksum, extracts, restores
+		// data + DB (and FAILS loudly if it has no way to restore the DB).
+		cmd := exec.Command("bash", restoreScript, tarPath) //nolint:gosec // fixed in-repo script
+		cmd.Env = append(os.Environ(), "VULNA_ENV_FILE="+filepath.Join(*dir, deploy.EnvFile))
+		cmd.Stdout, cmd.Stderr = stdout, stderr
+		if err := cmd.Run(); err != nil {
+			fmt.Fprintln(stderr, "restore: restore.sh failed:", err)
+			return 1
+		}
 	}
 	fmt.Fprintln(stdout, "Restore complete. Re-check URL/TLS and Scout settings in the Networking assistant.")
 	return 0
+}
+
+// restoreCompose restores a plaintext backup tar.gz into a running Compose
+// deployment: the database via `docker compose exec postgres pg_restore`, the data
+// volumes via `docker compose cp` into the api container, and the deployment .env
+// back into the install dir. Any DB restore failure aborts (no false success).
+func restoreCompose(dir, tarPath string, stdout, stderr io.Writer) error {
+	extract, err := os.MkdirTemp("", "vulna-restore-extract-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(extract)
+	untar := exec.Command("tar", "-xzf", tarPath, "-C", extract) //nolint:gosec // our staged archive
+	untar.Stderr = stderr
+	if err := untar.Run(); err != nil {
+		return fmt.Errorf("extracting backup archive: %w", err)
+	}
+
+	// Restore the database first — this is the point of a restore; fail if it fails.
+	dumpPath := filepath.Join(extract, "db.dump")
+	df, err := os.Open(dumpPath) //nolint:gosec // path inside our temp extract dir
+	if err != nil {
+		return fmt.Errorf("backup has no database dump: %w", err)
+	}
+	defer df.Close()
+	fmt.Fprintln(stdout, "Restoring the database into the postgres container ...")
+	if err := deploy.RestoreDatabase(dir, df); err != nil {
+		return err
+	}
+
+	// Restore the persistent data volumes into the api container.
+	dataDir := filepath.Join(extract, "data")
+	for _, d := range []string{"keys", "reports", "evidence"} {
+		src := filepath.Join(dataDir, d)
+		if _, statErr := os.Stat(src); statErr != nil {
+			continue
+		}
+		if err := deploy.CopyToContainer(dir, "api", src+"/.", "/var/lib/vulna/"+d); err != nil {
+			return fmt.Errorf("restoring %s: %w", d, err)
+		}
+	}
+
+	// Restore the deployment .env (DB password + evidence master key).
+	if envSrc := filepath.Join(extract, "config", "env"); fileExists(envSrc) {
+		data, rerr := os.ReadFile(envSrc) //nolint:gosec // path inside our temp extract dir
+		if rerr != nil {
+			return rerr
+		}
+		if werr := os.WriteFile(filepath.Join(dir, deploy.EnvFile), data, 0o600); werr != nil {
+			return werr
+		}
+		fmt.Fprintln(stdout, "Deployment .env restored.")
+	}
+	return nil
+}
+
+func fileExists(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
 }
 
 // resolveBackupScript finds a deploy/backup script either under the deployment

@@ -69,10 +69,25 @@ func TestStopSessionArgsRejectsUnsafeID(t *testing.T) {
 	}
 }
 
-func TestTeardownArgs(t *testing.T) {
-	args := teardownArgs()
-	joined := strings.Join(args, " ")
-	if !strings.Contains(joined, "sessions -K") {
-		t.Errorf("teardown must kill all sessions: %v", args)
+func TestResourceScriptVerifiesCleanupInSameInstance(t *testing.T) {
+	// Teardown must kill sessions AND then list them (same instance) so RunModule can
+	// verify no session remained — a separate msfconsole could never see them.
+	script, err := buildResourceScript(ModuleSpec{Module: "exploit/x/y", Target: "10.20.0.5"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	kill := strings.Index(script, "sessions -K")
+	list := strings.Index(script, "sessions -l")
+	if kill < 0 || list < 0 || list < kill {
+		t.Errorf("script must kill then list sessions in one instance:\n%s", script)
+	}
+}
+
+func TestNoActiveSessions(t *testing.T) {
+	if !noActiveSessions("[*] Starting\nNo active sessions.\n") {
+		t.Error("an empty session list must count as verified")
+	}
+	if noActiveSessions("Active sessions\n  1  meterpreter  ...\n") {
+		t.Error("a listed session must NOT count as verified")
 	}
 }

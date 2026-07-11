@@ -275,17 +275,40 @@ func cmdUpdateApply(args []string, stdout, stderr io.Writer) int {
 			}
 		}
 	}
+	// recoverPrior restores the previously running release after a failed apply:
+	// re-pin the old version and bring its containers back up, so a failed update
+	// does not leave the stack down or half-migrated. (The first update has no saved
+	// rollback state yet, so we recover here directly rather than telling the
+	// operator to run `vulna rollback`.)
+	recoverPrior := func() {
+		if priorVersion == "" {
+			return
+		}
+		revertVersion()
+		fmt.Fprintf(stderr, "update: restoring the previous release (%s) ...\n", priorVersion)
+		_ = deploy.Pull(*dir, stdout, stderr)
+		_ = deploy.Up(*dir, stdout, stderr)
+	}
 	fmt.Fprintf(stdout, "\nPulling images for %s ...\n", m.Version)
 	if err := deploy.Pull(*dir, stdout, stderr); err != nil {
+		// Nothing started yet — only the pinned version changed; just revert it.
 		revertVersion()
 		fmt.Fprintln(stderr, "update: image pull failed; nothing was changed:", err)
 		return 1
 	}
 	fmt.Fprintln(stdout, "Restarting the stack ...")
 	if err := deploy.Up(*dir, stdout, stderr); err != nil {
-		revertVersion()
-		fmt.Fprintln(stderr, "update: bringing the stack up failed:", err)
-		fmt.Fprintln(stderr, "update: run `vulna rollback` if the stack is unhealthy.")
+		recoverPrior()
+		fmt.Fprintln(stderr, "update: bringing the stack up failed; restored the prior release:", err)
+		return 1
+	}
+	// `up -d` only means Compose accepted the request — containers may still be
+	// starting and their health checks can fail later. Confirm the stack is actually
+	// healthy BEFORE recording the update as applied.
+	fmt.Fprintln(stdout, "Waiting for containers to become healthy ...")
+	if err := deploy.WaitHealthy(*dir, 3*time.Minute, stdout); err != nil {
+		recoverPrior()
+		fmt.Fprintln(stderr, "update: the new release did not become healthy; restored the prior release:", err)
 		return 1
 	}
 
@@ -330,45 +353,82 @@ func cmdRollback(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintf(stdout, "Rolling back to %s.\n", version)
 
-	// Restore the pre-update database first when the update changed the schema.
-	// If this fails we leave the rollback point intact so it can be retried.
+	// Resolve the pre-update backup up front (before touching anything) when the
+	// update changed the schema, so a missing backup aborts early.
+	archive := ""
 	if hadMigr {
 		if backupPath == "" {
 			fmt.Fprintln(stderr, "rollback: the update changed the database but no backup was recorded; "+
 				"restore from your own backup before downgrading to avoid an incompatible schema.")
 			return 1
 		}
-		archive, ok := newestArchive(backupPath)
+		a, ok := newestArchive(backupPath)
 		if !ok {
 			fmt.Fprintln(stderr, "rollback: could not find the pre-update backup archive under", backupPath)
 			return 1
 		}
-		script, ok := resolveBackupScript(*dir, "restore.sh")
-		if !ok {
-			fmt.Fprintln(stderr, "rollback: deploy/backup/restore.sh not found; cannot restore the database automatically.")
-			return 1
-		}
-		fmt.Fprintln(stdout, "Restoring the pre-update database ...")
-		cmd := exec.Command("bash", script, archive) //nolint:gosec // fixed in-repo script
-		cmd.Stdout, cmd.Stderr = stdout, stderr
-		if err := cmd.Run(); err != nil {
-			fmt.Fprintln(stderr, "rollback: database restore failed; leaving the rollback point intact:", err)
-			return 1
-		}
+		archive = a
 	}
 
-	// Pin back to the prior version and pull its images, so the stack actually
-	// runs the old code (not just restarts the current one).
+	// Confirm the OLD images are actually available BEFORE performing the destructive
+	// database restore. Otherwise a failed pull would leave the newer application
+	// running against a downgraded database. Capture the currently-pinned version so a
+	// pull failure can leave the running stack untouched.
+	nowEnv, _ := deploy.ReadEnv(filepath.Join(*dir, deploy.EnvFile))
+	runningVersion := nowEnv["VULNA_VERSION"]
 	if err := deploy.SetEnvVersion(*dir, version); err != nil {
 		fmt.Fprintln(stderr, "rollback: could not set the prior version:", err)
 		return 1
 	}
 	fmt.Fprintf(stdout, "Pulling images for %s ...\n", version)
 	if err := deploy.Pull(*dir, stdout, stderr); err != nil {
-		fmt.Fprintln(stderr, "rollback: image pull failed; leaving the rollback point intact:", err)
+		if runningVersion != "" {
+			_ = deploy.SetEnvVersion(*dir, runningVersion) // leave the running stack as-is
+		}
+		fmt.Fprintln(stderr, "rollback: old images are not available; nothing was changed:", err)
 		return 1
 	}
-	fmt.Fprintln(stdout, "Bringing the stack up ...")
+
+	// Now that the old images are confirmed, restore the pre-update database with the
+	// application ISOLATED: stop the whole stack, bring up ONLY postgres, restore into
+	// it, so the running (newer) app never talks to the downgraded schema.
+	if hadMigr {
+		fmt.Fprintln(stdout, "Stopping the stack to restore the pre-update database ...")
+		if err := deploy.Down(*dir, false, stdout, stderr); err != nil {
+			fmt.Fprintln(stderr, "rollback: could not stop the stack; leaving the rollback point intact:", err)
+			return 1
+		}
+		if deploy.HasPostgresService(*dir) {
+			if err := deploy.UpServices(*dir, stdout, stderr, "postgres"); err != nil {
+				fmt.Fprintln(stderr, "rollback: could not start postgres for the restore:", err)
+				return 1
+			}
+			if err := deploy.WaitPostgresReady(*dir, 60*time.Second); err != nil {
+				fmt.Fprintln(stderr, "rollback: postgres did not become ready:", err)
+				return 1
+			}
+			fmt.Fprintln(stdout, "Restoring the pre-update database ...")
+			if err := restoreCompose(*dir, archive, stdout, stderr); err != nil {
+				fmt.Fprintln(stderr, "rollback: database restore failed; leaving the rollback point intact:", err)
+				return 1
+			}
+		} else {
+			script, ok := resolveBackupScript(*dir, "restore.sh")
+			if !ok {
+				fmt.Fprintln(stderr, "rollback: deploy/backup/restore.sh not found; cannot restore the database automatically.")
+				return 1
+			}
+			fmt.Fprintln(stdout, "Restoring the pre-update database ...")
+			cmd := exec.Command("bash", script, archive) //nolint:gosec // fixed in-repo script
+			cmd.Stdout, cmd.Stderr = stdout, stderr
+			if err := cmd.Run(); err != nil {
+				fmt.Fprintln(stderr, "rollback: database restore failed; leaving the rollback point intact:", err)
+				return 1
+			}
+		}
+	}
+
+	fmt.Fprintln(stdout, "Bringing the stack up on the prior release ...")
 	if err := deploy.Up(*dir, stdout, stderr); err != nil {
 		fmt.Fprintln(stderr, "rollback: bringing the stack up failed; leaving the rollback point intact:", err)
 		return 1
@@ -467,13 +527,53 @@ func runBackup(dir string, stdout, stderr io.Writer) (string, error) {
 	if err := os.MkdirAll(out, 0o700); err != nil {
 		return "", err
 	}
-	// The script reads its output dir from the positional arg ($1); pass it there so
-	// the backup lands where we record it. Also point it at the deployment .env so
-	// the DB password + evidence master key (which live in the install dir, NOT
-	// under VULNA_DATA) are captured — without them a restored DB can't be opened
-	// and encrypted evidence can't be decrypted.
+	// Point the assembler at the deployment .env so the DB password + evidence master
+	// key (which live in the install dir, NOT under VULNA_DATA) are captured — without
+	// them a restored DB can't be opened and encrypted evidence can't be decrypted.
+	env := append(os.Environ(), "VULNA_ENV_FILE="+filepath.Join(dir, deploy.EnvFile))
+
+	// Compose deployment: PostgreSQL and the data volumes live inside containers, not
+	// on the host. Dump the DB inside the postgres container and copy the persistent
+	// volumes out of the api container, then hand both to the assembler. Without this
+	// a real backup fails with "no database dump source".
+	if deploy.PostgresReady(dir) {
+		stage, err := os.MkdirTemp("", "vulna-backup-stage-")
+		if err != nil {
+			return "", err
+		}
+		defer os.RemoveAll(stage)
+
+		dumpPath := filepath.Join(stage, "db.dump")
+		df, err := os.Create(dumpPath) //nolint:gosec // temp path we just created
+		if err != nil {
+			return "", err
+		}
+		if err := deploy.DumpDatabase(dir, df); err != nil {
+			_ = df.Close()
+			return "", err
+		}
+		if err := df.Close(); err != nil {
+			return "", err
+		}
+
+		dataDir := filepath.Join(stage, "data")
+		if err := os.MkdirAll(dataDir, 0o700); err != nil {
+			return "", err
+		}
+		// CA + signing keys are required for a usable backup; reports/evidence files
+		// are best-effort (may be absent).
+		if err := deploy.CopyFromContainer(dir, "api", "/var/lib/vulna/keys", filepath.Join(dataDir, "keys")); err != nil {
+			return "", fmt.Errorf("backing up CA/signing keys: %w", err)
+		}
+		for _, d := range []string{"reports", "evidence"} {
+			_ = deploy.CopyFromContainer(dir, "api", "/var/lib/vulna/"+d, filepath.Join(dataDir, d))
+		}
+		env = append(env, "VULNA_DB_DUMP="+dumpPath, "VULNA_DATA="+dataDir)
+	}
+
+	// The script reads its output dir from the positional arg ($1).
 	cmd := exec.Command("bash", script, out) //nolint:gosec // fixed in-repo script
-	cmd.Env = append(os.Environ(), "VULNA_ENV_FILE="+filepath.Join(dir, deploy.EnvFile))
+	cmd.Env = env
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 	if err := cmd.Run(); err != nil {
 		return "", err

@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
-	"time"
 )
 
 // ConsoleRunner drives Metasploit by executing msfconsole with a generated
@@ -27,9 +26,12 @@ func (c *ConsoleRunner) binary() string {
 	return "msfconsole"
 }
 
-// RunModule runs the module and returns the console output as evidence. Sessions
-// are torn down in-band (and by the safety-net kill), so none are returned for
-// the worker to chase.
+// RunModule runs the module and returns the console output as evidence. Teardown
+// happens IN the one msfconsole process: the resource script kills sessions and,
+// crucially, that process exiting closes any it opened (sessions are owned by the
+// instance that created them). So there are no sessions for the worker to chase,
+// and cleanup is verified from this same instance's post-teardown session list —
+// not a second msfconsole, which could never see this one's sessions.
 func (c *ConsoleRunner) RunModule(ctx context.Context, spec ModuleSpec) (RunResult, error) {
 	script, err := buildResourceScript(spec)
 	if err != nil {
@@ -46,10 +48,6 @@ func (c *ConsoleRunner) RunModule(ctx context.Context, spec ModuleSpec) (RunResu
 	}
 	_ = f.Close()
 
-	// Safety net: whatever happens (including a time-boxed cancel that stops the
-	// inline "sessions -K"), best-effort kill all sessions on a fresh context.
-	defer c.killAllSessions()
-
 	cmd := exec.CommandContext(ctx, c.binary(), "-q", "-n", "-r", f.Name())
 	out, runErr := cmd.CombinedOutput()
 	res := RunResult{
@@ -57,31 +55,15 @@ func (c *ConsoleRunner) RunModule(ctx context.Context, spec ModuleSpec) (RunResu
 		Success:  runErr == nil,
 	}
 	if ctx.Err() != nil {
-		// Timed out/cancelled: the in-band "sessions -K" may not have run, so
-		// teardown is uncertain. Leave CleanupVerified false; the deferred
-		// killAllSessions still best-effort tears down.
+		// Timed out/cancelled: CommandContext killed the process (which closes its
+		// sessions), but the in-band "sessions -K; sessions -l" may not have run, so
+		// we cannot CONFIRM cleanup. Leave CleanupVerified false -> backend flags it
+		// cleanup_pending for manual verification.
 		return res, ctx.Err()
 	}
-	// The resource script ran "sessions -K" in-band; confirm no session actually
-	// remains before claiming a verified cleanup. A remaining session (kill failed)
-	// or a msfconsole error yields false so the backend flags it for follow-up.
-	res.CleanupVerified = c.noSessionsRemain()
+	// Verified only when this same instance's post-teardown session list showed none.
+	res.CleanupVerified = noActiveSessions(string(out))
 	return res, runErr
-}
-
-// noSessionsRemain reports whether msfconsole lists no active sessions, confirming
-// teardown actually completed. Any error or an unexpected listing is treated as
-// "not confirmed" (fail-closed).
-func (c *ConsoleRunner) noSessionsRemain() bool {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(
-		ctx, c.binary(), "-q", "-n", "-x", "sessions -l; exit -y",
-	).CombinedOutput()
-	if err != nil {
-		return false
-	}
-	return strings.Contains(string(out), "No active sessions")
 }
 
 // StopSession kills one session by id.
@@ -91,12 +73,6 @@ func (c *ConsoleRunner) StopSession(ctx context.Context, id string) error {
 		return err
 	}
 	return exec.CommandContext(ctx, c.binary(), args...).Run()
-}
-
-func (c *ConsoleRunner) killAllSessions() {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	_ = exec.CommandContext(ctx, c.binary(), teardownArgs()...).Run()
 }
 
 // buildResourceScript renders a safe msfconsole resource script: use the module,
@@ -146,12 +122,21 @@ func buildResourceScript(spec ModuleSpec) (string, error) {
 	}
 	b.WriteString("run -z\n")      // run, do not drop to an interactive session
 	b.WriteString("sessions -K\n") // teardown: kill all sessions
+	// Confirm teardown IN THE SAME console instance: sessions belong to the process
+	// that opened them, so a separate msfconsole cannot see (or kill) them. After
+	// "sessions -K", an empty session table prints "No active sessions"; RunModule
+	// matches that to verify cleanup. If any session survived the kill, this instead
+	// lists it, so the phrase is absent and cleanup is reported unverified.
+	b.WriteString("sessions -l\n")
 	b.WriteString("exit -y\n")
 	return b.String(), nil
 }
 
-func teardownArgs() []string {
-	return []string{"-q", "-n", "-x", "sessions -K; exit -y"}
+// noActiveSessions reports whether msfconsole's session list showed none. Only the
+// empty "sessions -l" table prints this phrase, so its presence after teardown
+// confirms — within the same instance — that no session remained.
+func noActiveSessions(consoleOutput string) bool {
+	return strings.Contains(consoleOutput, "No active sessions")
 }
 
 func stopSessionArgs(id string) ([]string, error) {
