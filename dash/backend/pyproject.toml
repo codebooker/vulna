@@ -88,3 +88,6 @@ plugins = ["pydantic.mypy"]
 testpaths = ["tests"]
 addopts = "-q"
 asyncio_mode = "auto"
+markers = [
+    "release_gate: security-critical, release-blocking regression (Phase 32). A release cannot be promoted when any of these fail. Run with `deploy/release/release_gate.sh`.",
+]

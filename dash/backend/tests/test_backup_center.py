@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import pytest
+
+# Release-blocking: security-critical regression (Phase 32).
+pytestmark = pytest.mark.release_gate
+
 from httpx import AsyncClient
 
 

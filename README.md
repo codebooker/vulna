@@ -79,6 +79,7 @@ each phase lands on `main` via a pull request with green CI. Current progress:
 | 29 | Notifications & self-hosted integrations — email + signed webhooks (versioned, HMAC, replay-resistant, selected-fields-only), SSRF-validated destinations, event subscriptions, immediate/digest policies, quiet hours + dedup, encrypted write-only credentials + rotation, decoupled non-blocking delivery, history + test | ✅ Done |
 | 30 | Documentation, demo & guided learning — docs home with Simple/Advanced paths + deployment models, task guides (quick start, terminology, findings, troubleshooting), safe demo mode (documentation-range sample data, real scans blocked), contextual help catalogue, exposure checklist, CI doc-integrity + insecure-recommendation lint | ✅ Done |
 | 31 | Privacy, data ownership & portability — outbound-connections transparency (never phones home for updates), opt-in-only anonymous telemetry with field-level preview + local-only analytics, secret inventory (no values), versioned+checksummed data export with published schema + untrusted-import validation (no cross-org bypass), move-host plan, machine-readable data map | ✅ Done |
+| 32 | Release qualification & ecosystem packaging — published support matrix, release-blocking regression gate (setup/scope/signing/cancellation/backup+restore/authorization), packaging policy (official/community/experimental), release-process + artifact/key-rotation docs, install-diagnostics issue template, reference benchmarks, simple-path contributor guide | ✅ Done |
 
 </details>
 

@@ -3,6 +3,11 @@
 from __future__ import annotations
 
 import pytest
+
+# Release-blocking: security-critical regression (Phase 32).
+pytestmark = pytest.mark.release_gate
+
+import pytest
 from app.services.scopes import (
     ScopeValidationError,
     find_overlaps,

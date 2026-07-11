@@ -48,6 +48,31 @@ Follow the phased build plan (§31). Do not attempt to implement multiple phases
 in one unreviewed change. For each phase, document: files added/changed, commands
 to run, tests added, security assumptions, and known limitations.
 
+## Preserving the simple path
+
+Vulna is self-hoster-first: one person must be able to install it on one host and
+reach a first safe scan without expertise. When you add an advanced feature, keep
+that path intact:
+
+- **One default path.** Ordinary use must not require editing YAML, enabling flags,
+  or reading advanced docs. Advanced capabilities (distributed Scouts, VulnaRelay,
+  custom certs, API automation, plugins) are **opt-in and off by default**, and
+  must never become a dependency of the single-host path.
+- **Safe defaults stay safe.** Public scanning, intrusive/active-web, credentials,
+  exploit modules, and telemetry stay OFF by default. No opt-in via preselected
+  controls.
+- **Same security boundary.** Convenience may automate enrollment/config but must
+  never bypass signatures, scopes, approvals, cancellation, or least privilege, and
+  must not require privileged containers, host networking, or Docker socket access
+  beyond the documented Scout/scanner boundary.
+- **No mystery failures.** Every failure names the problem, its impact, and the
+  next step. Changes are reversible (preflight + rollback).
+- **Test the tutorial.** The default install and first scan are a release test; the
+  security-critical [release gate](docs/release-process.md)
+  (`deploy/release/release_gate.sh`) must stay green.
+
+If a change makes the simple path harder, it needs a different design.
+
 ## Code of conduct
 
 All participation is governed by [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).

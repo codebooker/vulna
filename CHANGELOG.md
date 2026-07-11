@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 32: release qualification and self-hosting ecosystem packaging
+
+Make the easy path consistently work across a small, honest support matrix and
+make community packaging sustainable.
+
+- A **published support matrix** (`deploy/release/support-matrix.json`,
+  `docs/support-matrix.md`): supported Linux distros, container-runtime/Compose
+  versions, `amd64`/`arm64`, single-host resource tiers, browsers, Dashboard/Scout
+  compatibility, and scanner versions — intentionally limited to what is tested
+  continuously.
+- A **release-blocking regression gate** (`release_gate` pytest marker +
+  `deploy/release/release_gate.sh`): a release cannot be promoted if the
+  security-critical suite fails — setup/enrollment, target/scope enforcement, job
+  signatures and signed policy, cancellation, backup/restore, relay egress + kill
+  switch, and data authorization (RBAC + cross-org isolation). A meta-test enforces
+  the gate keeps its coverage.
+- A **packaging policy** (`docs/packaging-policy.md`): official / community /
+  experimental tiers; community templates can't pose as official; no packaging may
+  require privileged containers, host networking/FS, or Docker socket access beyond
+  the Scout/scanner boundary; signed images are never silently replaced.
+- **Release-process docs** (`docs/release-process.md`): stable + maintenance
+  channels, signed artifacts (signatures/checksums/SBOMs/migration+compat notes/
+  recovery), and signing-key rotation + compromise recovery.
+- A privacy-safe **install-diagnostics issue template** (redacted support bundle +
+  `vulna doctor --json`, privacy attestation), **reference benchmarks**
+  (`docs/benchmarks.md`), a "**preserve the simple path**" contributor guide, and
+  ADR 0032.
+
 ### Added — Phase 16: VulnaRelay (optional thin-site tunnel mode)
 
 A thin-site tunnel for constrained sites, **off by default** and enabled in

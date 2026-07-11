@@ -7,6 +7,11 @@ receive 401.
 from __future__ import annotations
 
 import pytest
+
+# Release-blocking: security-critical regression (Phase 32).
+pytestmark = pytest.mark.release_gate
+
+import pytest
 from app.models.enums import UserRole
 from httpx import AsyncClient
 

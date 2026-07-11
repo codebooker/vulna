@@ -1,0 +1,65 @@
+name: Install / deployment help
+description: Get help with installation, upgrade, or a deployment problem (privacy-safe)
+labels: ["install", "support"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Security issue?** Do not file it here — follow the private process in
+        [SECURITY.md](../blob/main/SECURITY.md).
+
+        **Do not paste secrets or raw evidence.** Never include passwords, tokens,
+        keys, certificates, `.env` contents, raw scanner output, or report files.
+        Vulna can generate a **redacted support bundle** for you (System Health →
+        *Support bundle*, or `GET /api/v1/diagnostics/support-bundle`); it is built
+        from an allowlist and contains no secrets. Review it, then attach it.
+  - type: input
+    id: version
+    attributes:
+      label: Vulna version
+      description: From the dashboard footer, `vulna version`, or the release tag.
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      description: See the supported [support matrix](../blob/main/docs/support-matrix.md).
+      options:
+        - Ubuntu 22.04
+        - Ubuntu 24.04
+        - Debian 12
+        - Other Linux (specify below)
+    validations:
+      required: true
+  - type: dropdown
+    id: arch
+    attributes:
+      label: Architecture
+      options:
+        - amd64
+        - arm64
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What are you trying to do, and what happens?
+      description: The step you are on (install / upgrade / rollback / backup / restore / first scan) and the symptom you observe.
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Diagnostics
+      description: |
+        Paste the output of `vulna doctor --json`, and/or attach a **redacted
+        support bundle**. Redact anything you are unsure about.
+      render: shell
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I have not included any secrets, credentials, keys, `.env` contents, raw scanner output, or report files.
+          required: true

@@ -1,0 +1,42 @@
+{
+  "$id": "https://vulna.dev/schemas/support-matrix.json",
+  "title": "Vulna Support Matrix",
+  "description": "The environments Vulna is tested on and supports (Phase 32). Deliberately limited to what the project can test continuously.",
+  "version": "1",
+  "linux_distributions": [
+    { "name": "Ubuntu", "versions": ["22.04 LTS", "24.04 LTS"], "tier": "official" },
+    { "name": "Debian", "versions": ["12"], "tier": "official" },
+    { "name": "Fedora", "versions": ["40"], "tier": "community" }
+  ],
+  "container_runtime": {
+    "docker_engine_min": "24.0",
+    "compose_min": "2.20",
+    "note": "Docker Engine + Compose v2. Podman with a compatible Compose is community-tier."
+  },
+  "architectures": ["amd64", "arm64"],
+  "single_host_resource_tiers": [
+    { "tier": "constrained", "profile": "lite", "cpu": "1-2 cores", "memory": "up to 2 GB", "disk": "10 GB" },
+    { "tier": "standard", "profile": "standard", "cpu": "2 cores", "memory": "4 GB", "disk": "20 GB" },
+    { "tier": "large", "profile": "full", "cpu": "4+ cores", "memory": "8 GB+", "disk": "40 GB+" }
+  ],
+  "browsers": [
+    { "name": "Firefox", "support": "current + ESR" },
+    { "name": "Chrome/Chromium", "support": "current" },
+    { "name": "Safari", "support": "current" },
+    { "name": "Edge", "support": "current" }
+  ],
+  "compatibility": {
+    "dashboard_scout_skew": "A VulnaScout must be within one minor version of VulnaDash.",
+    "policy": "Signed job/policy formats are versioned; a Scout verifies before running."
+  },
+  "scanners": [
+    { "name": "nmap", "min_version": "7.80" },
+    { "name": "nuclei", "min_version": "3.0" },
+    { "name": "testssl.sh", "min_version": "3.0" },
+    { "name": "OWASP ZAP", "min_version": "2.14" }
+  ],
+  "release_channels": [
+    { "channel": "stable", "cadence": "minor releases", "support_period": "current + one prior minor" },
+    { "channel": "maintenance", "cadence": "security/critical fixes", "support_period": "slower-moving; enabled once the project has capacity" }
+  ]
+}

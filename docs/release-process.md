@@ -1,0 +1,69 @@
+# Release process and qualification
+
+A release must consistently deliver the easy path across the
+[support matrix](support-matrix.md). This page describes the release-blocking
+gate, the channels, the artifacts, and key handling. See
+[ADR 0032](adr/0032-release-qualification.md).
+
+## Release-blocking regression gate
+
+A release **cannot be promoted** if the security-critical regression suite fails.
+Run it with:
+
+```sh
+deploy/release/release_gate.sh
+```
+
+It runs the backend tests marked `release_gate`, covering **setup/enrollment,
+target/scope enforcement, job signatures and signed local policy, job
+cancellation, backup/restore, relay egress + kill switch, and data authorization**
+(RBAC and cross-organization isolation). The full CI (backend, frontend, probe,
+installer, packaging, schemas, hardening, dependency-scan, cross-builds) must also
+be green, and the clean single-host install must reach a first safe assessment.
+
+Qualification checklist for a release:
+
+1. `deploy/release/release_gate.sh` is green.
+2. Clean single-host install → first safe scan passes on each supported platform
+   class.
+3. Upgrade and rollback pass from every supported prior minor release.
+4. Backup and restore pass (identity/CA preserved).
+5. Artifacts are complete (below).
+
+## Channels and support period
+
+- **stable** — minor releases; the current minor and one prior are supported.
+- **maintenance** — security and critical fixes only; slower-moving, enabled once
+  the project has capacity.
+
+Updates are never forced. The application never contacts a release server; updates
+are run by the operator with the signed `vulna` CLI (see [updates](updates.md)).
+
+## Release artifacts
+
+Every release includes:
+
+- Signed binaries (`vulna`, `vulnascout`) for `linux/amd64` and `linux/arm64`.
+- A `SHA256SUMS` manifest and an **Ed25519 detached signature** over it.
+- **SBOMs** for the images.
+- **Migration notes** (see [migration-notes](migration-notes.md)) and
+  **compatibility notes** (the [support matrix](support-matrix.md)).
+- **Recovery instructions** (backup/restore, CA recovery; see
+  [backups](backups.md)).
+
+Consumers verify the signature (authenticity) and then the checksums (integrity)
+before running anything — the bootstrap installer does this automatically.
+
+## Signing keys: rotation and compromise recovery
+
+- The **release signing key** (Ed25519) is generated once and kept offline/secret;
+  only the public key is embedded in the verifying bootstrap.
+- **Rotation:** publish the new public key in a signed release under the old key,
+  then sign subsequent releases with the new key. Document the changeover.
+- **Compromise:** revoke the compromised key publicly, publish an out-of-band
+  advisory, rotate to a new key, and re-sign the current supported releases. The
+  internal deployment CA is separate and is rotated per
+  [maintenance](maintenance.md).
+
+Third-party or community templates must never silently replace the signed official
+images; see [packaging policy](packaging-policy.md).
