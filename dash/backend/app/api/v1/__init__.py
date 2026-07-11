@@ -13,6 +13,7 @@ from app.api.v1 import (
     feeds,
     findings,
     jobs,
+    maintenance,
     networking,
     onboarding,
     organizations,
@@ -40,6 +41,7 @@ api_router.include_router(probes.router)
 api_router.include_router(jobs.router)
 api_router.include_router(dashboard.router)
 api_router.include_router(diagnostics.router)
+api_router.include_router(maintenance.router)
 api_router.include_router(dashboard.search_router)
 api_router.include_router(networking.router)
 api_router.include_router(onboarding.router)

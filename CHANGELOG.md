@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 28: Unified Maintenance Center
+
+One place for a self-hoster to tell whether Vulna needs attention.
+
+- A **maintenance overview** (`GET /maintenance`, `app/services/maintenance.py`)
+  that reuses the Phase 26 diagnostics (so the two never disagree) and maps every
+  domain — updates, Scouts, scanners/templates, feeds, backups, certificates,
+  storage, retention, failed scans/reports, stuck jobs — to a **green / warning /
+  action-required** state with a specific next step. No dependency on the optional
+  monitoring stack.
+- **Storage budgets** (`GET /maintenance/storage`) broken down by category (raw
+  output, reports, evidence, database, Scout queues, backups) with no sensitive
+  labels.
+- A **fail-closed retention cleanup** (`app/services/retention.py`): one planner
+  drives both the **preview** (`GET /maintenance/retention/preview`) and the
+  execution (`POST /maintenance/retention/cleanup`), so the manifest matches the
+  deletion. Cleanup deletes only old, unreferenced objects and **refuses** to
+  delete anything within retention, backing an active finding, referenced by a
+  retained report, or under a **legal hold** (`retention_holds`). A policy floor
+  prevents purging fresh data.
+- Cleanup is a **high-impact action**: administrator, explicit confirmation, a
+  **password re-check** (reauthentication), and an audit record with the manifest.
+  Legal holds are placed/lifted admin-only and audited.
+- A **certificate-rotation preflight** (`GET /maintenance/certificate`) with expiry
+  status and recovery guidance; rotation stays a CLI/re-enrollment operation so it
+  is atomic and recoverable.
+- A **self-hosting health report** (`GET /maintenance/health-report`) summarizing
+  updates, backups, feed age, storage, failed scans, retention, and expiring
+  certificates.
+- A Maintenance page (frontend), ADR 0028, and `docs/maintenance.md`.
+
 ### Added — Phase 27: low-resource, ARM64, intermittent, and offline operation
 
 Make Vulna practical on the hardware and connectivity common in homelabs.

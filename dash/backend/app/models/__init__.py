@@ -47,6 +47,7 @@ from app.models.pentest_session import PentestSession
 from app.models.probe import Probe
 from app.models.probe_result_upload import ProbeResultUpload
 from app.models.report import Report
+from app.models.retention_hold import RetentionHold
 from app.models.risk_acceptance import RiskAcceptance
 from app.models.rules_of_engagement import RulesOfEngagement
 from app.models.scan_artifact import ScanArtifact
@@ -87,6 +88,7 @@ __all__ = [
     "ProbeResultUpload",
     "ProbeStatus",
     "Report",
+    "RetentionHold",
     "ReportFormat",
     "ReportStatus",
     "ReportType",

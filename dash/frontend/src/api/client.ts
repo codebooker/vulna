@@ -17,6 +17,7 @@ import type {
 import type { BackupCenter } from '../types/backup';
 import type { DashboardSummary, SearchResults } from '../types/dashboard';
 import type { DiagnosticsResult, SupportBundle, TimelineEvent } from '../types/diagnostics';
+import type { CleanupPreview, MaintenanceOverview, StorageBudgets } from '../types/maintenance';
 import type { Finding, Page as FindingPage } from '../types/finding';
 import type { BrowserTest, NetworkStatus, ValidateResult } from '../types/networking';
 import type { Preset, PresetPreview } from '../types/presets';
@@ -213,6 +214,24 @@ export const api = {
       method: 'POST',
       token,
       body: { action, confirm: true },
+    });
+  },
+
+  // --- Maintenance center (Phase 28) ---
+  maintenance(token: string): Promise<MaintenanceOverview> {
+    return request<MaintenanceOverview>('/api/v1/maintenance', { token });
+  },
+  maintenanceStorage(token: string): Promise<StorageBudgets> {
+    return request<StorageBudgets>('/api/v1/maintenance/storage', { token });
+  },
+  retentionPreview(token: string): Promise<CleanupPreview> {
+    return request<CleanupPreview>('/api/v1/maintenance/retention/preview', { token });
+  },
+  runCleanup(token: string, password: string): Promise<unknown> {
+    return request<unknown>('/api/v1/maintenance/retention/cleanup', {
+      method: 'POST',
+      token,
+      body: { confirm: true, password },
     });
   },
 
