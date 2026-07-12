@@ -63,14 +63,37 @@ RUN set -eu; \
     mkdir -p /opt/testssl; \
     tar -xzf /tmp/testssl.tar.gz -C /opt/testssl --strip-components=1
 
-# ---- Runtime (non-root) ----
-FROM alpine:3.21 AS runtime
+# ---- Runtime: scanner pack + Metasploit, still unprivileged (uid 10001) ----
+#
+# Metasploit ships in the Scout image by default. That is deliberate and safe:
+# the engine is inert until VulnaDash authorizes it. Controlled-pentest execution
+# requires BOTH the Scout's signed policy to permit controlled_pentest (the
+# per-scout "pentest" toggle) AND per-session approval by an approver; DoS and
+# non-allowlisted modules are refused locally regardless. So possession of the
+# binary grants nothing — authorization does. Bundling it makes "enable pentest"
+# a one-click, offline-capable action instead of a runtime download, and the
+# engine runs as the same unprivileged uid-10001 user as the scanner pack (its
+# connect-based auxiliary modules need no elevated capabilities).
+#
+# Base: the official Metasploit image (Alpine + Ruby + nmap), pinned by digest
+# for reproducibility. VULNA_MSF_CONSOLE (set below) is what activates the
+# controlled-pentest worker on the Scout — see scout/internal/cli.
+FROM metasploitframework/metasploit-framework@sha256:ba9ecc0172052ea687adb3b3e6356b24dba4497d1bf73a6de0e201f1e25e9777 AS runtime
+USER root
 RUN apk add --no-cache \
       nmap nmap-scripts \
       bash procps coreutils openssl bind-tools \
-      ca-certificates \
+      ca-certificates libcap \
  && addgroup -S vulna \
- && adduser -S -G vulna -u 10001 -h /var/lib/vulna vulna
+ && adduser -S -G vulna -u 10001 -h /var/lib/vulna vulna \
+ # The Metasploit base grants file capabilities (e.g. cap_net_raw on the ruby
+ # interpreter) so it can raw-socket as non-root. This scout runs with
+ # `cap_drop: ALL` + `no-new-privileges`, under which the kernel REFUSES to exec
+ # a capability-bearing file as a non-root user (EPERM) — so msfconsole (a ruby
+ # script) would fail to launch. The dropped caps are unusable here anyway and
+ # the scanners are connect-based, so strip every file capability to keep the
+ # hardened, unprivileged posture while letting the interpreters exec.
+ && getcap -r / 2>/dev/null | awk '{print $1}' | while read -r f; do setcap -r "$f" 2>/dev/null || true; done
 
 COPY --from=build /out/vulnascout /usr/local/bin/vulnascout
 COPY --from=tools /out/nuclei /usr/local/bin/nuclei
@@ -81,8 +104,11 @@ COPY deploy/single-host/local-scout-entrypoint.sh /usr/local/bin/local-scout-ent
 RUN chmod +x /usr/local/bin/local-scout-entrypoint.sh
 
 # nuclei writes its config under $HOME; VULNA_NUCLEI_TEMPLATES points the Scout's
-# nuclei adapter at the bundled template set (see scanners/nuclei).
+# nuclei adapter at the bundled template set (see scanners/nuclei). VULNA_MSF_CONSOLE
+# points the controlled-pentest worker at the bundled msfconsole; the worker only
+# runs a module when the signed policy + a per-session approval authorize it.
 ENV HOME=/var/lib/vulna \
-    VULNA_NUCLEI_TEMPLATES=/opt/nuclei-templates
+    VULNA_NUCLEI_TEMPLATES=/opt/nuclei-templates \
+    VULNA_MSF_CONSOLE=/usr/src/metasploit-framework/msfconsole
 USER vulna
 ENTRYPOINT ["/usr/local/bin/local-scout-entrypoint.sh"]
