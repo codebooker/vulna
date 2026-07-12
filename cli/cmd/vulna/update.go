@@ -280,32 +280,44 @@ func cmdUpdateApply(args []string, stdout, stderr io.Writer) int {
 	// so simply restarting the OLD app would pair it with an incompatible database —
 	// we must restore the pre-update database too. The pre-update backup's own .env
 	// re-pins the old version, so safeRestore brings the whole prior state back up.
-	recoverPrior := func() {
+	// recoverPrior returns an error if it could NOT restore the prior state, so the
+	// caller reports the true outcome instead of always claiming "restored the prior
+	// release."
+	recoverPrior := func() error {
 		if m.Migration.HasMigrations {
 			if backupPath == "" {
-				fmt.Fprintln(stderr, "update: WARNING the update changed the schema but no pre-update "+
-					"backup exists (--no-backup); cannot auto-restore the database. Restore from your own backup.")
-				return
+				return fmt.Errorf("the update changed the schema but no pre-update backup " +
+					"exists (--no-backup); cannot auto-restore the database — restore from your own backup")
 			}
 			fmt.Fprintln(stderr, "update: restoring the pre-update state (database + volumes + config) ...")
 			if err := safeRestore(*dir, backupPath, stdout, stderr); err != nil {
-				fmt.Fprintln(stderr, "update: WARNING automatic recovery FAILED:", err)
-				fmt.Fprintln(stderr, "update: restore manually from", backupPath)
+				return fmt.Errorf("automatic recovery failed (restore manually from %s): %w", backupPath, err)
 			}
-			return
+			return nil
 		}
 		// No schema change: re-pin the old version and restart its containers.
 		if priorVersion == "" {
-			return
+			return fmt.Errorf("no prior version recorded to restore")
 		}
 		revertVersion()
 		fmt.Fprintf(stderr, "update: restoring the previous release (%s) ...\n", priorVersion)
 		if err := deploy.Pull(*dir, stdout, stderr); err != nil {
-			fmt.Fprintln(stderr, "update: WARNING could not pull the previous images:", err)
+			return fmt.Errorf("could not pull the previous images: %w", err)
 		}
 		if err := deploy.Up(*dir, stdout, stderr); err != nil {
-			fmt.Fprintln(stderr, "update: WARNING could not restart the previous release:", err)
+			return fmt.Errorf("could not restart the previous release: %w", err)
 		}
+		return nil
+	}
+	// reportRecovery prints the honest outcome of a recovery attempt.
+	reportRecovery := func(cause string, recErr error) int {
+		if recErr != nil {
+			fmt.Fprintf(stderr, "update: %s, AND recovery FAILED: %v\n", cause, recErr)
+			fmt.Fprintln(stderr, "update: the deployment may be in a broken state — intervene manually.")
+		} else {
+			fmt.Fprintf(stderr, "update: %s; restored the prior release.\n", cause)
+		}
+		return 1
 	}
 	fmt.Fprintf(stdout, "\nPulling images for %s ...\n", m.Version)
 	if err := deploy.Pull(*dir, stdout, stderr); err != nil {
@@ -316,18 +328,14 @@ func cmdUpdateApply(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintln(stdout, "Restarting the stack ...")
 	if err := deploy.Up(*dir, stdout, stderr); err != nil {
-		recoverPrior()
-		fmt.Fprintln(stderr, "update: bringing the stack up failed; restored the prior release:", err)
-		return 1
+		return reportRecovery(fmt.Sprintf("bringing the stack up failed: %v", err), recoverPrior())
 	}
 	// `up -d` only means Compose accepted the request — containers may still be
 	// starting and their health checks can fail later. Confirm the stack is actually
 	// healthy BEFORE recording the update as applied.
 	fmt.Fprintln(stdout, "Waiting for containers to become healthy ...")
 	if err := deploy.WaitHealthy(*dir, 3*time.Minute, stdout); err != nil {
-		recoverPrior()
-		fmt.Fprintln(stderr, "update: the new release did not become healthy; restored the prior release:", err)
-		return 1
+		return reportRecovery(fmt.Sprintf("the new release did not become healthy: %v", err), recoverPrior())
 	}
 
 	st, _ := update.LoadState(*dir)
@@ -557,6 +565,19 @@ func runBackup(dir string, stdout, stderr io.Writer) (string, error) {
 	// volume out via a helper container (independent of the app containers), then hand
 	// both to the assembler. Without this a real backup fails with "no database dump
 	// source" and omits the Scout identity.
+	//
+	// If the stack is STOPPED but has data (e.g. a pre-restore safety backup on a
+	// stopped host), bring ONLY postgres up so we can still dump it — otherwise the
+	// documented stopped-host restore could never take its safety backup and abort.
+	if deploy.HasPostgresService(dir) && deploy.PostgresDataExists(dir) && !deploy.PostgresReady(dir) {
+		fmt.Fprintln(stdout, "Starting postgres to take a backup ...")
+		if err := deploy.UpServices(dir, stdout, stderr, "postgres"); err != nil {
+			return "", fmt.Errorf("starting postgres for the backup: %w", err)
+		}
+		if err := deploy.WaitPostgresReady(dir, 60*time.Second); err != nil {
+			return "", err
+		}
+	}
 	if deploy.HasPostgresService(dir) && deploy.PostgresReady(dir) {
 		stage, err := os.MkdirTemp("", "vulna-backup-stage-")
 		if err != nil {
