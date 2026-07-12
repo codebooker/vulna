@@ -70,7 +70,12 @@ func BuildArgs(profile Profile, outPath string, targets []string) ([]string, err
 	if len(targets) == 0 {
 		return nil, fmt.Errorf("no targets")
 	}
-	args := []string{"-sT", "-n"} // TCP connect, no DNS resolution
+	// -sT: TCP connect (no raw sockets/root). -n: no DNS. -Pn: skip host discovery
+	// and assess the target directly. Targets are already scope-approved by the
+	// operator, so the scan must not silently skip a host that doesn't answer a
+	// ping — unprivileged host discovery is unreliable (ICMP is commonly filtered),
+	// which would drop live, in-scope hosts from the assessment.
+	args := []string{"-sT", "-n", "-Pn"}
 	if profile.ServiceDetection {
 		args = append(args, "-sV")
 	}
