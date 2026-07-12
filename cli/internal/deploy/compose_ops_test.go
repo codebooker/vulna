@@ -56,3 +56,32 @@ func TestPgCredsDefaults(t *testing.T) {
 		t.Errorf("env creds not read: %s/%s/%s", u, d, p)
 	}
 }
+
+func TestNonPostgresWritersToQuiesce(t *testing.T) {
+	t.Run("running writers are stopped and inactive services are ignored", func(t *testing.T) {
+		states := []composePS{
+			{Service: "postgres", State: PgRestarting}, // handled separately by the caller
+			{Service: "api", State: PgRunning},
+			{Service: "local-scout", State: PgRunning},
+			{Service: "scout-ca-export", State: PgExited},
+			{Service: "not-created-yet", State: PgCreated},
+		}
+		got, err := nonPostgresWritersToQuiesce(states)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 2 || got[0] != "api" || got[1] != "local-scout" {
+			t.Fatalf("writers = %v, want [api local-scout]", got)
+		}
+	})
+
+	for _, state := range []string{PgRestarting, "paused", "removing", "dead", "", "weird"} {
+		t.Run("reject_"+state, func(t *testing.T) {
+			if _, err := nonPostgresWritersToQuiesce([]composePS{
+				{Service: "api", State: state},
+			}); err == nil {
+				t.Fatalf("state %q must fail closed", state)
+			}
+		})
+	}
+}
