@@ -28,4 +28,13 @@ tar -czf "$BUNDLE" -C "$ROOT" \
 	deploy/single-host \
 	deploy/Caddyfile
 
+# A release bundle intentionally excludes the Go source tree. Its single-host
+# overlay must therefore name the published local-Scout image; otherwise a clean
+# install attempts an impossible `COPY scout/...` build from an absent directory.
+tar -xOf "$BUNDLE" docker-compose.single-host.yml \
+	| grep -q 'vulna-local-scout:${VULNA_VERSION:-dev}' || {
+	echo "bundle: single-host overlay does not reference the published local-Scout image" >&2
+	exit 1
+}
+
 echo "wrote $BUNDLE"

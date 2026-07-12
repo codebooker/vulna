@@ -75,6 +75,10 @@ services:
         echo "scout-ca-export: published orchestrator-ca.crt"
 
   local-scout:
+    # Release installs pull this versioned image. Keeping build metadata alongside it
+    # preserves the source-tree developer path, while a signed deployment bundle no
+    # longer depends on the (deliberately unbundled) scout/ source directory.
+    image: ${VULNA_REGISTRY:-ghcr.io/codebooker}/vulna-local-scout:${VULNA_VERSION:-dev}
     build:
       context: .
       dockerfile: deploy/single-host/local-scout.Dockerfile
