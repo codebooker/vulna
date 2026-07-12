@@ -158,6 +158,12 @@ body {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
+}
+
+/* Only fields laid out side-by-side in a row share the width and take a
+   12rem basis. Left on every .field, this basis applies along the column
+   axis of a stacked .form and inflates each field to ~12rem tall. */
+.row .field {
   flex: 1 1 12rem;
 }
 
