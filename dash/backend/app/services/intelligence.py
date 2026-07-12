@@ -283,31 +283,63 @@ async def ingest_kev(
     return processed, changed, enrich.events
 
 
+# EPSS publishes a score for essentially every published CVE (~300k rows). Ingest
+# must therefore be set-based: a per-row SELECT would mean ~300k sequential DB
+# round-trips and the sync would never finish. We load existing rows in bounded
+# chunks, update/insert, flush, and release each chunk from the identity map so
+# a full feed stays memory-flat.
+_EPSS_CHUNK = 5000
+
+
 async def ingest_epss(
     session: AsyncSession, data: EpssData, *, now: datetime, threshold: float
 ) -> tuple[int, int, int]:
+    epss_date = _parse_date(data.score_date)
+    # Dedupe defensively (last score wins) so a CVE never appears twice in a chunk.
+    latest = {e.cve_id: e for e in data.entries}
+    items = list(latest.values())
     processed = changed = 0
     crossed: set[str] = set()
-    epss_date = _parse_date(data.score_date)
-    for e in data.entries:
-        processed += 1
-        enr = await session.get(ThreatIntelEnrichment, e.cve_id)
-        if enr is None:
-            enr = ThreatIntelEnrichment(cve_id=e.cve_id)
-            session.add(enr)
-        prev = enr.epss_score
-        if prev != e.epss:
-            changed += 1
-        enr.previous_epss_score = prev
-        enr.epss_score = e.epss
-        enr.epss_percentile = e.percentile
-        enr.epss_date = epss_date
-        enr.last_enriched_at = now
-        if (prev is None or prev < threshold) and e.epss >= threshold:
-            crossed.add(e.cve_id)
-    enrich = await apply_enrichment(
-        session, {e.cve_id for e in data.entries}, now, epss_crossed=crossed
-    )
+
+    for start in range(0, len(items), _EPSS_CHUNK):
+        chunk = items[start : start + _EPSS_CHUNK]
+        ids = [e.cve_id for e in chunk]
+        existing = {
+            enr.cve_id: enr
+            for enr in (
+                await session.execute(
+                    select(ThreatIntelEnrichment).where(
+                        ThreatIntelEnrichment.cve_id.in_(ids)
+                    )
+                )
+            ).scalars()
+        }
+        touched: list[ThreatIntelEnrichment] = list(existing.values())
+        for e in chunk:
+            processed += 1
+            enr = existing.get(e.cve_id)
+            if enr is None:
+                enr = ThreatIntelEnrichment(cve_id=e.cve_id)
+                session.add(enr)
+                touched.append(enr)
+            prev = enr.epss_score
+            if prev != e.epss:
+                changed += 1
+            enr.previous_epss_score = prev
+            enr.epss_score = e.epss
+            enr.epss_percentile = e.percentile
+            enr.epss_date = epss_date
+            enr.last_enriched_at = now
+            if (prev is None or prev < threshold) and e.epss >= threshold:
+                crossed.add(e.cve_id)
+        await session.flush()
+        # The rows are persisted for this transaction; drop them from the identity
+        # map so the next chunk starts clean (findings enrichment below re-reads the
+        # few CVEs it needs from the DB).
+        for enr in touched:
+            session.expunge(enr)
+
+    enrich = await apply_enrichment(session, set(latest), now, epss_crossed=crossed)
     return processed, changed, enrich.events
 
 
