@@ -132,9 +132,46 @@ def _os_name_from_cpe(cpe: str) -> str | None:
     return product.replace("_", " ").strip().title() or None
 
 
+# OS keywords nmap embeds in a service's product/version/extrainfo strings when
+# it has no structured ``ostype``/OS-CPE — e.g. "OpenSSH ... Ubuntu", "(Debian)",
+# "Microsoft-IIS". Checked most-specific first; every entry maps to an OS family.
+_OS_KEYWORDS: tuple[tuple[str, str], ...] = (
+    ("windows", "Windows"),
+    ("microsoft", "Windows"),
+    ("win32", "Windows"),
+    ("win64", "Windows"),
+    ("ubuntu", "Linux"),
+    ("debian", "Linux"),
+    ("red hat", "Linux"),
+    ("redhat", "Linux"),
+    ("centos", "Linux"),
+    ("fedora", "Linux"),
+    ("suse", "Linux"),
+    ("gentoo", "Linux"),
+    ("alpine", "Linux"),
+    ("raspbian", "Linux"),
+    ("linux", "Linux"),
+    ("freebsd", "FreeBSD"),
+    ("openbsd", "OpenBSD"),
+    ("netbsd", "NetBSD"),
+    ("darwin", "macOS"),
+    ("mac os", "macOS"),
+    ("macos", "macOS"),
+)
+
+
+def _os_from_text(*values: str | None) -> str | None:
+    blob = " ".join(v for v in values if v).lower()
+    for needle, label in _OS_KEYWORDS:
+        if needle in blob:
+            return label
+    return None
+
+
 def _service_os_hint(svc_el: Element) -> str | None:
     """Derive an OS label from a service's -sV data: prefer nmap's ``ostype``
-    attribute, else the first OS CPE (``cpe:/o:...``)."""
+    attribute, then an OS CPE (``cpe:/o:...``), then OS keywords nmap leaves in
+    the product/version/extrainfo strings (e.g. "OpenSSH ... Ubuntu")."""
     ostype = (svc_el.get("ostype") or "").strip()
     if ostype:
         return ostype
@@ -142,7 +179,9 @@ def _service_os_hint(svc_el: Element) -> str | None:
         name = _os_name_from_cpe((cpe_el.text or "").strip())
         if name:
             return name
-    return None
+    return _os_from_text(
+        svc_el.get("product"), svc_el.get("version"), svc_el.get("extrainfo")
+    )
 
 
 def _parse_port(port_el: Element) -> ParsedService | None:

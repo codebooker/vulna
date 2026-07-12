@@ -89,6 +89,36 @@ def test_os_fingerprinted_from_service_detection() -> None:
     assert ports[22].os_hint == "Linux"  # derived from cpe:/o:linux:linux_kernel
 
 
+# nmap often embeds the OS in the version string rather than a structured field.
+VERSION_STRING_XML = b"""<?xml version="1.0"?>
+<nmaprun scanner="nmap" version="7.94">
+  <host>
+    <status state="up"/>
+    <address addr="10.20.0.8" addrtype="ipv4"/>
+    <ports>
+      <port protocol="tcp" portid="22">
+        <state state="open"/>
+        <service name="ssh" product="OpenSSH" version="9.6p1 Ubuntu 3ubuntu13.16">
+          <cpe>cpe:/a:openbsd:openssh:9.6p1</cpe>
+        </service>
+      </port>
+      <port protocol="tcp" portid="80">
+        <state state="open"/>
+        <service name="http" product="Apache httpd" version="2.4.25"/>
+      </port>
+    </ports>
+  </host>
+</nmaprun>
+"""
+
+
+def test_os_inferred_from_version_string() -> None:
+    host = parse_nmap_xml(VERSION_STRING_XML)[0]
+    # "OpenSSH 9.6p1 Ubuntu" implies Linux even without ostype/OS-CPE; the plain
+    # Apache banner contributes no OS keyword, so Linux stands.
+    assert host.operating_system == "Linux"
+
+
 def test_osmatch_takes_priority_over_service_hints() -> None:
     # When a raw-socket OS scan is present, its result wins over -sV guesses.
     host = parse_nmap_xml(SAMPLE_XML)[0]
