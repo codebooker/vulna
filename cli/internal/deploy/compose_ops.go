@@ -25,7 +25,7 @@ const helperImage = "alpine:3.21"
 // key: CA + signing keys, reports, evidence files, and — so restoring a host does
 // not require Scout re-enrollment — the local Scout's state and bootstrap material.
 func DataVolumeKeys() []string {
-	return []string{"keys", "reports", "evidence", "scout_state", "bootstrap"}
+	return []string{"keys", "reports", "evidence", "scout_state", "bootstrap", "relay_config"}
 }
 
 // DatabaseEnvKeys are every .env variable the backend uses to connect to the

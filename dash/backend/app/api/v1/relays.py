@@ -11,14 +11,15 @@ live here.
 
 from __future__ import annotations
 
+import secrets
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 
 from cryptography.hazmat.primitives import serialization
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.context import RequestContext, get_request_context
@@ -26,10 +27,15 @@ from app.api.relay_auth import CurrentRelay
 from app.auth.dependencies import CurrentUser, require_admin
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
-from app.models.enums import ActorType, RelayStatus
+from app.models.enums import ActorType, ProbeStatus, RelayStatus
+from app.models.network import NetworkScout
+from app.models.network_scope import NetworkScope
 from app.models.organization import Organization
+from app.models.probe import Probe
 from app.models.relay import Relay
+from app.models.site import Site
 from app.models.user import User
+from app.services import networks
 from app.services import relay as relay_svc
 from app.services.audit import record_audit
 from app.services.ca import CertificateAuthorityError, certificate_fingerprint, get_ca
@@ -92,6 +98,8 @@ def _serialize(r: Relay) -> dict[str, Any]:
         "name": r.name,
         "status": r.status.value,
         "tunnel_up": r.tunnel_up,
+        "tunnel_address": r.tunnel_address,
+        "site_id": str(r.site_id) if r.site_id else None,
         "approved_cidrs": r.approved_cidrs_json,
         "denied_cidrs": r.denied_cidrs_json,
         "certificate_fingerprint": r.certificate_fingerprint,
@@ -144,12 +152,21 @@ async def list_relays(
 @router.post("/enrollment-command", summary="Create a relay enrollment command (admin)")
 async def enrollment_command(
     payload: EnrollmentCommandRequest,
+    request: Request,
     admin: Annotated[User, Depends(require_admin)],
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> dict[str, Any]:
     await _require_enabled(session, admin.organization_id)
+    if payload.site_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="A relay must be assigned to a site.",
+        )
+    site = await session.get(Site, payload.site_id)
+    if site is None or site.organization_id != admin.organization_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Site not found")
     generated = generate_token()
     relay = Relay(
         organization_id=admin.organization_id,
@@ -166,12 +183,15 @@ async def enrollment_command(
         source_ip=context.source_ip, user_agent=context.user_agent, request_id=context.request_id,
     )
     await session.commit()
+    effective_settings = settings
+    if not settings.public_base_url:
+        effective_settings = settings.model_copy(update={"public_base_url": str(request.base_url)})
     return {
         "relay_id": str(relay.id),
         "token": generated.secret,  # shown once
         "short_code": generated.short_code,
         "install": relay_svc.build_relay_install(
-            settings.public_base_url or "", generated.secret, payload.name
+            effective_settings, generated.secret, payload.name
         ),
     }
 
@@ -216,6 +236,10 @@ async def register_relay(
     relay.status = RelayStatus.ENROLLED
     relay.certificate_fingerprint = certificate_fingerprint(cert)
     relay.tunnel_public_key = payload.tunnel_public_key
+    try:
+        relay.tunnel_address = await relay_svc.allocate_tunnel_address(session, settings)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     relay.enrollment_token_hash = None  # single-use
     relay.enrolled_at = now
     record_audit(
@@ -228,6 +252,91 @@ async def register_relay(
         "certificate_pem": cert.public_bytes(serialization.Encoding.PEM).decode(),
         "ca_pem": ca.cert_pem.decode(),
         # No job-signing keys, no scanner credentials: a relay never runs scanners.
+    }
+
+
+@router.get("/config", summary="Fetch this relay's WireGuard configuration (mTLS)")
+async def relay_config(
+    relay: CurrentRelay,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> dict[str, Any]:
+    org = await _org(session, relay.organization_id)
+    active = relay_svc.relay_enabled(org) and relay.status == RelayStatus.ENROLLED
+    try:
+        endpoint = relay_svc.relay_endpoint(settings)
+        server_key = relay_svc.relay_server_public_key(settings)
+        server_address = relay_svc.relay_server_address(settings)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from exc
+    if relay.tunnel_address is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Relay has no allocated tunnel address; revoke and enroll it again.",
+        )
+    return {
+        "active": active,
+        "endpoint": endpoint,
+        "server_public_key": server_key,
+        "server_address": server_address,
+        "tunnel_address": relay.tunnel_address,
+        "approved_cidrs": relay.approved_cidrs_json,
+        "denied_cidrs": relay.denied_cidrs_json,
+        "refresh_seconds": 5,
+    }
+
+
+@router.get("/egress/config", summary="Internal relay-egress controller configuration")
+async def relay_egress_config(
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    supplied_token: Annotated[str | None, Header(alias="X-Vulna-Relay-Egress-Token")] = None,
+) -> dict[str, Any]:
+    expected = settings.relay_egress_token
+    if not expected or not supplied_token or not secrets.compare_digest(expected, supplied_token):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid egress token")
+    rows = (
+        await session.execute(
+            select(Relay, Organization)
+            .join(Organization, Organization.id == Relay.organization_id)
+            .where(Relay.status == RelayStatus.ENROLLED)
+        )
+    ).all()
+    peers = []
+    now = datetime.now(UTC)
+    for relay, org in rows:
+        if (
+            not relay_svc.relay_enabled(org)
+            or not relay.tunnel_public_key
+            or not relay.tunnel_address
+        ):
+            continue
+        # Permit a brief first-configuration window after enrollment, then require
+        # fresh heartbeats. A crashed/uninstalled relay therefore loses its central
+        # peer and routes instead of leaving a forgotten tunnel indefinitely.
+        freshness = relay.last_seen_at or relay.enrolled_at
+        if freshness is not None and freshness.tzinfo is None:
+            # SQLite drops timezone information; database timestamps are UTC.
+            freshness = freshness.replace(tzinfo=UTC)
+        if freshness is None or (
+            now - freshness > timedelta(seconds=settings.relay_offline_after_seconds)
+        ):
+            continue
+        peers.append(
+            {
+                "id": str(relay.id),
+                "public_key": relay.tunnel_public_key,
+                "tunnel_address": relay.tunnel_address,
+                "approved_cidrs": relay.approved_cidrs_json,
+                "denied_cidrs": relay.denied_cidrs_json,
+            }
+        )
+    return {
+        "listen_port": settings.relay_listen_port,
+        "server_address": relay_svc.relay_server_address(settings),
+        "peers": peers,
     }
 
 
@@ -258,6 +367,7 @@ async def set_scope(
     admin: Annotated[User, Depends(require_admin)],
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> dict[str, Any]:
     await _require_enabled(session, admin.organization_id)
     relay = await _get_relay(session, relay_id, admin.organization_id)
@@ -270,8 +380,118 @@ async def set_scope(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
+    if any(":" in cidr for cidr in [*approved, *denied]):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="VulnaRelay currently supports IPv4 scopes only.",
+        )
+    other_relays = (
+        await session.execute(
+            select(Relay).where(
+                Relay.organization_id == relay.organization_id,
+                Relay.id != relay.id,
+                Relay.status != RelayStatus.REVOKED,
+            )
+        )
+    ).scalars()
+    for other in other_relays:
+        overlap = relay_svc.overlapping_cidrs(approved, other.approved_cidrs_json)
+        if overlap is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"Relay range {overlap[0]} overlaps {overlap[1]} on relay "
+                    f"{other.name}; WireGuard cannot route an overlapping range "
+                    "to two peers."
+                ),
+            )
     relay.approved_cidrs_json = approved
     relay.denied_cidrs_json = denied
+
+    # Materialize relay ranges into the ordinary network policy model and bind the
+    # central scanner. Jobs then use the existing signed-policy + dispatch path; the
+    # WireGuard egress controller supplies reachability but never bypasses scope.
+    if relay.site_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Relay is not assigned to a site; revoke and enroll it again.",
+        )
+    net = await networks.ensure_default_network(session, relay.organization_id, relay.site_id)
+    managed_ids = [
+        uuid.UUID(value)
+        for value in relay.metadata_json.get("managed_scope_ids", [])
+        if isinstance(value, str)
+    ]
+    if managed_ids:
+        await session.execute(
+            delete(NetworkScope).where(
+                NetworkScope.id.in_(managed_ids), NetworkScope.network_id == net.id
+            )
+        )
+    existing_cidrs = set(
+        (
+            await session.execute(
+                select(NetworkScope.cidr).where(NetworkScope.network_id == net.id)
+            )
+        ).scalars()
+    )
+    created_scopes: list[NetworkScope] = []
+    now = datetime.now(UTC)
+    for cidr in approved:
+        if cidr in existing_cidrs:
+            continue
+        scope = NetworkScope(
+            organization_id=relay.organization_id,
+            site_id=relay.site_id,
+            network_id=net.id,
+            name=f"VulnaRelay {relay.name}: {cidr}",
+            cidr=cidr,
+            enabled=True,
+            allow_public_addresses=payload.allow_public_addresses,
+            approved_by=admin.id,
+            approved_at=now,
+            notes=f"Managed by relay {relay.id}",
+            policy_version=net.policy_version + 1,
+        )
+        session.add(scope)
+        created_scopes.append(scope)
+    await session.flush()
+    relay.metadata_json = {
+        **relay.metadata_json,
+        "managed_scope_ids": [str(scope.id) for scope in created_scopes],
+    }
+    net.policy_version += 1
+
+    scanner = (
+        await session.execute(
+            select(Probe)
+            .where(
+                Probe.organization_id == relay.organization_id,
+                Probe.name == settings.relay_scanner_probe_name,
+                Probe.status == ProbeStatus.ENROLLED,
+            )
+            .order_by(Probe.created_at.asc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if scanner is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"No enrolled central scanner named "
+                f"'{settings.relay_scanner_probe_name}' is available."
+            ),
+        )
+    binding = (
+        await session.execute(
+            select(NetworkScout).where(
+                NetworkScout.network_id == net.id,
+                NetworkScout.probe_id == scanner.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if binding is None:
+        session.add(NetworkScout(network_id=net.id, probe_id=scanner.id, is_primary=True))
     record_audit(
         session, action="relay.scope_set", actor=admin,
         organization_id=admin.organization_id, target_type="relay", target_id=relay.id,

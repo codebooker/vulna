@@ -24,10 +24,11 @@ var composeFiles = []string{"docker-compose.yml", "docker-compose.single-host.ym
 // singleHostServices/ports/capabilities describe the stack for the dry-run plan.
 var (
 	singleHostServices = []string{
-		"caddy", "api", "frontend", "postgres", "redis", "scout-ca-export", "local-scout",
+		"caddy", "api", "frontend", "postgres", "redis", "scout-ca-export", "relay-netns", "relay-egress", "local-scout",
 	}
 	singleHostCapabilities = []string{
 		"api & workers: no added Linux capabilities, no Docker socket",
+		"relay-egress: NET_ADMIN only (WireGuard routes/firewall; no Docker socket)",
 		"local-scout: all capabilities dropped (Nmap connect-scan only)",
 	}
 )
@@ -104,11 +105,19 @@ func BuildEnv(o config.Options, existing map[string]string) (map[string]string, 
 			return nil, err
 		}
 	}
+	relayToken := existing["VULNA_RELAY_EGRESS_TOKEN"]
+	if relayToken == "" {
+		var err error
+		if relayToken, err = secrets.SessionKey(); err != nil {
+			return nil, err
+		}
+	}
 
 	env["POSTGRES_PASSWORD"] = pgpw
 	env["VULNA_SECRET_KEY"] = secret
 	env["VULNA_ADMIN_PASSWORD"] = adminpw
 	env["VULNA_MASTER_KEY"] = masterKey
+	env["VULNA_RELAY_EGRESS_TOKEN"] = relayToken
 	// The released version the stack runs. Compose pins the api/frontend image
 	// tags to this, so `vulna update` (which rewrites it) actually changes what
 	// runs. Preserve an existing value; default to the installer's own version.
@@ -116,6 +125,16 @@ func BuildEnv(o config.Options, existing map[string]string) (map[string]string, 
 	// Non-secret settings: preserve an operator's manual edits if present.
 	env["VULNA_ADMIN_EMAIL"] = pick(existing, "VULNA_ADMIN_EMAIL", o.AdminEmail)
 	env["VULNA_DOMAIN"] = pick(existing, "VULNA_DOMAIN", o.Domain())
+	publicHost := o.Domain()
+	if publicHost == "" {
+		publicHost = "localhost"
+	}
+	env["VULNA_PUBLIC_BASE_URL"] = pick(
+		existing, "VULNA_PUBLIC_BASE_URL", "https://"+publicHost,
+	)
+	env["VULNA_RELAY_ENDPOINT"] = pick(
+		existing, "VULNA_RELAY_ENDPOINT", publicHost+":51820",
+	)
 	env["CADDY_TLS"] = pick(existing, "CADDY_TLS", o.CaddyTLS())
 	return env, nil
 }
@@ -164,7 +183,7 @@ func PlanInstall(o config.Options) (Plan, error) {
 	actions = append(actions, Action{Kind: ActionWrite, Path: filepath.Join(o.InstallDir, RecordFile),
 		Mode: 0o644, Note: "install record (non-secret)"})
 
-	ports := []int{80, 443}
+	ports := []int{80, 443, 8443, 51820}
 	return Plan{Actions: actions, Services: singleHostServices, Ports: ports, Capabilities: singleHostCapabilities}, nil
 }
 

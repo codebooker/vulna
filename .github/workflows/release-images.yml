@@ -35,6 +35,9 @@ jobs:
           - name: local-scout
             context: .
             dockerfile: deploy/single-host/local-scout.Dockerfile
+          - name: relay-egress
+            context: .
+            dockerfile: deploy/relay-egress/Dockerfile
     steps:
       - uses: actions/checkout@v4
 

@@ -2,18 +2,26 @@
 
 from __future__ import annotations
 
+import json
+import uuid
+from collections.abc import Awaitable, Callable
+
 import pytest
 
 # Release-blocking: security-critical regression (Phase 32).
 pytestmark = pytest.mark.release_gate
 
-import json
-
 from app.models.enums import RelayStatus
+from app.models.network import NetworkScout
+from app.models.network_scope import NetworkScope
 from app.services.relay import egress_decision, validate_egress_cidrs
 from httpx import AsyncClient
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.conftest import generate_csr_pem, probe_cert_headers
+
+EnrollFactory = Callable[..., Awaitable[dict[str, str]]]
 
 ENROLLED = RelayStatus.ENROLLED
 
@@ -100,8 +108,17 @@ async def _enable_and_enroll(
     client: AsyncClient, admin_headers: dict[str, str]
 ) -> str:
     await client.post("/api/v1/relays/settings", json={"enabled": True}, headers=admin_headers)
+    site = (
+        await client.post(
+            "/api/v1/sites",
+            json={"name": "Relay site", "code": "RELAY-SITE"},
+            headers=admin_headers,
+        )
+    ).json()
     cmd = await client.post(
-        "/api/v1/relays/enrollment-command", json={"name": "site-b"}, headers=admin_headers
+        "/api/v1/relays/enrollment-command",
+        json={"name": "site-b", "site_id": site["id"]},
+        headers=admin_headers,
     )
     assert cmd.status_code == 200
     token = cmd.json()["token"]
@@ -118,8 +135,16 @@ async def _enable_and_enroll(
 
 
 async def test_enroll_scope_and_egress_and_killswitch(
-    client: AsyncClient, admin_headers: dict[str, str]
+    client: AsyncClient,
+    admin_headers: dict[str, str],
+    db_session: AsyncSession,
+    enroll_probe: EnrollFactory,
 ) -> None:
+    central = await enroll_probe(site_code="CENTRAL", probe_name="local-scout")
+    approved = await client.post(
+        f"/api/v1/probes/{central['probe_id']}/approve", headers=admin_headers
+    )
+    assert approved.status_code == 200
     relay_id = await _enable_and_enroll(client, admin_headers)
 
     # Approve an egress scope and bring the tunnel up via a heartbeat.
@@ -129,6 +154,14 @@ async def test_enroll_scope_and_egress_and_killswitch(
         headers=admin_headers,
     )
     assert scope.status_code == 200
+    scope_count = await db_session.scalar(select(func.count()).select_from(NetworkScope))
+    assert scope_count == 1  # Relay scope is materialized for normal job policy/dispatch.
+    binding_count = await db_session.scalar(
+        select(func.count()).select_from(NetworkScout).where(
+            NetworkScout.probe_id == uuid.UUID(central["probe_id"])
+        )
+    )
+    assert binding_count == 1  # central Scout is dispatched through this relay network
     fp = next(
         r["certificate_fingerprint"]
         for r in (await client.get("/api/v1/relays", headers=admin_headers)).json()["relays"]
@@ -140,6 +173,22 @@ async def test_enroll_scope_and_egress_and_killswitch(
         headers=probe_cert_headers(fp),
     )
     assert hb.status_code == 200 and hb.json()["tunnel_up"] is True
+
+    config = await client.get(
+        "/api/v1/relays/config", headers=probe_cert_headers(fp)
+    )
+    assert config.status_code == 200
+    assert config.json()["endpoint"] == "relay.test:51820"
+    assert config.json()["tunnel_address"].startswith("10.254.0.")
+
+    internal = await client.get(
+        "/api/v1/relays/egress/config",
+        headers={"X-Vulna-Relay-Egress-Token": "test-only-relay-egress-token"},
+    )
+    assert internal.status_code == 200
+    assert internal.json()["peers"][0]["id"] == relay_id
+    refused_internal = await client.get("/api/v1/relays/egress/config")
+    assert refused_internal.status_code == 401
 
     # In-scope egress is allowed; out-of-scope is blocked at the central egress.
     ok = await client.post(

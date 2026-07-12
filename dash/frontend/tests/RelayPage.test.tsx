@@ -32,6 +32,14 @@ describe('RelayPage', () => {
           if (init?.method === 'POST') enabled = true;
           return jsonResponse({ enabled });
         }
+        if (url.includes('/api/v1/sites')) {
+          return jsonResponse({
+            items: [{ id: 's1', organization_id: 'o1', name: 'HQ', code: 'HQ' }],
+            total: 1,
+            limit: 50,
+            offset: 0,
+          });
+        }
         if (url.endsWith('/api/v1/relays')) {
           return jsonResponse({ relays: [] });
         }

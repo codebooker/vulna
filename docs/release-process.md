@@ -43,7 +43,8 @@ are run by the operator with the signed `vulna` CLI (see [updates](updates.md)).
 
 Every release includes:
 
-- Signed binaries (`vulna`, `vulnascout`) for `linux/amd64` and `linux/arm64`.
+- Signed binaries (`vulna`, `vulnascout`, and `vulnarelay`) for
+  `linux/amd64` and `linux/arm64`.
 - A **deployment bundle** (`vulna-deploy_<version>.tar.gz`) with the Compose files,
   the single-host overlay, `.env.example`, and the backup/restore scripts. The
   bootstrap downloads this for `install` so the operator gets a working deployment,
@@ -60,22 +61,28 @@ before running anything — the bootstrap installer does this automatically.
 
 ### Assembling and publishing a release
 
-From a staging directory `dist/` holding the built binaries and SBOMs:
+Build the binaries and deployment bundle with the canonical artifact names used
+by all three installers:
 
 ```sh
-# 1. Add the deployment bundle so `install` has the Compose files it needs.
-deploy/release/build-deploy-bundle.sh <version> dist/
+# 1. Build vulna, VulnaScout, VulnaRelay, and the deployment bundle.
+deploy/release/build-release-artifacts.sh <vX.Y.Z> dist/
 
-# 2. Write the checksum manifest and sign it (Ed25519, offline private key).
-VULNA_RELEASE_KEY=release_ed25519.pem deploy/release/sign.sh dist/
-
-# 3. Publish the hosted bootstrap with the release public key embedded, so
+# 2. Generate the hosted bootstraps with the release public key embedded, so
 #    `curl … | sh` works without the operator supplying a key.
 deploy/release/embed-release-pubkey.sh release_ed25519.pub > dist/install.sh
+deploy/release/embed-release-pubkey.sh release_ed25519.pub scripts/install-scout.sh \
+  > dist/install-scout.sh
+deploy/release/embed-release-pubkey.sh release_ed25519.pub scripts/install-relay.sh \
+  > dist/install-relay.sh
+
+# 3. Add the image SBOMs to dist/, then write and sign one complete manifest
+#    with the offline Ed25519 private key.
+VULNA_RELEASE_KEY=release_ed25519.pem deploy/release/sign.sh dist/
 ```
 
-Steps 1–2 must run in order: the bundle is checksummed and signed with everything
-else. The hosted `install.sh` from step 3 carries only the **public** key.
+The hosted installers carry only the **public** key. Run `sign.sh` last so the
+final manifest covers every binary, bundle, SBOM, and installer file.
 
 ## Signing keys: rotation and compromise recovery
 

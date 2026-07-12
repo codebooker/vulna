@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 
+from app.core.config import get_settings
 from app.services.remote_scout import build_install_commands
 from httpx import AsyncClient
 
@@ -18,15 +19,32 @@ EnrolledProbe = dict[str, str]
 
 
 def test_build_install_commands() -> None:
-    cmds = build_install_commands("https://vulna.example.com/", "vscout_secret", "remote-1")
+    cmds = build_install_commands(
+        get_settings(), "https://vulna.example.com/", "vscout_secret", "remote-1"
+    )
     uni = cmds["universal"]
     # Uses the signature-verifying bootstrap and passes the token via env, not argv.
     assert "install-scout.sh" in uni
     assert "VULNA_ENROLL_TOKEN=vscout_secret" in uni
-    assert "https://vulna.example.com" in uni
+    assert "VULNA_SERVER=https://vulna.example.com:8443" in uni
+    assert "github.com/codebooker/vulna/releases" in uni
     assert "https://vulna.example.com//" not in uni  # trailing slash trimmed
-    assert "vscout_secret" in cmds["container"]
+    assert "not an official" in cmds["container"]
+    assert "vscout_secret" not in cmds["container"]
     assert cmds["cloud_init"].startswith("#cloud-config")
+
+
+def test_build_install_commands_use_deployment_version(monkeypatch) -> None:
+    monkeypatch.setenv("VULNA_VERSION", "1.2.3")
+    get_settings.cache_clear()
+    try:
+        cmds = build_install_commands(
+            get_settings(), "https://vulna.example.com", "vscout_secret", "remote-1"
+        )
+        assert "/download/v1.2.3/install-scout.sh" in cmds["universal"]
+        assert "VULNA_VERSION=v1.2.3" in cmds["universal"]
+    finally:
+        get_settings.cache_clear()
 
 
 # --------------------------------------------------------------------------- #

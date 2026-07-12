@@ -29,6 +29,17 @@
 # — it does not verify at all.
 {
 	email {$CADDY_TLS}
+	# TLS clients do not send SNI for an IP-literal URL. Select the configured
+	# appliance certificate in that case so LAN/raw-IP installs remain usable.
+	default_sni {$VULNA_DOMAIN:localhost}
+	servers :8443 {
+		# Caddy automatically enables strict SNI/Host matching with client auth,
+		# but Go intentionally sends no SNI for an IP-literal server URL. Both
+		# sites on this dedicated listener use the identical verified-client-cert
+		# policy, and the API still authenticates every protected probe route, so
+		# accepting the raw-IP Host cannot front an unprotected TLS policy.
+		strict_sni_host insecure_off
+	}
 }
 
 # Shared routing to the API/SPA. Two variants differ ONLY in how the probe

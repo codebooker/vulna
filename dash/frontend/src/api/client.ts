@@ -430,15 +430,30 @@ export const api = {
   listRelays(token: string): Promise<{ relays: Relay[] }> {
     return request<{ relays: Relay[] }>('/api/v1/relays', { token });
   },
-  relayEnrollmentCommand(token: string, name: string): Promise<RelayEnrollment> {
+  relayEnrollmentCommand(token: string, name: string, siteId: string): Promise<RelayEnrollment> {
     return request<RelayEnrollment>('/api/v1/relays/enrollment-command', {
       method: 'POST',
       token,
-      body: { name },
+      body: { name, site_id: siteId },
+    });
+  },
+  setRelayScope(
+    token: string,
+    id: string,
+    approvedCidrs: string[],
+    deniedCidrs: string[] = [],
+  ): Promise<{ approved_cidrs: string[]; denied_cidrs: string[] }> {
+    return request(`/api/v1/relays/${id}/scope`, {
+      method: 'POST',
+      token,
+      body: { approved_cidrs: approvedCidrs, denied_cidrs: deniedCidrs },
     });
   },
   killRelay(token: string, id: string): Promise<Relay> {
     return request<Relay>(`/api/v1/relays/${id}/kill`, { method: 'POST', token });
+  },
+  resumeRelay(token: string, id: string): Promise<Relay> {
+    return request<Relay>(`/api/v1/relays/${id}/resume`, { method: 'POST', token });
   },
 
   // --- Networking assistant (Phase 23) ---

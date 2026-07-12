@@ -26,6 +26,9 @@ jobs:
                      deploy/probe/build-packages.sh \
                      deploy/probe/postinstall.sh \
                      deploy/single-host/local-scout-entrypoint.sh \
+                     deploy/relay-egress/controller.sh \
+                     deploy/release/build-deploy-bundle.sh \
+                     deploy/release/build-release-artifacts.sh \
                      dash/backend/docker-entrypoint.sh
 
       - name: Validate single-host Compose overlay
@@ -34,7 +37,30 @@ jobs:
           VULNA_SECRET_KEY: ci-validate
         run: |
           docker compose -f docker-compose.yml \
-                         -f docker-compose.single-host.yml config >/dev/null
+                         -f docker-compose.single-host.yml config --format json \
+            | jq -e '
+                .services["local-scout"].network_mode == "service:relay-netns" and
+                .services["relay-egress"].network_mode == "service:relay-netns" and
+                (.services["relay-netns"].ports | length == 1)
+              ' >/dev/null
+
+      - name: Validate raw-IP and mTLS Caddy listeners
+        run: |
+          docker run --rm \
+            -e VULNA_DOMAIN=192.0.2.10 -e CADDY_TLS=internal \
+            -v "$PWD/deploy/single-host/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            caddy:2 caddy adapt --config /etc/caddy/Caddyfile --adapter caddyfile \
+            2>/dev/null > /tmp/caddy.json
+          jq -e '
+            .apps.http.servers.srv0.tls_connection_policies |
+              any(.default_sni == "192.0.2.10")
+          ' /tmp/caddy.json >/dev/null
+          jq -e '
+            .apps.http.servers.srv1 |
+              .listen == [":8443"] and .strict_sni_host == false and
+              ([.tls_connection_policies[] | select(.client_authentication != null)] |
+                length >= 2)
+          ' /tmp/caddy.json >/dev/null
 
       - name: Update/rollback smoke test (identity + policy preserved)
         run: bash deploy/probe/smoke_test.sh

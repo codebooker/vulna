@@ -99,6 +99,12 @@ class Settings(BaseSettings):
     # to build remote-Scout install commands. Falls back to the request's base URL
     # when unset.
     public_base_url: str | None = None
+    # Release tag shared with Compose image selection (bare or v-prefixed). It is
+    # also used to generate endpoint installer URLs; the package version remains
+    # only a development fallback.
+    release_version: str | None = Field(
+        default=None, validation_alias=AliasChoices("VULNA_VERSION")
+    )
 
     # Networks (comma-separated IPs/CIDRs) whose forwarded headers the API trusts.
     # The mTLS-terminating proxy always sits on the internal/private network, so
@@ -121,6 +127,21 @@ class Settings(BaseSettings):
     default_site_code: str = "LOCAL"
     local_scout_name: str = "local-scout"
     local_scout_token_ttl_minutes: int = 60
+
+    # ---- VulnaRelay central WireGuard egress -------------------------------
+    # The scanner-free relay appliance connects to this public UDP endpoint.
+    # When unset, the host from public_base_url with UDP/51820 is used.
+    relay_endpoint: str | None = None
+    relay_control_url: str | None = None
+    relay_listen_port: int = 51820
+    relay_offline_after_seconds: int = 30
+    relay_tunnel_cidr: str = "10.254.0.0/24"
+    # Shared only between the API and the privileged relay-egress controller.
+    # The public relay appliance never receives this token.
+    relay_egress_token: str | None = None
+    relay_server_public_key_path: str = "/var/lib/vulna/relay/server.pub"
+    # Central scanner bound to relay-backed networks in the single-host profile.
+    relay_scanner_probe_name: str = "local-scout"
 
     # When true, create database tables from the ORM metadata at startup
     # instead of relying on Alembic migrations. Useful for local/dev and tests;
