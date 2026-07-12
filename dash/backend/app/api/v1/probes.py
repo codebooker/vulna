@@ -54,6 +54,7 @@ from app.schemas.probe import (
     PentestToggle,
     PolicyStatus,
     ProbeRead,
+    ProbeUpdate,
     serialize_probe,
 )
 from app.services import networks as networks_service
@@ -380,6 +381,41 @@ async def get_probe(
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> ProbeRead:
     probe = await _get_owned_probe(session, probe_id, current_user.organization_id)
+    return serialize_probe(probe, offline_after_seconds=settings.probe_offline_after_seconds)
+
+
+@router.patch("/{probe_id}", response_model=ProbeRead, summary="Rename or edit a probe (admin)")
+async def update_probe(
+    probe_id: uuid.UUID,
+    payload: ProbeUpdate,
+    admin: Annotated[User, Depends(require_admin)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    context: Annotated[RequestContext, Depends(get_request_context)],
+) -> ProbeRead:
+    """Update an appliance's editable fields (name, description). Administrator only."""
+    probe = await _get_owned_probe(session, probe_id, admin.organization_id)
+    changed: dict[str, str] = {}
+    if payload.name is not None and payload.name != probe.name:
+        changed["name"] = payload.name
+        probe.name = payload.name
+    if payload.description is not None and payload.description != probe.description:
+        changed["description"] = payload.description
+        probe.description = payload.description
+    if changed:
+        record_audit(
+            session,
+            action="probe.updated",
+            actor=admin,
+            organization_id=admin.organization_id,
+            target_type="probe",
+            target_id=probe.id,
+            source_ip=context.source_ip,
+            user_agent=context.user_agent,
+            request_id=context.request_id,
+            metadata={"fields": ",".join(changed.keys())},
+        )
+        await session.flush()
     return serialize_probe(probe, offline_after_seconds=settings.probe_offline_after_seconds)
 
 

@@ -85,6 +85,26 @@ export interface ProbeSummary {
   pentest_enabled?: boolean;
 }
 
+export interface ProbeDetail {
+  id: string;
+  site_id: string;
+  name: string;
+  description: string | null;
+  status: string;
+  online: boolean;
+  certificate_fingerprint: string;
+  agent_version: string | null;
+  operating_system: string | null;
+  architecture: string | null;
+  hostname: string | null;
+  primary_ip: string | null;
+  pentest_enabled: boolean;
+  last_seen_at: string | null;
+  enrolled_at: string | null;
+  approved_at: string | null;
+  created_at: string;
+}
+
 export interface JobSummary {
   id: string;
   status: string;

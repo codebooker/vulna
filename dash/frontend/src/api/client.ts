@@ -19,6 +19,7 @@ import type {
   JobSummary,
   NetworkCandidates,
   OnboardingState,
+  ProbeDetail,
   ProbeSummary,
   RecoveryCodes,
   ScanPreset,
@@ -269,6 +270,27 @@ export const api = {
   },
   listProbes(token: string): Promise<Page<ProbeSummary>> {
     return request<Page<ProbeSummary>>('/api/v1/probes', { token });
+  },
+  getProbe(token: string, probeId: string): Promise<ProbeDetail> {
+    return request<ProbeDetail>(`/api/v1/probes/${probeId}`, { token });
+  },
+  updateProbe(
+    token: string,
+    probeId: string,
+    patch: { name?: string; description?: string },
+  ): Promise<ProbeDetail> {
+    return request<ProbeDetail>(`/api/v1/probes/${probeId}`, {
+      method: 'PATCH',
+      token,
+      body: patch,
+    });
+  },
+  probeLifecycle(
+    token: string,
+    probeId: string,
+    action: 'approve' | 'disable' | 'revoke',
+  ): Promise<ProbeDetail> {
+    return request<ProbeDetail>(`/api/v1/probes/${probeId}/${action}`, { method: 'POST', token });
   },
   setProbePentest(token: string, probeId: string, enabled: boolean): Promise<ProbeSummary> {
     return request<ProbeSummary>(`/api/v1/probes/${probeId}/pentest`, {
