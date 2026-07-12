@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { AuthProvider } from '../src/auth/AuthProvider';
 import { RelayPage } from '../src/pages/RelayPage';
 
@@ -53,21 +53,17 @@ describe('RelayPage', () => {
     localStorage.clear();
   });
 
-  it('is off by default and can be enabled', async () => {
+  it('is available by default, like a scout — add form, no opt-in gate', async () => {
     render(
       <AuthProvider>
         <RelayPage />
       </AuthProvider>,
     );
-    await waitFor(() => expect(screen.getByText(/Relay mode is/)).toBeInTheDocument());
-    // Off by default.
-    expect(screen.getByRole('button', { name: /Enable relay mode/ })).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: /Enable relay mode/ }));
+    // The add-relay form and list are present immediately, with no enable step.
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: /Disable relay mode/ })).toBeInTheDocument(),
+      expect(screen.getByRole('button', { name: /Add relay/ })).toBeInTheDocument(),
     );
-    // Relay management appears once enabled.
     expect(screen.getByText(/No relays enrolled yet/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Enable relay mode/ })).not.toBeInTheDocument();
   });
 });
