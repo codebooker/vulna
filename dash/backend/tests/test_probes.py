@@ -95,6 +95,33 @@ async def test_approve_moves_probe_to_enrolled(
     assert resp.json()["approved_at"] is not None
 
 
+async def test_update_probe_renames_and_persists(
+    client: AsyncClient, admin_headers: dict[str, str], enroll_probe: EnrollFactory
+) -> None:
+    probe = await enroll_probe(probe_name="old-name")
+    resp = await client.patch(
+        f"/api/v1/probes/{probe['probe_id']}",
+        json={"name": "edge-scout", "description": "Ground floor closet"},
+        headers=admin_headers,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["name"] == "edge-scout"
+    assert resp.json()["description"] == "Ground floor closet"
+    # Persisted across a fresh read.
+    got = await client.get(f"/api/v1/probes/{probe['probe_id']}", headers=admin_headers)
+    assert got.json()["name"] == "edge-scout"
+
+
+async def test_update_probe_requires_admin(
+    client: AsyncClient, viewer_headers: dict[str, str], enroll_probe: EnrollFactory
+) -> None:
+    probe = await enroll_probe()
+    resp = await client.patch(
+        f"/api/v1/probes/{probe['probe_id']}", json={"name": "x"}, headers=viewer_headers
+    )
+    assert resp.status_code == 403
+
+
 async def test_revoked_probe_cannot_heartbeat_or_poll(
     client: AsyncClient, admin_headers: dict[str, str], enroll_probe: EnrollFactory
 ) -> None:
