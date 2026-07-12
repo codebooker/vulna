@@ -28,8 +28,16 @@ jobs:
         include:
           - name: api
             context: dash/backend
+            dockerfile: dash/backend/Dockerfile
           - name: frontend
             context: dash/frontend
+            dockerfile: dash/frontend/Dockerfile
+          - name: local-scout
+            context: .
+            dockerfile: deploy/single-host/local-scout.Dockerfile
+          - name: relay-egress
+            context: .
+            dockerfile: deploy/relay-egress/Dockerfile
     steps:
       - uses: actions/checkout@v4
 
@@ -58,8 +66,12 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
           platforms: linux/amd64,linux/arm64
           push: true
+          build-args: |
+            VERSION=${{ steps.ver.outputs.version }}
+            COMMIT=${{ github.sha }}
           tags: |
             ghcr.io/${{ github.repository_owner }}/vulna-${{ matrix.name }}:${{ steps.ver.outputs.version }}
             ghcr.io/${{ github.repository_owner }}/vulna-${{ matrix.name }}:latest

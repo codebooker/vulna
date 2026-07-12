@@ -292,9 +292,8 @@ func runRun(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "signing key (re-enroll to obtain it):", err)
 		return 1
 	}
-	workers := []scanners.Scanner{
-		nmap.NewWorker(), nuclei.NewWorker(), testssl.NewWorker(), zap.NewWorker(),
-	}
+	capabilities := scannerCapabilities()
+	workers := standardScannerWorkers(capabilities)
 	// Controlled-pentest execution is opt-in and requires Metasploit. Only a scout
 	// with VULNA_MSF_CONSOLE set registers the exploit worker; without it, a
 	// controlled-pentest job's exploit stage is simply not run here. (The scout's
@@ -448,6 +447,31 @@ func runRun(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintln(stdout, "vulnascout: shutting down")
 	return 0
+}
+
+// standardScannerWorkers registers only adapters whose executable was detected
+// on PATH. Capability reporting and execution must use the same set; otherwise a
+// partial Scout advertises (for example) Nmap-only operation but later fails a
+// job by trying to launch an absent Nuclei or testssl binary.
+func standardScannerWorkers(capabilities []string) []scanners.Scanner {
+	present := make(map[string]bool, len(capabilities))
+	for _, capability := range capabilities {
+		present[capability] = true
+	}
+	workers := make([]scanners.Scanner, 0, len(capabilities))
+	if present["nmap"] {
+		workers = append(workers, nmap.NewWorker())
+	}
+	if present["nuclei"] {
+		workers = append(workers, nuclei.NewWorker())
+	}
+	if present["testssl"] {
+		workers = append(workers, testssl.NewWorker())
+	}
+	if present["zap"] {
+		workers = append(workers, zap.NewWorker())
+	}
+	return workers
 }
 
 func buildHeartbeat(dataDir string) api.HeartbeatRequest {

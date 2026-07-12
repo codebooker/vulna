@@ -1,8 +1,10 @@
 export interface Relay {
   id: string;
   name: string;
+  site_id: string | null;
   status: string;
   tunnel_up: boolean;
+  tunnel_address: string | null;
   approved_cidrs: string[];
   denied_cidrs: string[];
   certificate_fingerprint: string | null;

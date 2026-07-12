@@ -31,6 +31,7 @@ services:
     volumes:
       - keys:/var/lib/vulna/keys
       - bootstrap:/var/lib/vulna/bootstrap
+      - relay_config:/var/lib/vulna/relay:ro
 
   caddy:
     # Publish the probe mTLS listener (:8443) in addition to the base 80/443.
@@ -74,11 +75,53 @@ services:
         install -m 0644 "$$src" /out/orchestrator-ca.crt
         echo "scout-ca-export: published orchestrator-ca.crt"
 
+  # Stable owner for the shared Relay scanning network namespace. Keeping this
+  # tiny container separate lets relay-egress be upgraded/recreated without
+  # stranding the local Scout in a retired namespace and Docker DNS socket.
+  relay-netns:
+    image: alpine:3.21
+    restart: unless-stopped
+    command: ["sleep", "infinity"]
+    ports:
+      - "${VULNA_RELAY_LISTEN_PORT:-51820}:${VULNA_RELAY_LISTEN_PORT:-51820}/udp"
+
+  relay-egress:
+    image: ${VULNA_REGISTRY:-ghcr.io/codebooker}/vulna-relay-egress:${VULNA_VERSION:-dev}
+    build:
+      context: .
+      dockerfile: deploy/relay-egress/Dockerfile
+    restart: unless-stopped
+    network_mode: service:relay-netns
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      VULNA_RELAY_EGRESS_API_URL: http://api:8000/api/v1/relays/egress/config
+      VULNA_RELAY_STATE_DIR: /var/lib/vulna/relay
+    cap_add:
+      - NET_ADMIN
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - relay_config:/var/lib/vulna/relay
+    depends_on:
+      api:
+        condition: service_healthy
+      relay-netns:
+        condition: service_started
+
   local-scout:
+    # Release installs pull this versioned image. Keeping build metadata alongside it
+    # preserves the source-tree developer path, while a signed deployment bundle no
+    # longer depends on the (deliberately unbundled) scout/ source directory.
+    image: ${VULNA_REGISTRY:-ghcr.io/codebooker}/vulna-local-scout:${VULNA_VERSION:-dev}
     build:
       context: .
       dockerfile: deploy/single-host/local-scout.Dockerfile
     restart: unless-stopped
+    # Share the egress controller's network namespace so scans of relay-backed
+    # ranges follow its WireGuard routes. The Scout itself remains capability-free.
+    network_mode: service:relay-netns
     environment:
       # Probe mTLS is served on :8443 (the browser UI on :443 has no client_auth
       # so raw-IP access works); the local Scout authenticates against :8443.
@@ -96,6 +139,10 @@ services:
         condition: service_started
       scout-ca-export:
         condition: service_completed_successfully
+      relay-egress:
+        condition: service_started
+      relay-netns:
+        condition: service_started
     # Nmap uses TCP connect scans (no raw sockets), so no elevated capabilities.
     cap_drop:
       - ALL
@@ -106,3 +153,4 @@ volumes:
   keys:
   bootstrap:
   scout_state:
+  relay_config:

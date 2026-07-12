@@ -7,8 +7,10 @@ on:
       - "cli/**"
       - "scripts/install.sh"
       - "scripts/install-scout.sh"
+      - "scripts/install-relay.sh"
       - "deploy/release/installer_smoke_test.sh"
       - "deploy/release/scout_bootstrap_smoke_test.sh"
+      - "deploy/release/relay_bootstrap_smoke_test.sh"
       - "deploy/release/update_smoke_test.sh"
       - "deploy/release/backup_smoke_test.sh"
       - ".github/workflows/installer.yml"
@@ -85,13 +87,14 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: |
           sudo apt-get update && sudo apt-get install -y shellcheck
-          shellcheck scripts/install.sh scripts/install-scout.sh
+          shellcheck scripts/install.sh scripts/install-scout.sh scripts/install-relay.sh
 
       - name: Bootstrap verify smoke tests (good vs tampered)
         working-directory: ${{ github.workspace }}
         run: |
           bash deploy/release/installer_smoke_test.sh
           bash deploy/release/scout_bootstrap_smoke_test.sh
+          bash deploy/release/relay_bootstrap_smoke_test.sh
           bash deploy/release/update_smoke_test.sh
           bash deploy/release/backup_smoke_test.sh
 

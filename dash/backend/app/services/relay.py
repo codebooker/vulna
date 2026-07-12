@@ -17,13 +17,21 @@ The egress decision is pure and unit-testable.
 
 from __future__ import annotations
 
+import base64
 import ipaddress
+import shlex
 from dataclasses import dataclass
+from pathlib import Path
+from urllib.parse import urlparse
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
+from app.core.config import Settings
 from app.models.enums import RelayStatus
 from app.models.organization import Organization
+from app.models.relay import Relay
 from app.services.scopes import ScopeValidationError, validate_cidr
 
 RELAY_ENABLED_FLAG = "relay_mode_enabled"
@@ -147,27 +155,114 @@ def validate_egress_cidrs(cidrs: list[str], *, allow_public: bool = False) -> li
     return out
 
 
+def overlapping_cidrs(left: list[str], right: list[str]) -> tuple[str, str] | None:
+    """Return the first overlapping pair, if any.
+
+    WireGuard AllowedIPs are one routing table: two relay peers cannot safely claim
+    overlapping destination ranges because traffic would be routed to only one of
+    them. Reject the ambiguity at configuration time.
+    """
+    for a in left:
+        net_a = ipaddress.ip_network(a, strict=False)
+        for b in right:
+            net_b = ipaddress.ip_network(b, strict=False)
+            if net_a.version == net_b.version and net_a.overlaps(net_b):
+                return a, b
+    return None
+
+
+async def allocate_tunnel_address(session: AsyncSession, settings: Settings) -> str:
+    """Allocate the first free client address from the configured WireGuard subnet.
+
+    The first usable address belongs to the central egress. Relay addresses begin at
+    the second usable address and are persisted under a unique constraint, so an
+    address is never silently shared by two peers.
+    """
+    network = ipaddress.ip_network(settings.relay_tunnel_cidr, strict=False)
+    used = set((await session.execute(select(Relay.tunnel_address))).scalars())
+    hosts = network.hosts()
+    next(hosts, None)  # central egress address
+    for address in hosts:
+        candidate = f"{address}/{network.max_prefixlen}"
+        if candidate not in used:
+            return candidate
+    raise ValueError(f"Relay tunnel subnet {network} has no free client addresses")
+
+
+def relay_server_address(settings: Settings) -> str:
+    network = ipaddress.ip_network(settings.relay_tunnel_cidr, strict=False)
+    address = next(network.hosts(), None)
+    if address is None:
+        raise ValueError(f"Relay tunnel subnet {network} has no usable server address")
+    return f"{address}/{network.prefixlen}"
+
+
+def relay_endpoint(settings: Settings) -> str:
+    if settings.relay_endpoint:
+        return settings.relay_endpoint
+    parsed = urlparse(settings.public_base_url or "")
+    host = parsed.hostname
+    if not host:
+        raise ValueError("VULNA_RELAY_ENDPOINT or VULNA_PUBLIC_BASE_URL must be configured")
+    rendered = f"[{host}]" if ":" in host else host
+    return f"{rendered}:{settings.relay_listen_port}"
+
+
+def relay_control_url(settings: Settings) -> str:
+    if settings.relay_control_url:
+        return settings.relay_control_url.rstrip("/")
+    parsed = urlparse(settings.public_base_url or "")
+    if not parsed.hostname:
+        raise ValueError("VULNA_RELAY_CONTROL_URL or VULNA_PUBLIC_BASE_URL must be configured")
+    host = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
+    return f"{parsed.scheme or 'https'}://{host}:8443"
+
+
+def relay_server_public_key(settings: Settings) -> str:
+    try:
+        with open(settings.relay_server_public_key_path, encoding="utf-8") as key_file:
+            value = key_file.read().strip()
+    except OSError as exc:
+        raise ValueError("Relay egress has not published its WireGuard public key yet") from exc
+    if not value:
+        raise ValueError("Relay egress WireGuard public key is empty")
+    return value
+
+
 # --------------------------------------------------------------------------- #
 # Relay install command (thin appliance, no scanners)
 # --------------------------------------------------------------------------- #
 
 
-def build_relay_install(server_url: str, token: str, name: str) -> dict[str, str]:
+def build_relay_install(settings: Settings, token: str, name: str) -> dict[str, str]:
     """Copy-paste command to bring up a thin relay (tunnel only, no scanners).
 
     The token is passed via the environment, not on the command line, so it does
     not linger in process listings.
     """
-    base = server_url.rstrip("/") if server_url else "https://vulna.example"
+    base = relay_control_url(settings)
+    version = settings.release_version or settings.version
+    tag = version if version.startswith("v") else f"v{version}"
+    installer = f"https://github.com/codebooker/vulna/releases/download/{tag}/install-relay.sh"
+    ca_env = ""
+    ca_path = Path(settings.bootstrap_dir) / "orchestrator-ca.crt"
+    try:
+        ca_b64 = base64.b64encode(ca_path.read_bytes()).decode("ascii")
+    except OSError:
+        ca_b64 = ""
+    if ca_b64:
+        ca_env = f"VULNA_SERVER_CA_B64={shlex.quote(ca_b64)} "
     one_liner = (
-        f"VULNA_SERVER={base} VULNA_RELAY_TOKEN={token} "
-        f"VULNA_RELAY_NAME={name!r} sh install-relay.sh"
+        f"curl -fsSLo /tmp/install-relay.sh {shlex.quote(installer)} && "
+        f"VULNA_SERVER={shlex.quote(base)} VULNA_RELAY_TOKEN={shlex.quote(token)} "
+        f"VULNA_RELAY_NAME={shlex.quote(name)} {ca_env}VULNA_VERSION={shlex.quote(tag)} "
+        "sh /tmp/install-relay.sh"
     )
     return {
         "name": name,
         "command": one_liner,
         "note": (
-            "Installs the relay image (WireGuard tunnel endpoint, no scanners). The "
+            "Run as root. Installs the signed scanner-free WireGuard relay agent. The "
             "relay never receives job-signing keys or scanner credentials."
         ),
     }

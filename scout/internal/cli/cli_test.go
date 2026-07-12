@@ -61,3 +61,16 @@ func TestExecuteHelp(t *testing.T) {
 		t.Errorf("expected help text, got %q", out.String())
 	}
 }
+
+func TestStandardScannerWorkersMatchDetectedCapabilities(t *testing.T) {
+	workers := standardScannerWorkers([]string{"nmap", "testssl"})
+	if len(workers) != 2 {
+		t.Fatalf("workers = %d, want 2", len(workers))
+	}
+	if workers[0].Name() != "nmap" || workers[1].Name() != "testssl" {
+		t.Fatalf("worker names = [%s %s], want [nmap testssl]", workers[0].Name(), workers[1].Name())
+	}
+	if got := standardScannerWorkers(nil); len(got) != 0 {
+		t.Fatalf("workers without capabilities = %d, want 0", len(got))
+	}
+}

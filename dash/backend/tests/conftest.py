@@ -24,6 +24,13 @@ os.environ.setdefault("VULNA_CA_KEY_PATH", str(_CA_DIR / "ca_key.pem"))
 os.environ.setdefault("VULNA_CA_CERT_PATH", str(_CA_DIR / "ca_cert.pem"))
 os.environ.setdefault("VULNA_JOB_SIGNING_KEY_PATH", str(_CA_DIR / "job_signing"))
 os.environ.setdefault("VULNA_JOB_SIGNING_PUBKEY_PATH", str(_CA_DIR / "job_signing.pub"))
+_RELAY_DIR = Path(tempfile.gettempdir()) / "vulna-test-relay"
+_RELAY_DIR.mkdir(parents=True, exist_ok=True)
+(_RELAY_DIR / "server.pub").write_text("test-wireguard-server-public-key\n")
+os.environ.setdefault("VULNA_RELAY_SERVER_PUBLIC_KEY_PATH", str(_RELAY_DIR / "server.pub"))
+os.environ.setdefault("VULNA_RELAY_ENDPOINT", "relay.test:51820")
+os.environ.setdefault("VULNA_RELAY_CONTROL_URL", "https://relay.test:8443")
+os.environ.setdefault("VULNA_RELAY_EGRESS_TOKEN", "test-only-relay-egress-token")
 
 # Write generated report artifacts under a temp directory, never /var/lib/vulna.
 os.environ.setdefault(

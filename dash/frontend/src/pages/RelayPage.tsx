@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ApiError, api } from '../api/client';
 import { useAuth } from '../auth/useAuth';
 import type { Relay, RelayEnrollment } from '../types/relay';
+import type { Site } from '../types/inventory';
 
 /** VulnaRelay (advanced, opt-in): a thin-site tunnel with no scanners, where scope
  *  is enforced at the central egress. OFF by default; an admin turns it on here.
@@ -10,8 +11,11 @@ export function RelayPage() {
   const { token, user } = useAuth();
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [relays, setRelays] = useState<Relay[]>([]);
+  const [sites, setSites] = useState<Site[]>([]);
   const [enrollment, setEnrollment] = useState<RelayEnrollment | null>(null);
   const [name, setName] = useState('');
+  const [siteId, setSiteId] = useState('');
+  const [scopeDrafts, setScopeDrafts] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
 
   const isAdmin = user?.role === 'administrator';
@@ -21,6 +25,9 @@ export function RelayPage() {
     try {
       const on = (await api.relaySettings(token)).enabled;
       setEnabled(on);
+      const loadedSites = (await api.listSites(token)).items;
+      setSites(loadedSites);
+      setSiteId((current) => current || loadedSites[0]?.id || '');
       if (on) setRelays((await api.listRelays(token)).relays);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) return;
@@ -44,14 +51,39 @@ export function RelayPage() {
   };
 
   const enroll = async () => {
-    if (!token || !name) return;
+    if (!token || !name || !siteId) return;
     setError(null);
     try {
-      setEnrollment(await api.relayEnrollmentCommand(token, name));
+      setEnrollment(await api.relayEnrollmentCommand(token, name, siteId));
       setName('');
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create enrollment command.');
+    }
+  };
+
+  const saveScope = async (relay: Relay) => {
+    if (!token) return;
+    const text = scopeDrafts[relay.id] ?? relay.approved_cidrs.join(', ');
+    const cidrs = text
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean);
+    try {
+      await api.setRelayScope(token, relay.id, cidrs);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update relay scope.');
+    }
+  };
+
+  const resume = async (id: string) => {
+    if (!token) return;
+    try {
+      await api.resumeRelay(token, id);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Resume failed.');
     }
   };
 
@@ -119,10 +151,33 @@ export function RelayPage() {
                     {r.tunnel_up ? ' · up' : ''}
                   </span>{' '}
                   <strong>{r.name}</strong>{' '}
+                  <span className="detail">
+                    · {sites.find((site) => site.id === r.site_id)?.name ?? 'Unknown site'}
+                  </span>{' '}
                   {isAdmin && r.status !== 'killed' && (
                     <button type="button" className="btn ghost" onClick={() => void kill(r.id)}>
                       Kill switch
                     </button>
+                  )}
+                  {isAdmin && r.status === 'killed' && (
+                    <button type="button" className="btn ghost" onClick={() => void resume(r.id)}>
+                      Resume
+                    </button>
+                  )}
+                  {isAdmin && (
+                    <div className="row">
+                      <input
+                        aria-label={`Approved CIDRs for ${r.name}`}
+                        placeholder="Approved CIDRs, comma-separated"
+                        value={scopeDrafts[r.id] ?? r.approved_cidrs.join(', ')}
+                        onChange={(event) =>
+                          setScopeDrafts((current) => ({ ...current, [r.id]: event.target.value }))
+                        }
+                      />
+                      <button type="button" className="btn ghost" onClick={() => void saveScope(r)}>
+                        Save scope
+                      </button>
+                    </div>
                   )}
                 </li>
               ))}
@@ -137,10 +192,22 @@ export function RelayPage() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
               />
+              <select
+                aria-label="Relay site"
+                value={siteId}
+                onChange={(event) => setSiteId(event.target.value)}
+              >
+                <option value="">Choose a site</option>
+                {sites.map((site) => (
+                  <option key={site.id} value={site.id}>
+                    {site.name}
+                  </option>
+                ))}
+              </select>
               <button
                 type="button"
                 className="btn ghost"
-                disabled={!name}
+                disabled={!name || !siteId}
                 onClick={() => void enroll()}
               >
                 Add relay

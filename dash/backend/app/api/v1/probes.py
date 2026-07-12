@@ -203,7 +203,9 @@ async def create_enrollment_command(
         short_code=generated.short_code,
         expires_at=expires_at,
         server_url=server_url,
-        commands=build_install_commands(server_url, generated.secret, token.probe_name),
+        commands=build_install_commands(
+            settings, server_url, generated.secret, token.probe_name
+        ),
         verification=(
             f"Confirm the short code '{generated.short_code}' matches on the Scout at "
             "enrollment. Enrolling does NOT authorize any target — approve a scope "

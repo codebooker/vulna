@@ -25,7 +25,7 @@ const helperImage = "alpine:3.21"
 // key: CA + signing keys, reports, evidence files, and — so restoring a host does
 // not require Scout re-enrollment — the local Scout's state and bootstrap material.
 func DataVolumeKeys() []string {
-	return []string{"keys", "reports", "evidence", "scout_state", "bootstrap"}
+	return []string{"keys", "reports", "evidence", "scout_state", "bootstrap", "relay_config"}
 }
 
 // DatabaseEnvKeys are every .env variable the backend uses to connect to the
@@ -202,17 +202,39 @@ func StartServices(installDir string, stdout, stderr io.Writer, services ...stri
 // RunningNonPostgresServices returns the currently-running services other than
 // postgres — the writers that must be quiesced for a consistent backup and then
 // restarted afterward. It returns an ERROR (rather than an empty list) when it can't
-// inspect the stack, so the caller fails closed instead of assuming "no writers" and
-// backing up an inconsistent, live deployment.
+// inspect the stack or finds a writer in an ambiguous/transitional state, so the
+// caller fails closed instead of assuming "no writers" and backing up an
+// inconsistent, live deployment.
 func RunningNonPostgresServices(installDir string) ([]string, error) {
 	states, err := serviceStates(installDir)
 	if err != nil {
 		return nil, fmt.Errorf("could not inspect running services: %w", err)
 	}
+	return nonPostgresWritersToQuiesce(states)
+}
+
+// nonPostgresWritersToQuiesce selects the writers that are safe to stop for a
+// consistent snapshot. A restarting/paused/removing/dead (or unknown) writer is
+// neither reliably inactive nor safely quiesced: it could become live during the
+// database dump or volume copy. Reject those states instead of silently omitting the
+// service and certifying a snapshot that may have been mutated underneath us.
+func nonPostgresWritersToQuiesce(states []composePS) ([]string, error) {
 	var out []string
 	for _, s := range states {
-		if s.Service != "postgres" && s.State == "running" {
+		if s.Service == "postgres" {
+			continue
+		}
+		switch s.State {
+		case PgRunning:
 			out = append(out, s.Service)
+		case PgExited, PgCreated:
+			// Definitively inactive; nothing can write during the snapshot.
+		case PgRestarting:
+			return nil, fmt.Errorf(
+				"service %s is restarting; refusing a backup until writer state is stable", s.Service)
+		default:
+			return nil, fmt.Errorf(
+				"service %s is in transitional/unexpected state %q; refusing a backup", s.Service, s.State)
 		}
 	}
 	return out, nil

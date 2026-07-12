@@ -47,6 +47,11 @@ class Relay(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     # WireGuard public key of the relay (non-secret). The relay keeps its private key.
     tunnel_public_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # Address allocated to the relay inside the central WireGuard tunnel. The
+    # endpoint receives only its own address and the server public key.
+    tunnel_address: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, unique=True, index=True
+    )
     # Live tunnel state as last reported by heartbeat.
     tunnel_up: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     # Approved egress CIDRs, enforced at the central egress.
