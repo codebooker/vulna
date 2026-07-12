@@ -38,7 +38,12 @@ class HttpFetcher:
         headers = {"User-Agent": self._user_agent, "Accept": "application/json"}
         query = dict(params) if params else None
         try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
+            # Feeds move hosts and redirect to dated files (e.g. EPSS 301s from
+            # cyentia to empiricalsecurity, then 302s to a date-stamped CSV), so
+            # follow redirect chains rather than failing on the first 3xx.
+            async with httpx.AsyncClient(
+                timeout=self._timeout, follow_redirects=True
+            ) as client:
                 resp = await client.get(url, params=query, headers=headers)
                 resp.raise_for_status()
                 return resp.content
