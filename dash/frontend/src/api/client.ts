@@ -153,11 +153,16 @@ export const api = {
   createNetwork(token: string, payload: NewNetwork): Promise<Network> {
     return request<Network>('/api/v1/networks', { method: 'POST', token, body: payload });
   },
-  addNetworkRange(token: string, networkId: string, cidr: string): Promise<Network> {
+  addNetworkRange(
+    token: string,
+    networkId: string,
+    cidr: string,
+    allowPublic = false,
+  ): Promise<Network> {
     return request<Network>(`/api/v1/networks/${networkId}/ranges`, {
       method: 'POST',
       token,
-      body: { cidr },
+      body: { cidr, allow_public_addresses: allowPublic },
     });
   },
   bindNetworkScout(
