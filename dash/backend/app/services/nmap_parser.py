@@ -8,6 +8,7 @@ size before calling here.
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass, field
 from xml.etree.ElementTree import Element, ParseError
 
@@ -33,6 +34,9 @@ class ParsedService:
     product: str | None = None
     version: str | None = None
     cpe: str | None = None
+    # OS label inferred from this service's -sV data (nmap's ``ostype`` or an OS
+    # CPE). Aggregated per host to fingerprint the OS without a raw-socket scan.
+    os_hint: str | None = None
 
 
 @dataclass
@@ -103,7 +107,42 @@ def _parse_host(host_el: Element) -> ParsedHost:
             service = _parse_port(port_el)
             if service is not None:
                 host.services.append(service)
+
+    # A raw-socket OS scan (`-O`, which fills <osmatch>) is unavailable to the
+    # unprivileged connect-scan Scout. When it is absent, fingerprint the OS from
+    # the -sV signals the connect scan already gathers — nmap's per-service
+    # ``ostype`` and OS CPEs — taking the label most services agree on.
+    if host.operating_system is None:
+        hints = [s.os_hint for s in host.services if s.os_hint]
+        if hints:
+            host.operating_system = Counter(hints).most_common(1)[0][0]
     return host
+
+
+def _os_name_from_cpe(cpe: str) -> str | None:
+    """Turn an OS CPE (``cpe:/o:vendor:product:version``) into a readable label."""
+    if not cpe.startswith("cpe:/o:"):
+        return None
+    parts = cpe[len("cpe:/o:") :].split(":")
+    product = parts[1] if len(parts) > 1 else ""
+    if not product:
+        return None
+    if product in ("linux_kernel", "linux"):
+        return "Linux"
+    return product.replace("_", " ").strip().title() or None
+
+
+def _service_os_hint(svc_el: Element) -> str | None:
+    """Derive an OS label from a service's -sV data: prefer nmap's ``ostype``
+    attribute, else the first OS CPE (``cpe:/o:...``)."""
+    ostype = (svc_el.get("ostype") or "").strip()
+    if ostype:
+        return ostype
+    for cpe_el in svc_el.findall("cpe"):
+        name = _os_name_from_cpe((cpe_el.text or "").strip())
+        if name:
+            return name
+    return None
 
 
 def _parse_port(port_el: Element) -> ParsedService | None:
@@ -136,4 +175,5 @@ def _parse_port(port_el: Element) -> ParsedService | None:
         cpe_el = svc_el.find("cpe")
         if cpe_el is not None and cpe_el.text:
             service.cpe = cpe_el.text
+        service.os_hint = _service_os_hint(svc_el)
     return service
