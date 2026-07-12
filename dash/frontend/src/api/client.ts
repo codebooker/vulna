@@ -231,6 +231,13 @@ export const api = {
   listReports(token: string, limit = 50): Promise<Page<Report>> {
     return request<Page<Report>>(`/api/v1/reports?limit=${limit}`, { token });
   },
+  createReports(token: string, scanJobId: string, reportTypes?: string[]): Promise<Report[]> {
+    return request<Report[]>('/api/v1/reports', {
+      method: 'POST',
+      token,
+      body: { scan_job_id: scanJobId, ...(reportTypes ? { report_types: reportTypes } : {}) },
+    });
+  },
   async downloadReport(token: string, id: string): Promise<Blob> {
     const response = await fetch(`${API_BASE}/api/v1/reports/${encodeURIComponent(id)}/download`, {
       headers: { Authorization: `Bearer ${token}` },

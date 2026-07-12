@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import {
   BarChart3,
   Building2,
@@ -6,6 +6,7 @@ import {
   Download,
   FileSpreadsheet,
   FileText,
+  Plus,
   Server,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -18,7 +19,11 @@ import { DataTable, type ColumnDef } from '../components/app/data-table';
 import { PageHeader, SectionHeader } from '../components/app/page-header';
 import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
+import { Field, Select } from '../components/ui/input';
+import { Modal } from '../components/ui/overlay';
+import { EmptyState, InlineError } from '../components/ui/states';
 import type { Report } from '../types/report';
+import type { Job } from '../types/schedule';
 
 const TYPE_LABELS: Record<string, string> = {
   executive_pdf: 'Executive summary (PDF)',
@@ -30,9 +35,9 @@ const TYPE_LABELS: Record<string, string> = {
   json_bundle: 'JSON bundle',
 };
 
-/** Report templates the platform produces from completed scans. Cards are
- *  informational — generation happens automatically per scan, so there is no
- *  dead "Generate" button here. */
+/** Report templates the platform can produce from a completed scan. Cards are
+ *  informational; generate reports with the "Generate report" button (or from a
+ *  completed scan on the Scans page). */
 const TEMPLATES: { icon: LucideIcon; title: string; description: string }[] = [
   {
     icon: FileText,
@@ -73,6 +78,7 @@ export function ReportsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState<string | null>(null);
+  const [genOpen, setGenOpen] = useState(false);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -199,6 +205,11 @@ export function ReportsPage() {
         crumbs={[{ label: 'Management' }, { label: 'Reports' }]}
         title="Reports"
         description="Exports produced from completed scans — PDF for people, CSV and JSON for tooling."
+        actions={
+          <Button variant="primary" onClick={() => setGenOpen(true)}>
+            <Plus size={14} aria-hidden /> Generate report
+          </Button>
+        }
       />
 
       <SectionHeader title="Report templates" />
@@ -227,11 +238,134 @@ export function ReportsPage() {
         error={error}
         onRetry={() => void load()}
         emptyTitle="No reports yet"
-        emptyDescription="Reports are generated from completed scans and appear here for download."
+        emptyDescription="Generate a report from a completed scan with the button above — it appears here for download."
         exportName="reports"
         storageKey="vulnadash.reports"
         defaultSort={{ id: 'generated', dir: 'desc' }}
       />
+
+      <GenerateReportModal
+        open={genOpen}
+        onClose={() => setGenOpen(false)}
+        onGenerated={() => {
+          setGenOpen(false);
+          void load();
+        }}
+      />
     </div>
+  );
+}
+
+function GenerateReportModal({
+  open,
+  onClose,
+  onGenerated,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onGenerated: () => void;
+}) {
+  const { token } = useAuth();
+  const { toast } = useToast();
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [jobId, setJobId] = useState('');
+  const [types, setTypes] = useState<string[]>(['executive_pdf', 'technical_pdf', 'findings_csv']);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!open || !token) return;
+    api
+      .listJobs(token, 'completed', 100)
+      .then((p) => {
+        setJobs(p.items);
+        setJobId((cur) => cur || p.items[0]?.id || '');
+      })
+      .catch(() => {});
+  }, [open, token]);
+
+  const toggle = (t: string) =>
+    setTypes((cur) => (cur.includes(t) ? cur.filter((x) => x !== t) : [...cur, t]));
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!token || !jobId || types.length === 0) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.createReports(token, jobId, types);
+      toast('success', 'Report generated.');
+      onGenerated();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to generate report.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Generate a report"
+      description="Render report artifacts from a completed scan's results."
+    >
+      {jobs.length === 0 ? (
+        <EmptyState
+          compact
+          icon={FileText}
+          title="No completed scans"
+          description="Run a scan first — reports are generated from a completed scan's results."
+        />
+      ) : (
+        <form className="flex flex-col gap-3" onSubmit={submit}>
+          <Field label="Completed scan" htmlFor="report-scan">
+            <Select
+              id="report-scan"
+              value={jobId}
+              onChange={(e) => setJobId(e.target.value)}
+              required
+            >
+              <option value="">Choose a scan…</option>
+              {jobs.map((j) => (
+                <option key={j.id} value={j.id}>
+                  {(j.requested_targets_json.join(', ') || 'scan') +
+                    ' · ' +
+                    new Date(j.finished_at ?? j.created_at).toLocaleString()}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <fieldset className="flex flex-col gap-1.5">
+            <legend className="mb-1 text-xs font-medium text-muted">Report types</legend>
+            {Object.entries(TYPE_LABELS).map(([val, label]) => (
+              <label key={val} className="flex items-center gap-2 text-[13px] text-text">
+                <input
+                  type="checkbox"
+                  checked={types.includes(val)}
+                  onChange={() => toggle(val)}
+                  className="accent-[var(--accent)]"
+                />
+                {label}
+              </label>
+            ))}
+          </fieldset>
+          {error && <InlineError message={error} />}
+          <div className="mt-1 flex justify-end gap-2">
+            <Button variant="ghost" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              loading={busy}
+              disabled={!jobId || types.length === 0}
+            >
+              {busy ? 'Generating…' : 'Generate'}
+            </Button>
+          </div>
+        </form>
+      )}
+    </Modal>
   );
 }
