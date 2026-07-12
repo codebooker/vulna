@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Server } from 'lucide-react';
+import { ChevronRight, Server } from 'lucide-react';
 import { ApiError, api } from '../api/client';
 import { useAuth } from '../auth/useAuth';
 import { useNav } from '../lib/nav';
 import { formatRelative, formatWhenFull, humanize } from '../lib/utils';
-import { normalizeSeverity, StatusBadge } from '../components/app/badges';
+import { normalizeSeverity, SeverityBadge, StatusBadge } from '../components/app/badges';
 import { DataTable, type ColumnDef, type FilterDef } from '../components/app/data-table';
 import { PageHeader } from '../components/app/page-header';
 import { Badge } from '../components/ui/badge';
@@ -12,6 +12,8 @@ import { DetailRow } from '../components/ui/misc';
 import { Drawer } from '../components/ui/overlay';
 import type { Asset, Site } from '../types/inventory';
 import type { Finding } from '../types/finding';
+
+const SEV_ORDER: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
 
 /** Asset inventory, from the live `/assets` API. Per-asset critical/high counts
  *  are derived from open findings so the columns reflect real risk. */
@@ -23,7 +25,7 @@ interface AssetRow extends Asset {
 
 export function AssetsPage() {
   const { token } = useAuth();
-  const { current } = useNav();
+  const { current, go } = useNav();
   const [assets, setAssets] = useState<Asset[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
   const [findings, setFindings] = useState<Finding[]>([]);
@@ -77,6 +79,18 @@ export function AssetsPage() {
       return { ...a, critical: c.critical, high: c.high, findingTotal: c.total };
     });
   }, [assets, findings]);
+
+  // Open findings for the asset in the drawer, worst severity first.
+  const assetFindings = useMemo(() => {
+    if (!selected) return [];
+    return findings
+      .filter((f) => f.asset_id === selected.id && f.resolved_at === null)
+      .sort(
+        (a, b) =>
+          (SEV_ORDER[normalizeSeverity(a.severity)] ?? 9) -
+          (SEV_ORDER[normalizeSeverity(b.severity)] ?? 9),
+      );
+  }, [findings, selected]);
 
   const columns: ColumnDef<AssetRow>[] = useMemo(
     () => [
@@ -284,6 +298,41 @@ export function AssetsPage() {
                 {formatWhenFull(selected.last_assessed_at)}
               </DetailRow>
             </dl>
+
+            <div>
+              <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted">
+                Vulnerabilities ({assetFindings.length})
+              </p>
+              {assetFindings.length === 0 ? (
+                <p className="text-xs text-faint">No open vulnerabilities on this asset.</p>
+              ) : (
+                <ul className="flex flex-col gap-1.5">
+                  {assetFindings.map((f) => (
+                    <li key={f.id}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelected(null);
+                          go('findings', { finding: f.id });
+                        }}
+                        className="group flex w-full items-center gap-2 rounded-lg border border-border px-3 py-2 text-left transition-colors hover:border-border-strong hover:bg-surface-2"
+                        title={`Open “${f.title}”`}
+                      >
+                        <SeverityBadge severity={f.severity} />
+                        <span className="min-w-0 flex-1 truncate text-[13px] text-text group-hover:text-accent">
+                          {f.title}
+                        </span>
+                        <ChevronRight
+                          size={14}
+                          aria-hidden
+                          className="shrink-0 text-faint group-hover:text-accent"
+                        />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           </div>
         )}
       </Drawer>
