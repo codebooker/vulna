@@ -326,8 +326,9 @@ kbd,
   padding: 1.6rem 1.6rem 4rem;
 }
 
-/* Menu button — hidden on desktop, shown when the sidebar collapses. */
-.menu-btn {
+/* Menu button — hidden on desktop, shown when the sidebar collapses. Scoped to
+   .topbar so it outranks the base .icon-btn display. */
+.topbar .menu-btn {
   display: none;
 }
 
@@ -1124,7 +1125,7 @@ section.card + section.card {
   .app-shell.nav-open .sidebar {
     transform: translateX(0);
   }
-  .menu-btn {
+  .topbar .menu-btn {
     display: inline-grid;
   }
   .scrim {
