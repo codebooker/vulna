@@ -432,7 +432,7 @@ export function ScansPage() {
         <>
           <CreateScanModal
             open={scanOpen}
-            probes={probes}
+            networks={networks}
             onClose={() => setScanOpen(false)}
             onCreated={() => {
               setScanOpen(false);
@@ -475,24 +475,31 @@ export function ScansPage() {
 
 function CreateScanModal({
   open,
-  probes,
+  networks,
   onClose,
   onCreated,
 }: {
   open: boolean;
-  probes: ProbeSummary[];
+  networks: Network[];
   onClose: () => void;
   onCreated: () => void;
 }) {
   const { token } = useAuth();
   const { toast } = useToast();
-  const [probeId, setProbeId] = useState('');
+  const [networkId, setNetworkId] = useState('');
   const [targets, setTargets] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const enrolled = probes.filter((p) => p.status.toLowerCase() === 'enrolled');
-  const options = enrolled.length > 0 ? enrolled : probes;
+  const net = networks.find((n) => n.id === networkId) ?? null;
+  const scout = net ? (net.scouts.find((s) => s.is_primary) ?? net.scouts[0] ?? null) : null;
+
+  const pickNetwork = (id: string) => {
+    setNetworkId(id);
+    const n = networks.find((x) => x.id === id);
+    setTargets(n ? n.ranges.map((r) => r.cidr).join(', ') : '');
+    setError(null);
+  };
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -500,11 +507,20 @@ function CreateScanModal({
       .split(/[\s,]+/)
       .map((t) => t.trim())
       .filter(Boolean);
-    if (!token || !probeId || list.length === 0) return;
+    if (!token || !net) return;
+    if (!scout) {
+      setError('This network has no bound Scout. Bind one on the Networks page first.');
+      return;
+    }
+    if (list.length === 0) {
+      setError('Enter at least one target.');
+      return;
+    }
     setError(null);
     setSubmitting(true);
     try {
-      await api.createJob(token, probeId, list);
+      await api.createJob(token, scout.probe_id, list);
+      setNetworkId('');
       setTargets('');
       toast('success', 'Scan started.');
       onCreated();
@@ -520,36 +536,49 @@ function CreateScanModal({
       open={open}
       onClose={onClose}
       title="Run a scan"
-      description="A one-off vulnerability assessment that runs immediately on the chosen Scout."
+      description="A one-off vulnerability assessment of a network, run now by its bound Scout."
     >
-      {options.length === 0 ? (
+      {networks.length === 0 ? (
         <EmptyState
           compact
           icon={Radar}
-          title="No Scouts available"
-          description="Enroll a Scout first — a scan runs on a Scout you approve."
+          title="No networks yet"
+          description="Create a network with a bound Scout and approved ranges first — scans run against a network."
         />
       ) : (
         <form className="flex flex-col gap-3" onSubmit={handleSubmit}>
-          <Field label="Scout" htmlFor="scan-probe">
+          <Field label="Network" htmlFor="scan-network">
             <Select
-              id="scan-probe"
-              value={probeId}
-              onChange={(e) => setProbeId(e.target.value)}
+              id="scan-network"
+              value={networkId}
+              onChange={(e) => pickNetwork(e.target.value)}
               required
             >
-              <option value="">Choose a Scout…</option>
-              {options.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
+              <option value="">Choose a network…</option>
+              {networks.map((n) => (
+                <option key={n.id} value={n.id}>
+                  {n.name}
                 </option>
               ))}
             </Select>
           </Field>
+          {net && (
+            <p className="text-xs text-muted">
+              {scout ? (
+                <>
+                  Runs on <span className="text-text">{scout.probe_name}</span>.
+                </>
+              ) : (
+                <span className="text-warn">
+                  No bound Scout — bind one on the Networks page first.
+                </span>
+              )}
+            </p>
+          )}
           <Field
             label="Targets"
             htmlFor="scan-targets"
-            hint="Hosts or CIDRs, within an approved scope for this Scout's site. Comma or space separated."
+            hint="Defaults to the network's ranges. Edit to narrow; must stay within an approved scope."
           >
             <Input
               id="scan-targets"
@@ -564,7 +593,7 @@ function CreateScanModal({
             <Button variant="ghost" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" variant="primary" loading={submitting}>
+            <Button type="submit" variant="primary" loading={submitting} disabled={!net || !scout}>
               {submitting ? 'Starting…' : 'Start scan'}
             </Button>
           </div>
