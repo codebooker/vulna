@@ -424,10 +424,6 @@ func safeRestore(dir, archivePath string, stdout, stderr io.Writer) error {
 		return err
 	}
 
-	// Capture the password the RUNNING postgres was initialized with (this host's),
-	// before the restore overwrites .env with the backup's (original host's) password.
-	currentDBPassword := deploy.CurrentDBPassword(dir)
-
 	df, err := os.Open(dumpPath) //nolint:gosec // path inside our temp extract dir
 	if err != nil {
 		return err
@@ -447,29 +443,30 @@ func safeRestore(dir, archivePath string, stdout, stderr io.Writer) error {
 		}
 	}
 
-	// Restore the deployment .env (DB password + evidence master key).
+	// Restore the deployment .env (evidence master key + app secrets) — but KEEP this
+	// host's POSTGRES_USER/DB/PASSWORD. Those belong to the postgres_data volume, which
+	// a restore does NOT re-initialize (pg_restore loads into the existing cluster and
+	// does not restore roles or create databases). Overwriting them with the backup's
+	// values would point the app at a role/database that does not exist on this host
+	// (the cross-host user/db/password mismatch). The master key still comes from the
+	// backup so the restored, encrypted evidence remains decryptable.
 	if envSrc := filepath.Join(extract, "config", "env"); fileExists(envSrc) {
-		data, rerr := os.ReadFile(envSrc) //nolint:gosec // path inside our temp extract dir
+		restored, rerr := deploy.ReadEnv(envSrc)
 		if rerr != nil {
 			return rerr
 		}
-		if werr := os.WriteFile(filepath.Join(dir, deploy.EnvFile), data, 0o600); werr != nil {
-			return werr
-		}
-		fmt.Fprintln(stdout, "Deployment .env restored.")
-
-		// pg_restore does NOT restore cluster roles/passwords, so the postgres volume
-		// still authenticates with THIS host's password while the restored .env carries
-		// the ORIGINAL host's. Re-align the role to the restored password (connecting
-		// with the current one) so the API can authenticate; otherwise a cross-host
-		// restore leaves the stack unable to connect.
-		user, db, restoredPassword := deploy.PGCreds(dir)
-		if restoredPassword != "" && restoredPassword != currentDBPassword {
-			fmt.Fprintln(stdout, "Aligning the database password with the restored config ...")
-			if err := deploy.SetDatabasePassword(dir, currentDBPassword, user, db, restoredPassword); err != nil {
-				return err
+		current, _ := deploy.ReadEnv(filepath.Join(dir, deploy.EnvFile))
+		for _, k := range []string{"POSTGRES_USER", "POSTGRES_DB", "POSTGRES_PASSWORD"} {
+			if v, ok := current[k]; ok {
+				restored[k] = v
+			} else {
+				delete(restored, k)
 			}
 		}
+		if werr := deploy.WriteEnv(filepath.Join(dir, deploy.EnvFile), restored); werr != nil {
+			return werr
+		}
+		fmt.Fprintln(stdout, "Deployment .env restored (this host's database credentials preserved).")
 	}
 
 	fmt.Fprintln(stdout, "Bringing the stack back up on the restored state ...")

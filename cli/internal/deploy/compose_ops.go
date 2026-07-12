@@ -101,9 +101,6 @@ func RestoreVolume(installDir, key, srcParent string) error {
 	return nil
 }
 
-// PGCreds returns the Postgres user/db/password from the deployment .env.
-func PGCreds(installDir string) (user, db, password string) { return pgCreds(installDir) }
-
 // pgCreds returns the Postgres user/db/password from the deployment .env, matching
 // the compose defaults (user=db=vulna). Password may be empty if unset.
 func pgCreds(installDir string) (user, db, password string) {
@@ -159,6 +156,50 @@ func UpServices(installDir string, stdout, stderr io.Writer, services ...string)
 	return cmd.Run()
 }
 
+// StopServices stops the named running services (containers kept, so they can be
+// started again). Used to quiesce writers for a consistent backup.
+func StopServices(installDir string, stdout, stderr io.Writer, services ...string) error {
+	if len(services) == 0 {
+		return nil
+	}
+	args := append(ComposeArgs(installDir), "stop")
+	args = append(args, services...)
+	cmd := exec.Command("docker", args...)
+	cmd.Dir = installDir
+	cmd.Stdout, cmd.Stderr = stdout, stderr
+	return cmd.Run()
+}
+
+// StartServices starts the named (already-created) services.
+func StartServices(installDir string, stdout, stderr io.Writer, services ...string) error {
+	if len(services) == 0 {
+		return nil
+	}
+	args := append(ComposeArgs(installDir), "start")
+	args = append(args, services...)
+	cmd := exec.Command("docker", args...)
+	cmd.Dir = installDir
+	cmd.Stdout, cmd.Stderr = stdout, stderr
+	return cmd.Run()
+}
+
+// RunningNonPostgresServices returns the currently-running services other than
+// postgres — the writers that must be quiesced for a consistent backup and then
+// restarted afterward.
+func RunningNonPostgresServices(installDir string) []string {
+	states, err := serviceStates(installDir)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, s := range states {
+		if s.Service != "postgres" && s.State == "running" {
+			out = append(out, s.Service)
+		}
+	}
+	return out
+}
+
 // WaitPostgresReady polls until postgres accepts connections or the timeout passes.
 func WaitPostgresReady(installDir string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
@@ -212,47 +253,6 @@ func RestoreDatabase(installDir string, in io.Reader) error {
 		return fmt.Errorf("pg_restore in postgres container failed: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
 	return nil
-}
-
-// SetDatabasePassword resets the deployment role's password, connecting with
-// connectPassword (the currently-valid one) and setting it to newPassword. Used
-// after a cross-host restore, where the postgres volume was initialized with THIS
-// host's password but the restored .env carries the ORIGINAL host's password — so
-// the role must be re-aligned to what the app will authenticate with, or the API
-// cannot connect. Runs an ALTER ROLE via psql inside the postgres container.
-func SetDatabasePassword(installDir, connectPassword, user, db, newPassword string) error {
-	// Feed the statement via STDIN (not argv), with the new password as a properly
-	// escaped SQL string literal, so the password never appears in the process args.
-	// (psql `-c` does not perform `:var` interpolation, so a variable would not work.)
-	sql := "ALTER ROLE " + quoteIdent(user) + " WITH PASSWORD " + quoteLiteral(newPassword) + ";\n"
-	cmd := composeExec(installDir, []string{"PGPASSWORD=" + connectPassword}, "postgres",
-		"psql", "-v", "ON_ERROR_STOP=1", "-U", user, "-d", db)
-	cmd.Stdin = strings.NewReader(sql)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("aligning database password failed: %w: %s", err, strings.TrimSpace(stderr.String()))
-	}
-	return nil
-}
-
-// quoteIdent double-quotes a SQL identifier (role name), doubling embedded quotes.
-func quoteIdent(s string) string {
-	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
-}
-
-// quoteLiteral renders a SQL string literal, doubling embedded single quotes
-// (standard_conforming_strings is on by default, so backslashes are literal).
-func quoteLiteral(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
-}
-
-// CurrentDBPassword returns the POSTGRES_PASSWORD currently in the deployment .env
-// (the password the running postgres volume was initialized with, before a restore
-// overwrites .env).
-func CurrentDBPassword(installDir string) string {
-	_, _, pw := pgCreds(installDir)
-	return pw
 }
 
 // composePS is the subset of `docker compose ps --format json` we read.

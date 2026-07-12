@@ -34,20 +34,28 @@ logger = logging.getLogger(__name__)
 
 
 async def _scheduler_loop(settings: Settings) -> None:
-    """Periodically fire due scan schedules and reap stale jobs.
+    """Periodically fire due scan schedules, reap stale jobs, time out pentest
+    sessions, and enforce pentest evidence retention.
 
     The single-host deployment has no external scheduler, so this in-process loop
-    provides one. A per-tick failure is logged and never crashes the loop.
+    provides one. Running the pentest timeout + retention sweeps here (not only via
+    the admin endpoint) makes ``data_retention_days`` and session timeouts actually
+    automatic and durable. A per-tick failure is logged and never crashes the loop.
     """
-    from app.services import reaper, scheduler
+    from datetime import UTC, datetime
+
+    from app.services import pentest, reaper, scheduler
 
     factory = get_sessionmaker()
     while True:
         await asyncio.sleep(settings.scheduler_interval_seconds)
         try:
             async with factory() as session:
+                now = datetime.now(UTC)
                 await scheduler.run_due_schedules(session, settings)
                 await reaper.reap_stale_jobs(session, settings)
+                await pentest.terminate_expired_sessions(session, now)
+                await pentest.purge_expired_evidence(session, now)
                 await session.commit()
         except asyncio.CancelledError:
             raise
