@@ -86,6 +86,16 @@ main() {
 		die "CHECKSUM MISMATCH for $asset — refusing to install"
 	fi
 	install -m 0755 "$work/$asset" "$VULNA_BIN_DIR/vulnarelay"
+
+	# Install-only stops here: just the verified binary, no privileged state dir or
+	# enrollment (matches install-scout.sh, and lets a non-root smoke test verify the
+	# download/signature path without touching /var/lib).
+	if [ "${VULNA_RELAY_INSTALL_ONLY:-0}" = 1 ]; then
+		log "verified relay binary installed without enrollment"
+		return 0
+	fi
+
+	# Enrollment path: needs a writable state dir (root).
 	install -d -m 0700 "$VULNA_RELAY_STATE_DIR"
 	server_ca_path=""
 	if [ -n "$VULNA_SERVER_CA_B64" ]; then
@@ -98,10 +108,7 @@ main() {
 		server_ca_path="$VULNA_RELAY_STATE_DIR/server-ca.pem"
 	fi
 
-	if [ "${VULNA_RELAY_INSTALL_ONLY:-0}" = 1 ]; then
-		log "verified relay binary installed without enrollment"
-		return 0
-	elif [ -n "$VULNA_SERVER" ] && [ -n "$VULNA_RELAY_TOKEN" ]; then
+	if [ -n "$VULNA_SERVER" ] && [ -n "$VULNA_RELAY_TOKEN" ]; then
 		if [ -n "$server_ca_path" ]; then
 			VULNA_RELAY_TOKEN="$VULNA_RELAY_TOKEN" "$VULNA_BIN_DIR/vulnarelay" enroll \
 				--server "$VULNA_SERVER" --state-dir "$VULNA_RELAY_STATE_DIR" \
