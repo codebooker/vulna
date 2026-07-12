@@ -1,27 +1,30 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
-import { CalendarClock, Play, Plus, Radar } from 'lucide-react';
+import { CalendarClock, Crosshair, Play, Plus, Radar } from 'lucide-react';
 import { ApiError, api } from '../api/client';
 import { useAuth } from '../auth/useAuth';
 import { useNav } from '../lib/nav';
 import { useToast } from '../lib/toast';
-import { formatWhen } from '../lib/utils';
+import { formatRelative, formatWhen, humanize } from '../lib/utils';
 import { StatusBadge } from '../components/app/badges';
 import { DataTable, type ColumnDef } from '../components/app/data-table';
 import { PageHeader } from '../components/app/page-header';
 import { Button } from '../components/ui/button';
-import { Card } from '../components/ui/card';
 import { Field, Input, Select } from '../components/ui/input';
 import { ConfirmDialog, Modal } from '../components/ui/overlay';
 import { EmptyState, InlineError } from '../components/ui/states';
 import { Tabs } from '../components/ui/tabs';
 import type { Network } from '../types/network';
-import type { ScanSchedule } from '../types/schedule';
+import type { ProbeSummary } from '../types/onboarding';
+import type { Job, ScanSchedule } from '../types/schedule';
 
 const PRESETS: { label: string; minutes: number }[] = [
   { label: 'Every 6 hours', minutes: 360 },
   { label: 'Daily', minutes: 1440 },
   { label: 'Weekly', minutes: 10080 },
 ];
+
+const ACTIVE_STATES = ['queued', 'offered', 'accepted', 'running'];
+const FAILED_STATES = ['failed', 'cancelled', 'expired', 'rejected_by_probe'];
 
 function intervalLabel(minutes: number): string {
   const preset = PRESETS.find((p) => p.minutes === minutes);
@@ -31,19 +34,22 @@ function intervalLabel(minutes: number): string {
   return `Every ${minutes} minutes`;
 }
 
-/** Scans: scheduled scans in tabs (Running / Scheduled / Completed / Failed),
- *  with creation moved into a modal. Recurring runs are executed by the
- *  network's bound Scout; intrusive runs stay manual. */
+/** Scans: one-off scan jobs (Running / Completed / Failed) and recurring
+ *  Schedules, in tabs. A manual scan runs immediately on a chosen Scout; a
+ *  schedule runs recurring assessments of a network's bound Scout. */
 export function ScansPage() {
   const { token, user, logout } = useAuth();
   const { current } = useNav();
   const { toast } = useToast();
   const [schedules, setSchedules] = useState<ScanSchedule[]>([]);
   const [networks, setNetworks] = useState<Network[]>([]);
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [probes, setProbes] = useState<ProbeSummary[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState(current.params.tab ?? 'scheduled');
-  const [createOpen, setCreateOpen] = useState(false);
+  const [tab, setTab] = useState(current.params.tab ?? 'running');
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scanOpen, setScanOpen] = useState(false);
   const [toDelete, setToDelete] = useState<ScanSchedule | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -54,15 +60,22 @@ export function ScansPage() {
     setLoading(true);
     setError(null);
     try {
-      const [scheds, nets] = await Promise.all([api.listSchedules(token), api.listNetworks(token)]);
+      const [scheds, nets, jobPage, probePage] = await Promise.all([
+        api.listSchedules(token),
+        api.listNetworks(token).catch(() => []),
+        api.listJobs(token, undefined, 200).catch(() => null),
+        api.listProbes(token).catch(() => null),
+      ]);
       setSchedules(scheds);
       setNetworks(nets);
+      setJobs(jobPage?.items ?? []);
+      setProbes(probePage?.items ?? []);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         logout();
         return;
       }
-      setError(err instanceof Error ? err.message : 'Failed to load schedules.');
+      setError(err instanceof Error ? err.message : 'Failed to load scans.');
     } finally {
       setLoading(false);
     }
@@ -72,9 +85,21 @@ export function ScansPage() {
     void load();
   }, [load]);
 
+  // Auto-refresh while scans are active so progress is visible.
+  const hasActive = jobs.some((j) => ACTIVE_STATES.includes(j.status));
+  useEffect(() => {
+    if (!hasActive) return;
+    const t = setInterval(() => void load(), 5000);
+    return () => clearInterval(t);
+  }, [hasActive, load]);
+
   const netName = useCallback(
     (id: string) => networks.find((n) => n.id === id)?.name ?? id.slice(0, 8),
     [networks],
+  );
+  const probeName = useCallback(
+    (id: string) => probes.find((p) => p.id === id)?.name ?? id.slice(0, 8),
+    [probes],
   );
 
   const act = async (fn: () => Promise<unknown>, success: string) => {
@@ -92,19 +117,107 @@ export function ScansPage() {
     }
   };
 
-  const scheduled = schedules.filter((s) => s.enabled && !s.last_error);
-  const failed = schedules.filter((s) => s.last_error);
-  const completed = schedules.filter((s) => s.last_run_at && !s.last_error);
-  const paused = schedules.filter((s) => !s.enabled);
+  const runningJobs = jobs.filter((j) => ACTIVE_STATES.includes(j.status));
+  const completedJobs = jobs.filter((j) => j.status === 'completed');
+  const failedJobs = jobs.filter((j) => FAILED_STATES.includes(j.status));
+  const scheduled = [...schedules].sort((a, b) => Number(b.enabled) - Number(a.enabled));
 
-  const tabRows: Record<string, ScanSchedule[]> = {
-    running: [], // No live-jobs API yet; active jobs will appear here when it lands.
-    scheduled: [...scheduled, ...paused],
-    completed,
-    failed,
+  const counts = {
+    running: runningJobs.length,
+    scheduled: scheduled.length,
+    completed: completedJobs.length,
+    failed: failedJobs.length,
   };
 
-  const columns: ColumnDef<ScanSchedule>[] = useMemo(
+  const jobColumns: ColumnDef<Job>[] = useMemo(
+    () => [
+      {
+        id: 'targets',
+        header: 'Targets',
+        cell: (j) => (
+          <span className="font-mono text-xs text-text">
+            {j.requested_targets_json.join(', ') || '—'}
+          </span>
+        ),
+        sortValue: (j) => j.requested_targets_json.join(', '),
+        csvValue: (j) => j.requested_targets_json.join(' '),
+      },
+      {
+        id: 'scout',
+        header: 'Scout',
+        cell: (j) => <span className="text-xs text-muted">{probeName(j.probe_id)}</span>,
+        sortValue: (j) => probeName(j.probe_id),
+        csvValue: (j) => probeName(j.probe_id),
+      },
+      {
+        id: 'mode',
+        header: 'Mode',
+        defaultHidden: true,
+        cell: (j) => <span className="text-xs text-muted">{humanize(j.mode)}</span>,
+        sortValue: (j) => j.mode,
+        csvValue: (j) => j.mode,
+      },
+      {
+        id: 'status',
+        header: 'Status',
+        cell: (j) => <StatusBadge status={j.status} />,
+        sortValue: (j) => j.status,
+        csvValue: (j) => j.status,
+      },
+      {
+        id: 'started',
+        header: 'Started',
+        cell: (j) => <span className="text-xs text-muted">{formatRelative(j.started_at)}</span>,
+        sortValue: (j) => j.started_at ?? j.created_at,
+        csvValue: (j) => j.started_at ?? '',
+      },
+      {
+        id: 'finished',
+        header: 'Finished',
+        defaultHidden: true,
+        cell: (j) => <span className="text-xs text-muted">{formatRelative(j.finished_at)}</span>,
+        sortValue: (j) => j.finished_at ?? '',
+        csvValue: (j) => j.finished_at ?? '',
+      },
+      {
+        id: 'error',
+        header: 'Error',
+        defaultHidden: true,
+        cell: (j) =>
+          j.error_message ? (
+            <span className="block max-w-56 truncate text-xs text-bad" title={j.error_message}>
+              {j.error_message}
+            </span>
+          ) : (
+            <span className="text-faint">—</span>
+          ),
+        csvValue: (j) => j.error_message ?? '',
+      },
+      {
+        id: 'actions',
+        header: 'Actions',
+        align: 'right',
+        cell: (j) =>
+          isOperator && ACTIVE_STATES.includes(j.status) ? (
+            <span className="flex items-center justify-end" onClick={(e) => e.stopPropagation()}>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-bad"
+                disabled={busy}
+                onClick={() => void act(() => api.cancelJob(token!, j.id), 'Scan cancelled.')}
+              >
+                Cancel
+              </Button>
+            </span>
+          ) : null,
+      },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [probeName, isOperator, busy, token],
+  );
+
+  const scheduleColumns: ColumnDef<ScanSchedule>[] = useMemo(
     () => [
       {
         id: 'name',
@@ -119,14 +232,6 @@ export function ScansPage() {
         cell: (s) => <span className="text-xs text-muted">{netName(s.network_id)}</span>,
         sortValue: (s) => netName(s.network_id),
         csvValue: (s) => netName(s.network_id),
-      },
-      {
-        id: 'mode',
-        header: 'Profile',
-        defaultHidden: true,
-        cell: (s) => <span className="text-xs text-muted">{s.mode.replace(/_/g, ' ')}</span>,
-        sortValue: (s) => s.mode,
-        csvValue: (s) => s.mode,
       },
       {
         id: 'cadence',
@@ -174,20 +279,6 @@ export function ScansPage() {
         ),
         sortValue: (s) => (s.last_error ? 'failed' : s.enabled ? 'ok' : 'paused'),
         csvValue: (s) => (s.last_error ? 'failed' : s.enabled ? 'enabled' : 'paused'),
-      },
-      {
-        id: 'error',
-        header: 'Last error',
-        defaultHidden: true,
-        cell: (s) =>
-          s.last_error ? (
-            <span className="block max-w-56 truncate text-xs text-bad" title={s.last_error}>
-              {s.last_error}
-            </span>
-          ) : (
-            <span className="text-faint">—</span>
-          ),
-        csvValue: (s) => s.last_error ?? '',
       },
       {
         id: 'actions',
@@ -238,17 +329,28 @@ export function ScansPage() {
     [netName, isOperator, busy, token],
   );
 
+  const jobRows: Record<string, Job[]> = {
+    running: runningJobs,
+    completed: completedJobs,
+    failed: failedJobs,
+  };
+
   return (
     <div aria-label="Scans">
       <PageHeader
         crumbs={[{ label: 'Operations' }, { label: 'Scans' }]}
         title="Scans"
-        description="Recurring, unattended assessments run by each network's bound Scout. Intrusive runs stay manual and need approval."
+        description="Run a one-off scan on a Scout now, or schedule recurring assessments of a network. Intrusive runs stay manual and need approval."
         actions={
           isOperator && (
-            <Button variant="primary" onClick={() => setCreateOpen(true)}>
-              <Plus size={14} aria-hidden /> New schedule
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" onClick={() => setScheduleOpen(true)}>
+                <CalendarClock size={14} aria-hidden /> New schedule
+              </Button>
+              <Button variant="primary" onClick={() => setScanOpen(true)}>
+                <Crosshair size={14} aria-hidden /> New scan
+              </Button>
+            </div>
           )
         }
       />
@@ -258,68 +360,97 @@ export function ScansPage() {
       <Tabs
         className="mb-3"
         tabs={[
-          { id: 'running', label: 'Running', count: tabRows.running.length },
-          { id: 'scheduled', label: 'Scheduled', count: tabRows.scheduled.length },
-          { id: 'completed', label: 'Completed', count: tabRows.completed.length },
-          { id: 'failed', label: 'Failed', count: tabRows.failed.length },
+          { id: 'running', label: 'Running', count: counts.running },
+          { id: 'scheduled', label: 'Scheduled', count: counts.scheduled },
+          { id: 'completed', label: 'Completed', count: counts.completed },
+          { id: 'failed', label: 'Failed', count: counts.failed },
         ]}
         value={tab}
         onChange={setTab}
       />
 
-      {tab === 'running' ? (
-        <Card>
-          <EmptyState
-            icon={Radar}
-            title="No scans running right now"
-            description="Active scans appear here with live progress while they run. Use “Run” on a scheduled scan to start one."
-          />
-        </Card>
-      ) : (
+      {tab === 'scheduled' ? (
         <DataTable<ScanSchedule>
-          columns={columns}
-          rows={tabRows[tab] ?? []}
+          columns={scheduleColumns}
+          rows={scheduled}
           rowKey={(s) => s.id}
           searchText={(s) => `${s.name} ${netName(s.network_id)}`}
+          searchPlaceholder="Search schedules…"
+          loading={loading}
+          error={null}
+          emptyTitle="No scheduled scans yet"
+          emptyDescription="Create a schedule to run recurring assessments of a network."
+          emptyAction={
+            isOperator ? (
+              <Button variant="primary" size="sm" onClick={() => setScheduleOpen(true)}>
+                <Plus size={13} aria-hidden /> New schedule
+              </Button>
+            ) : undefined
+          }
+          exportName="scan-schedules"
+          storageKey="vulnadash.schedules"
+        />
+      ) : (
+        <DataTable<Job>
+          columns={jobColumns}
+          rows={jobRows[tab] ?? []}
+          rowKey={(j) => j.id}
+          searchText={(j) =>
+            `${j.requested_targets_json.join(' ')} ${probeName(j.probe_id)} ${j.status}`
+          }
           searchPlaceholder="Search scans…"
           loading={loading}
           error={null}
           emptyTitle={
-            tab === 'failed'
-              ? 'No failed scans'
+            tab === 'running'
+              ? 'No scans running'
               : tab === 'completed'
                 ? 'No completed scans yet'
-                : 'No scheduled scans yet'
+                : 'No failed scans'
           }
           emptyDescription={
-            tab === 'scheduled'
-              ? 'Create a schedule to run recurring assessments of a network.'
-              : tab === 'failed'
-                ? 'Scan failures show up here with their error message.'
-                : 'Completed runs appear here after their first execution.'
+            tab === 'running'
+              ? 'Start a one-off scan with “New scan”, or run a schedule.'
+              : tab === 'completed'
+                ? 'Completed scans appear here with their results.'
+                : 'Scan failures show up here with their error message.'
           }
           emptyAction={
-            tab === 'scheduled' && isOperator ? (
-              <Button variant="primary" size="sm" onClick={() => setCreateOpen(true)}>
-                <Plus size={13} aria-hidden /> New schedule
+            tab === 'running' && isOperator ? (
+              <Button variant="primary" size="sm" onClick={() => setScanOpen(true)}>
+                <Crosshair size={13} aria-hidden /> New scan
               </Button>
             ) : undefined
           }
           exportName={`scans-${tab}`}
           storageKey="vulnadash.scans"
+          defaultSort={{ id: 'started', dir: 'desc' }}
         />
       )}
 
       {isOperator && (
-        <CreateScheduleModal
-          open={createOpen}
-          networks={networks}
-          onClose={() => setCreateOpen(false)}
-          onCreated={() => {
-            setCreateOpen(false);
-            void load();
-          }}
-        />
+        <>
+          <CreateScanModal
+            open={scanOpen}
+            probes={probes}
+            onClose={() => setScanOpen(false)}
+            onCreated={() => {
+              setScanOpen(false);
+              setTab('running');
+              void load();
+            }}
+          />
+          <CreateScheduleModal
+            open={scheduleOpen}
+            networks={networks}
+            onClose={() => setScheduleOpen(false)}
+            onCreated={() => {
+              setScheduleOpen(false);
+              setTab('scheduled');
+              void load();
+            }}
+          />
+        </>
       )}
 
       <ConfirmDialog
@@ -339,6 +470,107 @@ export function ScansPage() {
         }}
       />
     </div>
+  );
+}
+
+function CreateScanModal({
+  open,
+  probes,
+  onClose,
+  onCreated,
+}: {
+  open: boolean;
+  probes: ProbeSummary[];
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const { token } = useAuth();
+  const { toast } = useToast();
+  const [probeId, setProbeId] = useState('');
+  const [targets, setTargets] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const enrolled = probes.filter((p) => p.status.toLowerCase() === 'enrolled');
+  const options = enrolled.length > 0 ? enrolled : probes;
+
+  async function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    const list = targets
+      .split(/[\s,]+/)
+      .map((t) => t.trim())
+      .filter(Boolean);
+    if (!token || !probeId || list.length === 0) return;
+    setError(null);
+    setSubmitting(true);
+    try {
+      await api.createJob(token, probeId, list);
+      setTargets('');
+      toast('success', 'Scan started.');
+      onCreated();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to start the scan.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Run a scan"
+      description="A one-off vulnerability assessment that runs immediately on the chosen Scout."
+    >
+      {options.length === 0 ? (
+        <EmptyState
+          compact
+          icon={Radar}
+          title="No Scouts available"
+          description="Enroll a Scout first — a scan runs on a Scout you approve."
+        />
+      ) : (
+        <form className="flex flex-col gap-3" onSubmit={handleSubmit}>
+          <Field label="Scout" htmlFor="scan-probe">
+            <Select
+              id="scan-probe"
+              value={probeId}
+              onChange={(e) => setProbeId(e.target.value)}
+              required
+            >
+              <option value="">Choose a Scout…</option>
+              {options.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field
+            label="Targets"
+            htmlFor="scan-targets"
+            hint="Hosts or CIDRs, within an approved scope for this Scout's site. Comma or space separated."
+          >
+            <Input
+              id="scan-targets"
+              value={targets}
+              onChange={(e) => setTargets(e.target.value)}
+              placeholder="e.g. 10.0.0.0/24, 192.168.1.5"
+              required
+            />
+          </Field>
+          {error && <InlineError message={error} />}
+          <div className="mt-1 flex justify-end gap-2">
+            <Button variant="ghost" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="primary" loading={submitting}>
+              {submitting ? 'Starting…' : 'Start scan'}
+            </Button>
+          </div>
+        </form>
+      )}
+    </Modal>
   );
 }
 
