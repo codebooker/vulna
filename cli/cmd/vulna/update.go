@@ -570,13 +570,26 @@ func runBackup(dir string, stdout, stderr io.Writer) (archivePath string, err er
 	// If the stack is STOPPED but has data (e.g. a pre-restore safety backup on a
 	// stopped host), bring ONLY postgres up so we can still dump it — otherwise the
 	// documented stopped-host restore could never take its safety backup and abort.
-	if deploy.HasPostgresService(dir) && deploy.PostgresDataExists(dir) && !deploy.PostgresReady(dir) {
-		fmt.Fprintln(stdout, "Starting postgres to take a backup ...")
-		if err := deploy.UpServices(dir, stdout, stderr, "postgres"); err != nil {
-			return "", fmt.Errorf("starting postgres for the backup: %w", err)
+	if deploy.HasPostgresService(dir) && deploy.PostgresDataExists(dir) {
+		// Record postgres's ORIGINAL container state. `!PostgresReady()` is NOT the same
+		// as "stopped" (a running-but-unhealthy container is also not ready), so decide
+		// on the actual running state and, if we start it, put it back EXACTLY as we
+		// found it on every exit path — never leave a postgres container we started
+		// lingering when a later step (readiness, temp dir, snapshot, backup.sh) fails.
+		if !deploy.PostgresRunning(dir) {
+			fmt.Fprintln(stdout, "Starting postgres to take a backup ...")
+			if upErr := deploy.UpServices(dir, stdout, stderr, "postgres"); upErr != nil {
+				return "", fmt.Errorf("starting postgres for the backup: %w", upErr)
+			}
+			defer func() {
+				if sErr := deploy.StopServices(dir, stdout, stderr, "postgres"); sErr != nil {
+					err = errors.Join(err, fmt.Errorf(
+						"stopping postgres (started only for the backup) failed — it may be left running: %w", sErr))
+				}
+			}()
 		}
-		if err := deploy.WaitPostgresReady(dir, 60*time.Second); err != nil {
-			return "", err
+		if wErr := deploy.WaitPostgresReady(dir, 60*time.Second); wErr != nil {
+			return "", wErr
 		}
 	}
 	if deploy.HasPostgresService(dir) && deploy.PostgresReady(dir) {

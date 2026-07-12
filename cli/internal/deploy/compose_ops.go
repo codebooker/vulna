@@ -232,6 +232,23 @@ func WaitPostgresReady(installDir string, timeout time.Duration) error {
 	}
 }
 
+// PostgresRunning reports whether the postgres CONTAINER is running — distinct from
+// PostgresReady, which also requires it to accept connections. A running-but-unhealthy
+// container is running but not ready. Used to record postgres's original state so a
+// backup that started it can put it back exactly as it found it.
+func PostgresRunning(installDir string) bool {
+	states, err := serviceStates(installDir)
+	if err != nil {
+		return false
+	}
+	for _, s := range states {
+		if s.Service == "postgres" {
+			return s.State == "running"
+		}
+	}
+	return false
+}
+
 // PostgresReady reports whether the postgres service is up and accepting
 // connections — the precondition for a Compose-mode dump or restore.
 func PostgresReady(installDir string) bool {
