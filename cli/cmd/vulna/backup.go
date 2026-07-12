@@ -328,10 +328,11 @@ func cmdBackupRestore(args []string, stdout, stderr io.Writer) int {
 	// 6. Apply.
 	fmt.Fprintf(stdout, "Restoring %s (app %s, schema %s) ...\n",
 		bundle, rep.Manifest.AppVersion, orDashB(rep.Manifest.SchemaVersion))
-	if deploy.PostgresReady(*dir) {
-		// Compose deployment: restore the DB inside the postgres container and the
-		// data volumes into the api container (the host has no DATABASE_URL / data dir).
-		if err := restoreCompose(*dir, tarPath, stdout, stderr); err != nil {
+	if deploy.HasPostgresService(*dir) {
+		// Compose deployment: safe-restore works whether the stack is running,
+		// stopped, or the host is clean (it stops writers, isolates postgres, restores
+		// the DB + volumes + .env, then restarts) — the documented DR workflow.
+		if err := safeRestore(*dir, tarPath, stdout, stderr); err != nil {
 			fmt.Fprintln(stderr, "restore:", err)
 			return 1
 		}
@@ -350,43 +351,86 @@ func cmdBackupRestore(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// restoreCompose restores a plaintext backup tar.gz into a running Compose
-// deployment: the database via `docker compose exec postgres pg_restore`, the data
-// volumes via `docker compose cp` into the api container, and the deployment .env
-// back into the install dir. Any DB restore failure aborts (no false success).
-func restoreCompose(dir, tarPath string, stdout, stderr io.Writer) error {
+// verifyArchiveChecksum recomputes the archive's SHA-256 and compares it to the
+// `<archive>.sha256` sidecar, refusing to restore a tampered or truncated archive.
+// The sidecar is required — no sidecar means we cannot verify, so we refuse.
+func verifyArchiveChecksum(archivePath string) error {
+	sumBytes, err := os.ReadFile(archivePath + ".sha256")
+	if err != nil {
+		return fmt.Errorf("no %s.sha256 alongside the archive; refusing to restore unverified backup", filepath.Base(archivePath))
+	}
+	want := strings.Fields(string(sumBytes))
+	if len(want) == 0 {
+		return fmt.Errorf("empty checksum sidecar for %s", filepath.Base(archivePath))
+	}
+	data, err := os.ReadFile(archivePath) //nolint:gosec // operator-provided restore path
+	if err != nil {
+		return err
+	}
+	if got := backup.SHA256Hex(data); got != want[0] {
+		return fmt.Errorf("archive checksum mismatch — refusing to restore (want %s, got %s)", want[0], got)
+	}
+	return nil
+}
+
+// safeRestore restores a plaintext backup archive (tar.gz, with a .sha256 sidecar)
+// into a Compose deployment SAFELY, and works whether the stack is running, stopped,
+// or the host is clean:
+//  1. verify archive integrity;
+//  2. stop ALL services (containers removed, volumes kept) so nothing writes during
+//     the restore;
+//  3. bring up ONLY postgres and restore the database into it (no app connected);
+//  4. restore every data volume via a throwaway helper container (independent of the
+//     app containers, which are down);
+//  5. restore the deployment .env;
+//  6. bring the whole stack back up on the restored state.
+func safeRestore(dir, archivePath string, stdout, stderr io.Writer) error {
+	if err := verifyArchiveChecksum(archivePath); err != nil {
+		return err
+	}
 	extract, err := os.MkdirTemp("", "vulna-restore-extract-")
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(extract)
-	untar := exec.Command("tar", "-xzf", tarPath, "-C", extract) //nolint:gosec // our staged archive
+	untar := exec.Command("tar", "-xzf", archivePath, "-C", extract) //nolint:gosec // verified archive
 	untar.Stderr = stderr
 	if err := untar.Run(); err != nil {
 		return fmt.Errorf("extracting backup archive: %w", err)
 	}
-
-	// Restore the database first — this is the point of a restore; fail if it fails.
 	dumpPath := filepath.Join(extract, "db.dump")
-	df, err := os.Open(dumpPath) //nolint:gosec // path inside our temp extract dir
-	if err != nil {
+	if _, err := os.Stat(dumpPath); err != nil {
 		return fmt.Errorf("backup has no database dump: %w", err)
 	}
+
+	// Stop all writers, then isolate postgres for the restore.
+	fmt.Fprintln(stdout, "Stopping services for a consistent restore ...")
+	if err := deploy.Down(dir, false, stdout, stderr); err != nil {
+		return fmt.Errorf("stopping the stack: %w", err)
+	}
+	if err := deploy.UpServices(dir, stdout, stderr, "postgres"); err != nil {
+		return fmt.Errorf("starting postgres for the restore: %w", err)
+	}
+	if err := deploy.WaitPostgresReady(dir, 60*time.Second); err != nil {
+		return err
+	}
+
+	df, err := os.Open(dumpPath) //nolint:gosec // path inside our temp extract dir
+	if err != nil {
+		return err
+	}
 	defer df.Close()
-	fmt.Fprintln(stdout, "Restoring the database into the postgres container ...")
+	fmt.Fprintln(stdout, "Restoring the database ...")
 	if err := deploy.RestoreDatabase(dir, df); err != nil {
 		return err
 	}
 
-	// Restore the persistent data volumes into the api container.
+	// Restore every persistent data volume (keys, reports, evidence, scout_state,
+	// bootstrap) via helper containers — no dependency on the app containers.
 	dataDir := filepath.Join(extract, "data")
-	for _, d := range []string{"keys", "reports", "evidence"} {
-		src := filepath.Join(dataDir, d)
-		if _, statErr := os.Stat(src); statErr != nil {
-			continue
-		}
-		if err := deploy.CopyToContainer(dir, "api", src+"/.", "/var/lib/vulna/"+d); err != nil {
-			return fmt.Errorf("restoring %s: %w", d, err)
+	for _, key := range deploy.DataVolumeKeys() {
+		if err := deploy.RestoreVolume(dir, key, dataDir); err != nil {
+			return err
 		}
 	}
 
@@ -401,7 +445,9 @@ func restoreCompose(dir, tarPath string, stdout, stderr io.Writer) error {
 		}
 		fmt.Fprintln(stdout, "Deployment .env restored.")
 	}
-	return nil
+
+	fmt.Fprintln(stdout, "Bringing the stack back up on the restored state ...")
+	return deploy.Up(dir, stdout, stderr)
 }
 
 func fileExists(p string) bool {

@@ -2,27 +2,40 @@ package deploy
 
 import "testing"
 
-func TestUnhealthyClassification(t *testing.T) {
-	// A service with a health check must be "healthy"; one without must be "running".
-	states := []composePS{
+func TestNotReadyClassification(t *testing.T) {
+	// expected: long-running services + one one-shot (scout-ca-export).
+	expected := map[string]bool{
+		"api": false, "postgres": false, "redis": false,
+		"local-scout": false, "scout-ca-export": true,
+	}
+	healthy := []composePS{
 		{Service: "api", State: "running", Health: "healthy"},
 		{Service: "postgres", State: "running", Health: "healthy"},
 		{Service: "redis", State: "running", Health: ""},                       // no healthcheck, running -> ok
+		{Service: "local-scout", State: "running", Health: ""},                 // long-running, ok
 		{Service: "scout-ca-export", State: "exited", Health: "", ExitCode: 0}, // one-shot done -> ok
 	}
-	if bad := unhealthy(states); len(bad) != 0 {
-		t.Errorf("all-healthy stack (incl. a completed one-shot) should report none unhealthy, got %v", bad)
+	if bad := notReady(expected, healthy); len(bad) != 0 {
+		t.Errorf("fully-up stack should report none not-ready, got %v", bad)
 	}
 
-	states = []composePS{
-		{Service: "api", State: "running", Health: "starting"}, // still starting -> not yet
-		{Service: "frontend", State: "running", Health: "unhealthy"},
-		{Service: "caddy", State: "exited", Health: "", ExitCode: 1}, // crashed -> bad
+	// A dead LONG-RUNNING service that exited 0 must still be flagged (finding 7);
+	// only the one-shot may be exited.
+	badStates := []composePS{
+		{Service: "api", State: "running", Health: "starting"}, // still starting
+		{Service: "postgres", State: "running", Health: "healthy"},
 		{Service: "redis", State: "running", Health: ""},
+		{Service: "local-scout", State: "exited", Health: "", ExitCode: 0}, // long-running, dead -> bad
+		{Service: "scout-ca-export", State: "exited", Health: "", ExitCode: 0},
 	}
-	bad := unhealthy(states)
-	if len(bad) != 3 {
-		t.Errorf("expected 3 unhealthy (api starting, frontend unhealthy, caddy exited nonzero), got %v", bad)
+	bad := notReady(expected, badStates)
+	if len(bad) != 2 {
+		t.Errorf("expected 2 not-ready (api starting, local-scout exited), got %v", bad)
+	}
+
+	// A MISSING expected service (empty project) is NOT ready (finding 7).
+	if bad := notReady(expected, nil); len(bad) != 5 {
+		t.Errorf("empty project must report all 5 expected services missing, got %v", bad)
 	}
 }
 
