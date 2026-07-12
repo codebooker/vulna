@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -579,65 +580,17 @@ func runBackup(dir string, stdout, stderr io.Writer) (archivePath string, err er
 		}
 	}
 	if deploy.HasPostgresService(dir) && deploy.PostgresReady(dir) {
-		stage, err := os.MkdirTemp("", "vulna-backup-stage-")
-		if err != nil {
-			return "", err
+		stage, mkErr := os.MkdirTemp("", "vulna-backup-stage-")
+		if mkErr != nil {
+			return "", mkErr
 		}
 		defer os.RemoveAll(stage)
 
-		// Quiesce the writers (API, local Scout, ...) so the DB dump and the volume
-		// copies represent ONE consistent point in time — a report can't be half-
-		// written, and the Scout can't mutate its queue mid-copy. postgres stays up for
-		// the dump; the stopped services are restarted afterward, preserving the
-		// running state. Fail CLOSED if we can't determine the writers (don't take an
-		// inconsistent backup), and surface a failed restart (don't return success
-		// while the deployment is left stopped).
-		quiesced, qErr := deploy.RunningNonPostgresServices(dir)
-		if qErr != nil {
-			return "", fmt.Errorf("cannot take a consistent backup: %w", qErr)
+		dumpEnv, snapErr := composeSnapshot(dir, stage, stdout, stderr)
+		if snapErr != nil {
+			return "", snapErr
 		}
-		if len(quiesced) > 0 {
-			fmt.Fprintln(stdout, "Pausing services for a consistent backup ...")
-			if err := deploy.StopServices(dir, stdout, stderr, quiesced...); err != nil {
-				return "", fmt.Errorf("quiescing services for a consistent backup: %w", err)
-			}
-			defer func() {
-				if rErr := deploy.StartServices(dir, stdout, stderr, quiesced...); rErr != nil && err == nil {
-					err = fmt.Errorf("backup taken, but restarting services failed (deployment may be stopped): %w", rErr)
-				}
-			}()
-		}
-
-		dumpPath := filepath.Join(stage, "db.dump")
-		df, err := os.Create(dumpPath) //nolint:gosec // temp path we just created
-		if err != nil {
-			return "", err
-		}
-		if err := deploy.DumpDatabase(dir, df); err != nil {
-			_ = df.Close()
-			return "", err
-		}
-		if err := df.Close(); err != nil {
-			return "", err
-		}
-
-		dataDir := filepath.Join(stage, "data")
-		if err := os.MkdirAll(dataDir, 0o700); err != nil {
-			return "", err
-		}
-		// Capture every persistent volume: keys (CA/signing, required), reports,
-		// evidence, and the local Scout's identity (scout_state, bootstrap) so a
-		// restore does not require Scout re-enrollment.
-		for _, key := range deploy.DataVolumeKeys() {
-			copied, err := deploy.BackupVolume(dir, key, dataDir)
-			if err != nil {
-				return "", err
-			}
-			if !copied && key == "keys" {
-				return "", fmt.Errorf("the CA/signing keys volume is missing; cannot take a usable backup")
-			}
-		}
-		env = append(env, "VULNA_DB_DUMP="+dumpPath, "VULNA_DATA="+dataDir)
+		env = append(env, dumpEnv...)
 	}
 
 	// backup.sh writes exactly VULNA_BACKUP_FILE (+ .sha256).
@@ -649,4 +602,64 @@ func runBackup(dir string, stdout, stderr io.Writer) (archivePath string, err er
 	}
 	fmt.Fprintf(stdout, "Pre-update backup written: %s\n", archive)
 	return archive, nil
+}
+
+// composeSnapshot takes a point-in-time-consistent snapshot into stage: it quiesces
+// the writers (stops non-postgres services, keeps postgres for the dump), dumps the
+// database, and copies each data volume, then returns the VULNA_DB_DUMP / VULNA_DATA
+// env the assembler needs.
+//
+// The restart of the quiesced services is installed BEFORE stopping them, so even a
+// PARTIALLY-successful stop is recovered; and a restart failure is ALWAYS combined
+// (errors.Join) with any snapshot error via the named return, so a failed restart is
+// never suppressed by an earlier error and the caller learns the deployment may be
+// left stopped.
+func composeSnapshot(dir, stage string, stdout, stderr io.Writer) (envAdd []string, err error) {
+	quiesced, qErr := deploy.RunningNonPostgresServices(dir)
+	if qErr != nil {
+		return nil, fmt.Errorf("cannot take a consistent backup: %w", qErr)
+	}
+	if len(quiesced) > 0 {
+		fmt.Fprintln(stdout, "Pausing services for a consistent backup ...")
+		defer func() {
+			if rErr := deploy.StartServices(dir, stdout, stderr, quiesced...); rErr != nil {
+				err = errors.Join(err, fmt.Errorf(
+					"restarting services after backup failed (deployment may be stopped): %w", rErr))
+			}
+		}()
+		if sErr := deploy.StopServices(dir, stdout, stderr, quiesced...); sErr != nil {
+			return nil, fmt.Errorf("quiescing services for a consistent backup: %w", sErr)
+		}
+	}
+
+	dumpPath := filepath.Join(stage, "db.dump")
+	df, cErr := os.Create(dumpPath) //nolint:gosec // temp path we just created
+	if cErr != nil {
+		return nil, cErr
+	}
+	if dErr := deploy.DumpDatabase(dir, df); dErr != nil {
+		_ = df.Close()
+		return nil, dErr
+	}
+	if clErr := df.Close(); clErr != nil {
+		return nil, clErr
+	}
+
+	dataDir := filepath.Join(stage, "data")
+	if mErr := os.MkdirAll(dataDir, 0o700); mErr != nil {
+		return nil, mErr
+	}
+	// Capture every persistent volume: keys (CA/signing, required), reports, evidence,
+	// and the local Scout's identity (scout_state, bootstrap) so a restore does not
+	// require Scout re-enrollment.
+	for _, key := range deploy.DataVolumeKeys() {
+		copied, vErr := deploy.BackupVolume(dir, key, dataDir)
+		if vErr != nil {
+			return nil, vErr
+		}
+		if !copied && key == "keys" {
+			return nil, fmt.Errorf("the CA/signing keys volume is missing; cannot take a usable backup")
+		}
+	}
+	return []string{"VULNA_DB_DUMP=" + dumpPath, "VULNA_DATA=" + dataDir}, nil
 }
