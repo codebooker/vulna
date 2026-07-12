@@ -221,12 +221,13 @@ func RestoreDatabase(installDir string, in io.Reader) error {
 // the role must be re-aligned to what the app will authenticate with, or the API
 // cannot connect. Runs an ALTER ROLE via psql inside the postgres container.
 func SetDatabasePassword(installDir, connectPassword, user, db, newPassword string) error {
-	// Pass the new password to psql as a variable and use quote_literal so it is
-	// never interpolated unsafely into SQL text.
+	// Feed the statement via STDIN (not argv), with the new password as a properly
+	// escaped SQL string literal, so the password never appears in the process args.
+	// (psql `-c` does not perform `:var` interpolation, so a variable would not work.)
+	sql := "ALTER ROLE " + quoteIdent(user) + " WITH PASSWORD " + quoteLiteral(newPassword) + ";\n"
 	cmd := composeExec(installDir, []string{"PGPASSWORD=" + connectPassword}, "postgres",
-		"psql", "-v", "ON_ERROR_STOP=1", "-U", user, "-d", db,
-		"-v", "pw="+newPassword,
-		"-c", "ALTER ROLE "+quoteIdent(user)+" WITH PASSWORD :'pw'")
+		"psql", "-v", "ON_ERROR_STOP=1", "-U", user, "-d", db)
+	cmd.Stdin = strings.NewReader(sql)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
@@ -238,6 +239,12 @@ func SetDatabasePassword(installDir, connectPassword, user, db, newPassword stri
 // quoteIdent double-quotes a SQL identifier (role name), doubling embedded quotes.
 func quoteIdent(s string) string {
 	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
+}
+
+// quoteLiteral renders a SQL string literal, doubling embedded single quotes
+// (standard_conforming_strings is on by default, so backslashes are literal).
+func quoteLiteral(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }
 
 // CurrentDBPassword returns the POSTGRES_PASSWORD currently in the deployment .env
