@@ -177,6 +177,8 @@ function NetworkCard({
   const [cidr, setCidr] = useState('');
   const [scoutId, setScoutId] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState(false);
+  const [nameDraft, setNameDraft] = useState(net.name);
 
   const run = async (fn: () => Promise<unknown>, success?: string) => {
     if (!token) return;
@@ -198,15 +200,75 @@ function NetworkCard({
         <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--accent-tint)] text-accent">
           <NetworkIcon size={15} aria-hidden />
         </span>
-        <div className="min-w-0 flex-1">
-          <p className="text-[13px] font-semibold text-text">{net.name}</p>
-          <p className="text-[11px] text-muted">{siteName}</p>
-        </div>
-        <StatusBadge status={net.enabled ? 'enabled' : 'disabled'} />
-        {isAdmin && (
-          <Button size="sm" variant="ghost" className="text-bad" onClick={onDelete}>
-            Delete
-          </Button>
+        {renaming ? (
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <Input
+              value={nameDraft}
+              onChange={(e) => setNameDraft(e.target.value)}
+              className="max-w-xs"
+              aria-label="Network name"
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!nameDraft.trim() || nameDraft === net.name}
+              onClick={() =>
+                void run(
+                  () => api.updateNetwork(token!, net.id, { name: nameDraft.trim() }),
+                  'Network renamed.',
+                ).then(() => setRenaming(false))
+              }
+            >
+              Save
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setNameDraft(net.name);
+                setRenaming(false);
+              }}
+            >
+              Cancel
+            </Button>
+          </div>
+        ) : (
+          <>
+            <div className="min-w-0 flex-1">
+              <p className="text-[13px] font-semibold text-text">{net.name}</p>
+              <p className="text-[11px] text-muted">{siteName}</p>
+            </div>
+            <StatusBadge status={net.enabled ? 'enabled' : 'disabled'} />
+            {isAdmin && (
+              <>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setNameDraft(net.name);
+                    setRenaming(true);
+                  }}
+                >
+                  Rename
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() =>
+                    void run(
+                      () => api.updateNetwork(token!, net.id, { enabled: !net.enabled }),
+                      net.enabled ? 'Network disabled.' : 'Network enabled.',
+                    )
+                  }
+                >
+                  {net.enabled ? 'Disable' : 'Enable'}
+                </Button>
+                <Button size="sm" variant="ghost" className="text-bad" onClick={onDelete}>
+                  Delete
+                </Button>
+              </>
+            )}
+          </>
         )}
       </div>
 

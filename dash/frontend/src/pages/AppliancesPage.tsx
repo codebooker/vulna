@@ -16,6 +16,7 @@ import { Code, DetailRow } from '../components/ui/misc';
 import { ConfirmDialog, Drawer } from '../components/ui/overlay';
 import { InlineError } from '../components/ui/states';
 import { Tabs } from '../components/ui/tabs';
+import { AddRelayPage } from './AddRelayPage';
 import { AddScoutPage } from './AddScoutPage';
 import { RelayPage } from './RelayPage';
 import type { ProbeDetail, ProbeSummary } from '../types/onboarding';
@@ -36,6 +37,8 @@ export function AppliancesPage() {
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState(current.params.tab === 'relay' ? 'relay' : 'scouts');
   const [addOpen, setAddOpen] = useState(false);
+  const [relayAddOpen, setRelayAddOpen] = useState(false);
+  const [relayRefresh, setRelayRefresh] = useState(0);
   const [selected, setSelected] = useState<ProbeSummary | null>(null);
 
   const isAdmin = user?.role === 'administrator';
@@ -144,11 +147,15 @@ export function AppliancesPage() {
         description="VulnaScout probes and relay endpoints across your sites."
         actions={
           isAdmin &&
-          tab === 'scouts' && (
+          (tab === 'scouts' ? (
             <Button variant="primary" onClick={() => setAddOpen(true)}>
               <Plus size={14} aria-hidden /> Add Scout
             </Button>
-          )
+          ) : (
+            <Button variant="primary" onClick={() => setRelayAddOpen(true)}>
+              <Plus size={14} aria-hidden /> Add Relay
+            </Button>
+          ))
         }
       />
 
@@ -214,7 +221,7 @@ export function AppliancesPage() {
           defaultSort={{ id: 'name', dir: 'asc' }}
         />
       ) : (
-        <RelayPage />
+        <RelayPage refreshKey={relayRefresh} />
       )}
 
       <ApplianceDrawer
@@ -235,6 +242,18 @@ export function AppliancesPage() {
         }
       >
         <AddScoutPage />
+      </Drawer>
+
+      <Drawer
+        open={relayAddOpen}
+        onClose={() => setRelayAddOpen(false)}
+        title={
+          <span className="flex items-center gap-2">
+            <HardDrive size={15} className="text-accent" aria-hidden /> Add a relay
+          </span>
+        }
+      >
+        <AddRelayPage onEnrolled={() => setRelayRefresh((k) => k + 1)} />
       </Drawer>
     </div>
   );

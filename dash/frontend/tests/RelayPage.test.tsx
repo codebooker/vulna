@@ -53,17 +53,14 @@ describe('RelayPage', () => {
     localStorage.clear();
   });
 
-  it('is available by default, like a scout — add form, no opt-in gate', async () => {
+  it('shows the relay list immediately, with no opt-in gate', async () => {
     render(
       <AuthProvider>
         <RelayPage />
       </AuthProvider>,
     );
-    // The add-relay form and list are present immediately, with no enable step.
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: /Add relay/ })).toBeInTheDocument(),
-    );
-    expect(screen.getByText(/No relays enrolled yet/)).toBeInTheDocument();
+    // The relay list is shown right away, with no "enable relay mode" step.
+    await waitFor(() => expect(screen.getByText(/No relays enrolled yet/)).toBeInTheDocument());
     expect(screen.queryByRole('button', { name: /Enable relay mode/ })).not.toBeInTheDocument();
   });
 });

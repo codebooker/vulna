@@ -11,7 +11,7 @@ import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
 import { Field, Input } from '../components/ui/input';
 import { Code, DetailRow } from '../components/ui/misc';
-import { Drawer, Modal } from '../components/ui/overlay';
+import { ConfirmDialog, Drawer, Modal } from '../components/ui/overlay';
 import { EmptyState, ErrorState, InlineError, TableSkeleton } from '../components/ui/states';
 import { Segmented } from '../components/ui/tabs';
 import type { NetworkScope, Site } from '../types/inventory';
@@ -266,59 +266,13 @@ export function SitesPage() {
         </div>
       )}
 
-      {/* Detail drawer */}
-      <Drawer
-        open={selected !== null}
+      <SiteDrawer
+        site={selected}
+        scopes={scopes}
+        isAdmin={isAdmin}
         onClose={() => setSelected(null)}
-        title={selected?.name ?? ''}
-        description={selected ? `Site code ${selected.code}` : undefined}
-      >
-        {selected && (
-          <div className="flex flex-col gap-4">
-            <dl className="divide-y divide-border rounded-lg border border-border px-3">
-              <DetailRow label="Code">
-                <Code>{selected.code}</Code>
-              </DetailRow>
-              <DetailRow label="Location">{selected.address ?? '—'}</DetailRow>
-              <DetailRow label="Timezone">{selected.timezone}</DetailRow>
-              <DetailRow label="Business owner">{selected.business_owner ?? '—'}</DetailRow>
-              <DetailRow label="Technical owner">{selected.technical_owner ?? '—'}</DetailRow>
-              <DetailRow label="Created">{formatWhenFull(selected.created_at)}</DetailRow>
-              <DetailRow label="Updated">{formatWhenFull(selected.updated_at)}</DetailRow>
-            </dl>
-            {selected.description && (
-              <p className="text-[13px] leading-relaxed text-muted">{selected.description}</p>
-            )}
-            <section>
-              <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted">
-                Approved scopes
-              </h3>
-              {scopes.filter((sc) => sc.site_id === selected.id).length === 0 ? (
-                <p className="text-xs text-muted">No approved scopes for this site yet.</p>
-              ) : (
-                <ul className="flex flex-col gap-1.5">
-                  {scopes
-                    .filter((sc) => sc.site_id === selected.id)
-                    .map((sc) => (
-                      <li
-                        key={sc.id}
-                        className="flex items-center justify-between rounded-lg border border-border px-3 py-2"
-                      >
-                        <span className="text-[13px] text-text">{sc.name}</span>
-                        <span className="flex items-center gap-2">
-                          <Code>{sc.cidr}</Code>
-                          <Badge tone={sc.enabled ? 'ok' : 'neutral'}>
-                            {sc.enabled ? 'Enabled' : 'Disabled'}
-                          </Badge>
-                        </span>
-                      </li>
-                    ))}
-                </ul>
-              )}
-            </section>
-          </div>
-        )}
-      </Drawer>
+        onChanged={() => void loadSites()}
+      />
 
       {isAdmin && (
         <CreateSiteModal
@@ -331,6 +285,204 @@ export function SitesPage() {
         />
       )}
     </div>
+  );
+}
+
+function SiteDrawer({
+  site,
+  scopes,
+  isAdmin,
+  onClose,
+  onChanged,
+}: {
+  site: Site | null;
+  scopes: NetworkScope[];
+  isAdmin: boolean;
+  onClose: () => void;
+  onChanged: () => void;
+}) {
+  const { token } = useAuth();
+  const { toast } = useToast();
+  const [name, setName] = useState('');
+  const [code, setCode] = useState('');
+  const [address, setAddress] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  useEffect(() => {
+    if (site) {
+      setName(site.name);
+      setCode(site.code);
+      setAddress(site.address ?? '');
+      setError(null);
+    }
+  }, [site]);
+
+  const dirty =
+    site &&
+    (name !== site.name ||
+      code !== site.code ||
+      (address.trim() || null) !== (site.address ?? null));
+
+  const save = async () => {
+    if (!token || !site || !name.trim() || !code.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.updateSite(token, site.id, {
+        name: name.trim(),
+        code: code.trim(),
+        address: address.trim() || null,
+      });
+      onChanged();
+      toast('success', 'Site updated.');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to update site.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const del = async () => {
+    if (!token || !site) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.deleteSite(token, site.id);
+      onChanged();
+      toast('success', 'Site deleted.');
+      setConfirmDelete(false);
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to delete site.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const siteScopes = site ? scopes.filter((sc) => sc.site_id === site.id) : [];
+
+  return (
+    <Drawer
+      open={site !== null}
+      onClose={onClose}
+      title={site?.name ?? ''}
+      description={site ? `Site code ${site.code}` : undefined}
+    >
+      {site && (
+        <div className="flex flex-col gap-4">
+          {error && <InlineError message={error} />}
+
+          {isAdmin ? (
+            <div className="flex flex-col gap-3 rounded-lg border border-border p-3">
+              <div className="flex gap-2">
+                <Field label="Name" htmlFor="edit-site-name" className="flex-1">
+                  <Input
+                    id="edit-site-name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                  />
+                </Field>
+                <Field label="Code" htmlFor="edit-site-code" className="w-28">
+                  <Input
+                    id="edit-site-code"
+                    value={code}
+                    onChange={(e) => setCode(e.target.value)}
+                  />
+                </Field>
+              </div>
+              <Field label="Location" htmlFor="edit-site-address">
+                <Input
+                  id="edit-site-address"
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  placeholder="Optional"
+                />
+              </Field>
+              <div className="flex justify-end">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={busy || !dirty || !name.trim() || !code.trim()}
+                  onClick={() => void save()}
+                >
+                  Save changes
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <dl className="divide-y divide-border rounded-lg border border-border px-3">
+              <DetailRow label="Code">
+                <Code>{site.code}</Code>
+              </DetailRow>
+              <DetailRow label="Location">{site.address ?? '—'}</DetailRow>
+            </dl>
+          )}
+
+          <dl className="divide-y divide-border rounded-lg border border-border px-3">
+            <DetailRow label="Timezone">{site.timezone}</DetailRow>
+            <DetailRow label="Business owner">{site.business_owner ?? '—'}</DetailRow>
+            <DetailRow label="Technical owner">{site.technical_owner ?? '—'}</DetailRow>
+            <DetailRow label="Created">{formatWhenFull(site.created_at)}</DetailRow>
+            <DetailRow label="Updated">{formatWhenFull(site.updated_at)}</DetailRow>
+          </dl>
+          {site.description && (
+            <p className="text-[13px] leading-relaxed text-muted">{site.description}</p>
+          )}
+
+          <section>
+            <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted">
+              Approved scopes
+            </h3>
+            {siteScopes.length === 0 ? (
+              <p className="text-xs text-muted">No approved scopes for this site yet.</p>
+            ) : (
+              <ul className="flex flex-col gap-1.5">
+                {siteScopes.map((sc) => (
+                  <li
+                    key={sc.id}
+                    className="flex items-center justify-between rounded-lg border border-border px-3 py-2"
+                  >
+                    <span className="text-[13px] text-text">{sc.name}</span>
+                    <span className="flex items-center gap-2">
+                      <Code>{sc.cidr}</Code>
+                      <Badge tone={sc.enabled ? 'ok' : 'neutral'}>
+                        {sc.enabled ? 'Enabled' : 'Disabled'}
+                      </Badge>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          {isAdmin && (
+            <div className="mt-2 flex justify-end border-t border-border pt-3">
+              <Button
+                variant="destructive"
+                size="sm"
+                disabled={busy}
+                onClick={() => setConfirmDelete(true)}
+              >
+                Delete site
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+
+      <ConfirmDialog
+        open={confirmDelete}
+        onClose={() => setConfirmDelete(false)}
+        destructive
+        busy={busy}
+        title={`Delete site “${site?.name}”?`}
+        body="The site and its approved scopes are deleted. Networks, appliances, and findings tied to it may be affected. This cannot be undone."
+        confirmLabel="Delete site"
+        onConfirm={() => void del()}
+      />
+    </Drawer>
   );
 }
 

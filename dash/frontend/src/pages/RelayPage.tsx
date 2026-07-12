@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Plus, ShieldOff } from 'lucide-react';
+import { ShieldOff } from 'lucide-react';
 import { ApiError, api } from '../api/client';
 import { useAuth } from '../auth/useAuth';
 import { useToast } from '../lib/toast';
@@ -7,24 +7,20 @@ import { StatusBadge } from '../components/app/badges';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
-import { Field, Input, Select } from '../components/ui/input';
-import { CodeBlock } from '../components/ui/misc';
+import { Input } from '../components/ui/input';
 import { ConfirmDialog } from '../components/ui/overlay';
 import { EmptyState, InlineError } from '../components/ui/states';
-import type { Relay, RelayEnrollment } from '../types/relay';
+import type { Relay } from '../types/relay';
 import type { Site } from '../types/inventory';
 
-/** VulnaRelay: a scanner-free WireGuard endpoint that tunnels a thin site
- *  through the central scanner, with scope enforced at the central egress.
- *  Available like a Scout; each relay has its own kill switch. */
-export function RelayPage() {
+/** VulnaRelay: scanner-free WireGuard endpoints that tunnel a thin site through
+ *  the central scanner. Available like a Scout; each relay has its own kill
+ *  switch. Adding one is done from the "Add relay" drawer (Appliances header). */
+export function RelayPage({ refreshKey }: { refreshKey?: number }) {
   const { token, user } = useAuth();
   const { toast } = useToast();
   const [relays, setRelays] = useState<Relay[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
-  const [enrollment, setEnrollment] = useState<RelayEnrollment | null>(null);
-  const [name, setName] = useState('');
-  const [siteId, setSiteId] = useState('');
   const [scopeDrafts, setScopeDrafts] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [killTarget, setKillTarget] = useState<Relay | null>(null);
@@ -36,9 +32,7 @@ export function RelayPage() {
   const load = useCallback(async () => {
     if (!token) return;
     try {
-      const loadedSites = (await api.listSites(token)).items;
-      setSites(loadedSites);
-      setSiteId((current) => current || loadedSites[0]?.id || '');
+      setSites((await api.listSites(token)).items);
       setRelays((await api.listRelays(token)).relays);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) return;
@@ -50,19 +44,7 @@ export function RelayPage() {
 
   useEffect(() => {
     void load();
-  }, [load]);
-
-  const enroll = async () => {
-    if (!token || !name || !siteId) return;
-    setError(null);
-    try {
-      setEnrollment(await api.relayEnrollmentCommand(token, name, siteId));
-      setName('');
-      await load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create enrollment command.');
-    }
-  };
+  }, [load, refreshKey]);
 
   const saveScope = async (relay: Relay) => {
     if (!token) return;
@@ -110,12 +92,6 @@ export function RelayPage() {
 
   return (
     <div aria-label="VulnaRelay">
-      <p className="mb-3 max-w-3xl text-xs leading-relaxed text-muted">
-        A relay is a scanner-free WireGuard endpoint that tunnels a thin site through the central
-        scanner, with scope enforced at the central egress. Deploy one wherever a Scout can&rsquo;t
-        sit; each relay has its own kill switch.
-      </p>
-
       {error && <InlineError message={error} className="mb-3" />}
 
       {relays.length === 0 ? (
@@ -124,7 +100,7 @@ export function RelayPage() {
             compact
             icon={ShieldOff}
             title="No relays enrolled yet"
-            description="Add a relay below to tunnel a thin site through the central scanner."
+            description="Use “Add relay” to tunnel a thin site through the central scanner."
           />
         </Card>
       ) : (
@@ -170,49 +146,6 @@ export function RelayPage() {
             </Card>
           ))}
         </div>
-      )}
-
-      {isAdmin && (
-        <Card className="p-3.5">
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
-            Add a relay
-          </p>
-          <div className="flex flex-wrap items-end gap-2">
-            <Field label="Relay name" htmlFor="relay-name" className="min-w-40 flex-1">
-              <Input
-                id="relay-name"
-                placeholder="e.g. site-b"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-              />
-            </Field>
-            <Field label="Site" htmlFor="relay-site" className="min-w-40 flex-1">
-              <Select
-                id="relay-site"
-                value={siteId}
-                onChange={(event) => setSiteId(event.target.value)}
-              >
-                <option value="">Choose a site</option>
-                {sites.map((site) => (
-                  <option key={site.id} value={site.id}>
-                    {site.name}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Button variant="primary" disabled={!name || !siteId} onClick={() => void enroll()}>
-              <Plus size={14} aria-hidden /> Add relay
-            </Button>
-          </div>
-
-          {enrollment && (
-            <div className="mt-3 rounded-lg border border-border bg-surface-2 p-3">
-              <p className="mb-1.5 text-xs text-muted">Run this on the relay host (shown once):</p>
-              <CodeBlock>{enrollment.install.command}</CodeBlock>
-              <p className="mt-1.5 text-xs text-muted">{enrollment.install.note}</p>
-            </div>
-          )}
-        </Card>
       )}
 
       <ConfirmDialog

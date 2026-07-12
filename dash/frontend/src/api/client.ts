@@ -124,6 +124,16 @@ export const api = {
   createSite(token: string, payload: NewSite): Promise<Site> {
     return request<Site>('/api/v1/sites', { method: 'POST', token, body: payload });
   },
+  updateSite(
+    token: string,
+    siteId: string,
+    patch: { name?: string; code?: string; description?: string | null; address?: string | null },
+  ): Promise<Site> {
+    return request<Site>(`/api/v1/sites/${siteId}`, { method: 'PATCH', token, body: patch });
+  },
+  deleteSite(token: string, siteId: string): Promise<void> {
+    return request<void>(`/api/v1/sites/${siteId}`, { method: 'DELETE', token });
+  },
   listAssets(token: string, limit = 200, siteId?: string): Promise<Page<Asset>> {
     const params = new URLSearchParams({ limit: String(limit) });
     if (siteId) params.set('site_id', siteId);
@@ -166,6 +176,17 @@ export const api = {
     return request<Network>(`/api/v1/networks/${networkId}/scouts/${probeId}`, {
       method: 'DELETE',
       token,
+    });
+  },
+  updateNetwork(
+    token: string,
+    networkId: string,
+    patch: { name?: string; description?: string | null; enabled?: boolean },
+  ): Promise<Network> {
+    return request<Network>(`/api/v1/networks/${networkId}`, {
+      method: 'PATCH',
+      token,
+      body: patch,
     });
   },
   deleteNetwork(token: string, networkId: string): Promise<void> {
