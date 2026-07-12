@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Check, Circle, Download, Rocket } from 'lucide-react';
 import { ApiError, api } from '../api/client';
 import { useAuth } from '../auth/useAuth';
+import { cn } from '../lib/utils';
+import { Badge } from '../components/ui/badge';
+import { Button } from '../components/ui/button';
+import { Card } from '../components/ui/card';
+import { Field, Input } from '../components/ui/input';
+import { Code, Progress } from '../components/ui/misc';
+import { EmptyState, InlineError } from '../components/ui/states';
 import type {
   CompleteStepPayload,
   OnboardingState,
@@ -22,6 +30,8 @@ const STEP_LABELS: Record<string, string> = {
   results: 'Results',
 };
 const STEP_ORDER = Object.keys(STEP_LABELS);
+
+const detail = 'text-[13px] leading-relaxed text-muted';
 
 /** Guided first-run wizard. Resumes from the server-side step, so refreshing or
  *  reopening the browser never loses progress or duplicates work. */
@@ -72,35 +82,57 @@ export function OnboardingWizard({ onFinished }: { onFinished: () => void }) {
 
   const step = state.current_step;
   const stepIndex = STEP_ORDER.indexOf(step);
+  const doneCount = state.completed_steps.length;
 
   return (
-    <div className="card wizard">
-      <div className="wizard-head">
-        <h2>Set up Vulna</h2>
-        <button type="button" className="btn ghost" onClick={() => void dismiss()}>
+    <Card className="p-5">
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div>
+          <h2 className="flex items-center gap-2 text-[15px] font-semibold text-text">
+            <Rocket size={16} className="text-accent" aria-hidden /> Set up Vulna
+          </h2>
+          <p className="mt-0.5 text-xs text-muted">
+            Step {Math.max(stepIndex, 0) + 1} of {STEP_ORDER.length} · {STEP_LABELS[step] ?? step}
+          </p>
+        </div>
+        <Button variant="ghost" size="sm" onClick={() => void dismiss()}>
           Skip for now
-        </button>
+        </Button>
       </div>
-      <ol className="wizard-steps">
-        {STEP_ORDER.map((s, i) => (
-          <li
-            key={s}
-            className={
-              state.completed_steps.includes(s) ? 'done' : i === stepIndex ? 'active' : 'todo'
-            }
-          >
-            {STEP_LABELS[s]}
-          </li>
-        ))}
+
+      <Progress value={doneCount} max={STEP_ORDER.length} className="mb-3" label="Setup progress" />
+
+      <ol className="mb-5 flex flex-wrap gap-1.5">
+        {STEP_ORDER.map((s, i) => {
+          const isDone = state.completed_steps.includes(s);
+          const isActive = i === stepIndex;
+          return (
+            <li
+              key={s}
+              aria-current={isActive ? 'step' : undefined}
+              className={cn(
+                'flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium',
+                isDone
+                  ? 'bg-ok/12 text-ok'
+                  : isActive
+                    ? 'bg-[var(--accent-tint)] text-accent-strong ring-1 ring-accent/30'
+                    : 'bg-surface-2 text-faint',
+              )}
+            >
+              {isDone ? (
+                <Check size={11} aria-hidden />
+              ) : (
+                <Circle size={9} aria-hidden className={isActive ? 'fill-current' : ''} />
+              )}
+              {STEP_LABELS[s]}
+            </li>
+          );
+        })}
       </ol>
 
-      {error && (
-        <p role="alert" className="error">
-          {error}
-        </p>
-      )}
+      {error && <InlineError message={error} className="mb-3" />}
 
-      <div className="wizard-body">
+      <div className="min-h-[8rem]">
         {step === 'admin' && (
           <WelcomeStep busy={busy} onNext={() => void advance({ step: 'admin' })} />
         )}
@@ -148,20 +180,29 @@ export function OnboardingWizard({ onFinished }: { onFinished: () => void }) {
         )}
         {step === 'results' && <ResultsStep onDone={() => void advance({ step: 'results' })} />}
       </div>
-    </div>
+    </Card>
+  );
+}
+
+function StatusDot({ ok }: { ok: boolean }) {
+  return (
+    <span
+      className={cn('inline-block h-2 w-2 shrink-0 rounded-full', ok ? 'bg-ok' : 'bg-warn')}
+      aria-hidden
+    />
   );
 }
 
 function WelcomeStep({ busy, onNext }: { busy: boolean; onNext: () => void }) {
   return (
-    <div>
-      <p className="detail">
+    <div className="flex flex-col items-start gap-4">
+      <p className={detail}>
         This short setup gets you from here to a safe first assessment. Nothing is scanned until you
         explicitly approve a target range. You can leave and come back anytime.
       </p>
-      <button type="button" className="btn" disabled={busy} onClick={onNext}>
+      <Button variant="primary" disabled={busy} onClick={onNext}>
         Get started
-      </button>
+      </Button>
     </div>
   );
 }
@@ -202,37 +243,42 @@ function RecoveryStep({
   };
 
   return (
-    <div>
-      <p className="detail">
+    <div className="flex flex-col items-start gap-4">
+      <p className={detail}>
         Recovery codes let you regain access if you lose your password. Each code works once. Store
         them somewhere safe — they are shown only now.
       </p>
-      {error && <p className="error">{error}</p>}
+      {error && <InlineError message={error} />}
       {!codes ? (
-        <button type="button" className="btn" onClick={() => void generate()}>
+        <Button variant="primary" onClick={() => void generate()}>
           Generate recovery codes
-        </button>
+        </Button>
       ) : (
         <>
-          <ul className="codes">
+          <ul className="grid w-full max-w-md grid-cols-2 gap-1.5 rounded-lg border border-border bg-surface-2/60 p-3">
             {codes.map((c) => (
               <li key={c}>
-                <code>{c}</code>
+                <Code>{c}</Code>
               </li>
             ))}
           </ul>
-          <div className="row">
-            <button type="button" className="btn ghost" onClick={download}>
-              Download
-            </button>
-            <label className="inline">
-              <input type="checkbox" checked={saved} onChange={(e) => setSaved(e.target.checked)} />{' '}
+          <div className="flex flex-wrap items-center gap-3">
+            <Button variant="outline" size="sm" onClick={download}>
+              <Download size={13} aria-hidden /> Download
+            </Button>
+            <label className="flex items-center gap-2 text-[13px] text-text">
+              <input
+                type="checkbox"
+                checked={saved}
+                onChange={(e) => setSaved(e.target.checked)}
+                className="accent-[var(--accent)]"
+              />
               I saved these codes
             </label>
           </div>
-          <button type="button" className="btn" disabled={!saved || busy} onClick={onNext}>
+          <Button variant="primary" disabled={!saved || busy} onClick={onNext}>
             Continue
-          </button>
+          </Button>
         </>
       )}
     </div>
@@ -248,23 +294,27 @@ function HealthStep({ token, onNext }: { token: string; onNext: () => void }) {
       .catch(() => setHealth(null));
   }, [token]);
   return (
-    <div>
-      <p className="detail">A quick check that the core components are healthy.</p>
+    <div className="flex flex-col items-start gap-4">
+      <p className={detail}>A quick check that the core components are healthy.</p>
       {health ? (
-        <ul className="status-list">
+        <ul className="flex w-full max-w-md flex-col gap-1.5">
           {Object.entries(health).map(([k, v]) => (
-            <li key={k}>
-              <span className={v === 'ok' || v === 'connected' ? 'ok' : 'pending'}>{v}</span>{' '}
-              {k.replace(/_/g, ' ')}
+            <li
+              key={k}
+              className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-[13px]"
+            >
+              <StatusDot ok={v === 'ok' || v === 'connected'} />
+              <span className="text-text">{k.replace(/_/g, ' ')}</span>
+              <span className="ml-auto text-xs text-muted">{v}</span>
             </li>
           ))}
         </ul>
       ) : (
-        <p className="detail">Checking…</p>
+        <p className={detail}>Checking…</p>
       )}
-      <button type="button" className="btn" onClick={onNext}>
+      <Button variant="primary" onClick={onNext}>
         Continue
-      </button>
+      </Button>
     </div>
   );
 }
@@ -312,19 +362,18 @@ function SiteStep({
   };
 
   return (
-    <div>
-      <p className="detail">
+    <div className="flex flex-col items-start gap-4">
+      <p className={detail}>
         A “site” is a location you assess (your home lab, an office, a cloud VPC). You can add more
         later.
       </p>
-      {error && <p className="error">{error}</p>}
-      <label className="field">
-        Site name
-        <input value={name} onChange={(e) => setName(e.target.value)} />
-      </label>
-      <button type="button" className="btn" disabled={busy} onClick={() => void submit()}>
+      {error && <InlineError message={error} />}
+      <Field label="Site name" htmlFor="ob-site" className="w-full max-w-sm">
+        <Input id="ob-site" value={name} onChange={(e) => setName(e.target.value)} />
+      </Field>
+      <Button variant="primary" disabled={busy} onClick={() => void submit()}>
         {existingId ? 'Use this site' : 'Create site'}
-      </button>
+      </Button>
     </div>
   );
 }
@@ -338,17 +387,19 @@ function ScoutStep({ token, onNext }: { token: string; onNext: () => void }) {
       .catch(() => setStatus('unknown'));
   }, [token]);
   return (
-    <div>
-      <p className="detail">
+    <div className="flex flex-col items-start gap-4">
+      <p className={detail}>
         Your local Scout is the component that performs the assessment. It authenticates with a
         client certificate and only runs signed jobs within approved scopes.
       </p>
-      <p>
-        Local Scout: <span className={status === 'connected' ? 'ok' : 'pending'}>{status}</span>
-      </p>
-      <button type="button" className="btn" onClick={onNext}>
+      <div className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-[13px]">
+        <StatusDot ok={status === 'connected'} />
+        <span className="text-text">Local Scout</span>
+        <Badge tone={status === 'connected' ? 'ok' : 'neutral'}>{status}</Badge>
+      </div>
+      <Button variant="primary" onClick={onNext}>
         Continue
-      </button>
+      </Button>
     </div>
   );
 }
@@ -363,26 +414,25 @@ function NetworkStep({ token, onNext }: { token: string; onNext: () => void }) {
     });
   }, [token]);
   return (
-    <div>
-      <p className="detail">
+    <div className="flex flex-col items-start gap-4">
+      <p className={detail}>
         These private ranges were detected on the Scout’s host. They are{' '}
-        <strong>suggestions only</strong> — nothing here is approved or scanned.
+        <strong className="text-text">suggestions only</strong> — nothing here is approved or
+        scanned.
       </p>
       {candidates.length > 0 ? (
-        <ul className="codes">
+        <div className="flex flex-wrap gap-1.5">
           {candidates.map((c) => (
-            <li key={c}>
-              <code>{c}</code>
-            </li>
+            <Code key={c}>{c}</Code>
           ))}
-        </ul>
+        </div>
       ) : (
-        <p className="detail">No ranges detected yet (or the Scout is still connecting).</p>
+        <p className={detail}>No ranges detected yet (or the Scout is still connecting).</p>
       )}
-      <p className="detail">{note}</p>
-      <button type="button" className="btn" onClick={onNext}>
+      {note && <p className="text-xs text-faint">{note}</p>}
+      <Button variant="primary" onClick={onNext}>
         Continue
-      </button>
+      </Button>
     </div>
   );
 }
@@ -442,16 +492,16 @@ function ScopeStep({
   const canApprove = preview !== null && (!preview.requires_confirmation || confirmed);
 
   return (
-    <div>
-      <p className="detail">
+    <div className="flex flex-col items-start gap-3">
+      <p className={detail}>
         Approve exactly what Vulna may assess. Only private ranges are allowed by default;{' '}
-        <code>0.0.0.0/0</code> and public space are rejected. Not sure? Try the isolated demo.
+        <Code>0.0.0.0/0</Code> and public space are rejected. Not sure? Try the isolated demo.
       </p>
-      {error && <p className="error">{error}</p>}
-      <div className="row">
-        <label className="field">
-          Target range (CIDR)
-          <input
+      {error && <InlineError message={error} />}
+      <div className="flex w-full max-w-xl flex-wrap items-end gap-2">
+        <Field label="Target range (CIDR)" htmlFor="ob-cidr" className="min-w-[14rem] flex-1">
+          <Input
+            id="ob-cidr"
             value={cidr}
             placeholder="e.g. 192.168.1.0/24"
             onChange={(e) => {
@@ -460,49 +510,45 @@ function ScopeStep({
               setPreview(null);
             }}
           />
-        </label>
-        <button type="button" className="btn ghost" onClick={() => void chooseDemo()}>
+        </Field>
+        <Button variant="outline" onClick={() => void chooseDemo()}>
           Use demo target
-        </button>
+        </Button>
+        <Button variant="secondary" disabled={!cidr} onClick={() => void runPreview()}>
+          Preview
+        </Button>
       </div>
-      <button
-        type="button"
-        className="btn ghost"
-        disabled={!cidr}
-        onClick={() => void runPreview()}
-      >
-        Preview
-      </button>
 
       {preview && (
-        <div className="preview">
-          <p>
-            <code>{preview.cidr}</code> — about <strong>{preview.host_estimate}</strong> hosts (
+        <div className="w-full max-w-xl rounded-lg border border-border bg-surface-2/60 p-3.5">
+          <p className="text-[13px] text-text">
+            <Code>{preview.cidr}</Code> — about <strong>{preview.host_estimate}</strong> hosts (
             {preview.is_private ? 'private' : 'public'}).
           </p>
           {preview.warnings.map((w) => (
-            <p key={w} className="warn">
+            <p key={w} className="mt-1.5 text-xs text-warn">
               ⚠ {w}
             </p>
           ))}
           {preview.requires_confirmation && (
-            <label className="inline">
+            <label className="mt-2.5 flex items-center gap-2 text-[13px] text-text">
               <input
                 type="checkbox"
                 checked={confirmed}
                 onChange={(e) => setConfirmed(e.target.checked)}
-              />{' '}
+                className="accent-[var(--accent)]"
+              />
               I understand and want to approve this range.
             </label>
           )}
-          <button
-            type="button"
-            className="btn"
+          <Button
+            variant="primary"
+            className="mt-3"
             disabled={!canApprove}
             onClick={() => void approve()}
           >
             Approve scope
-          </button>
+          </Button>
         </div>
       )}
     </div>
@@ -515,25 +561,29 @@ function PresetStep({ token, onNext }: { token: string; onNext: () => void }) {
     void api.scanPresets(token).then((r) => setPresets(r.presets));
   }, [token]);
   return (
-    <div>
-      <p className="detail">Choose what kind of check to run. The safe default is recommended.</p>
-      {presets.map((p) => (
-        <div key={p.key} className="preset">
-          <h3>{p.name}</h3>
-          <p className="detail">{p.description}</p>
-          <ul>
-            {p.checks.map((c) => (
-              <li key={c}>{c}</li>
-            ))}
-          </ul>
-          <p className="detail">
-            Resource use: {p.resource_class}. Duration: {p.duration_class}.
-          </p>
-        </div>
-      ))}
-      <button type="button" className="btn" onClick={onNext}>
+    <div className="flex flex-col items-start gap-4">
+      <p className={detail}>Choose what kind of check to run. The safe default is recommended.</p>
+      <div className="grid w-full grid-cols-1 gap-2.5 sm:grid-cols-2">
+        {presets.map((p) => (
+          <div key={p.key} className="rounded-lg border border-border p-3.5">
+            <p className="text-[13px] font-semibold text-text">{p.name}</p>
+            <p className={cn(detail, 'mt-0.5')}>{p.description}</p>
+            <ul className="mt-2 flex flex-wrap gap-1">
+              {p.checks.map((c) => (
+                <li key={c}>
+                  <Badge tone="neutral">{c}</Badge>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-2 text-xs text-faint">
+              Resource use: {p.resource_class} · Duration: {p.duration_class}
+            </p>
+          </div>
+        ))}
+      </div>
+      <Button variant="primary" onClick={onNext}>
         Use Standard Security Check
-      </button>
+      </Button>
     </div>
   );
 }
@@ -587,29 +637,43 @@ function LaunchStep({
   };
 
   return (
-    <div>
-      <h3>Before you launch</h3>
-      {error && <p className="error">{error}</p>}
+    <div className="flex flex-col items-start gap-4">
+      <p className="text-[13px] font-semibold text-text">Before you launch</p>
+      {error && <InlineError message={error} />}
       {summary ? (
         <>
-          <ul className="status-list">
-            <li>Targets: {summary.targets.join(', ')}</li>
-            <li>About {summary.host_estimate} hosts</li>
-            <li>Checks: {summary.checks.join('; ')}</li>
+          <ul className="flex w-full max-w-xl flex-col gap-1.5 rounded-lg border border-border bg-surface-2/60 p-3.5 text-[13px] text-text">
             <li>
-              Intrusive: {summary.intrusive ? 'yes' : 'no'} · Credentials: no · Active web: no
+              <span className="text-muted">Targets:</span> {summary.targets.join(', ')}
             </li>
             <li>
-              Resource use: {summary.resource_class} · Duration: {summary.duration_class}
+              <span className="text-muted">About</span> {summary.host_estimate}{' '}
+              <span className="text-muted">hosts</span>
             </li>
-            <li>{summary.data_retention}</li>
+            <li>
+              <span className="text-muted">Checks:</span> {summary.checks.join('; ')}
+            </li>
+            <li>
+              <span className="text-muted">Intrusive:</span> {summary.intrusive ? 'yes' : 'no'} ·
+              Credentials: no · Active web: no
+            </li>
+            <li>
+              <span className="text-muted">Resource use:</span> {summary.resource_class} · Duration:{' '}
+              {summary.duration_class}
+            </li>
+            <li className="text-muted">{summary.data_retention}</li>
           </ul>
-          <button type="button" className="btn" disabled={launching} onClick={() => void launch()}>
+          <Button
+            variant="primary"
+            loading={launching}
+            disabled={launching}
+            onClick={() => void launch()}
+          >
             {launching ? 'Launching…' : 'Launch assessment'}
-          </button>
+          </Button>
         </>
       ) : (
-        <p className="detail">Preparing summary…</p>
+        <p className={detail}>Preparing summary…</p>
       )}
     </div>
   );
@@ -617,17 +681,16 @@ function LaunchStep({
 
 function ResultsStep({ onDone }: { onDone: () => void }) {
   return (
-    <div>
-      <h3>Your first assessment is running</h3>
-      <p className="detail">
-        As the Scout works, <strong>assets</strong> (hosts) and <strong>services</strong> (open
-        ports) appear below, then <strong>findings</strong>. Each finding shows what it is, how
-        confident Vulna is, its priority, how to remediate it, and how to verify the fix. Generate a
-        report anytime from the Reports panel.
-      </p>
-      <button type="button" className="btn" onClick={onDone}>
+    <div className="flex flex-col items-start gap-4">
+      <EmptyState
+        compact
+        icon={Rocket}
+        title="Your first assessment is running"
+        description="As the Scout works, assets (hosts) and services (open ports) appear, then findings. Each finding shows what it is, how confident Vulna is, its priority, how to remediate it, and how to verify the fix. Generate a report anytime from Reports."
+      />
+      <Button variant="primary" onClick={onDone}>
         Finish setup
-      </button>
+      </Button>
     </div>
   );
 }
