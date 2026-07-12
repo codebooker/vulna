@@ -19,7 +19,7 @@ import type { Site } from '../types/inventory';
 const ONLINE_STATES = ['connected', 'online', 'enrolled', 'active'];
 const WARN_STATES = ['degraded', 'stale', 'pending', 'warning', 'pending_enrollment'];
 
-/** Appliances: fleet health for Scouts, plus the opt-in Relay mode as a tab.
+/** Appliances: fleet health for Scouts, plus Relay endpoints as a tab.
  *  Shows the live probe fields the API exposes (name, site, status, pentest
  *  mode); per-appliance resource telemetry is not surfaced until the API
  *  reports it. */

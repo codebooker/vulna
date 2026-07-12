@@ -85,16 +85,25 @@ def test_validate_egress_cidrs_rejects_public_by_default() -> None:
 # --- API: off by default, enrollment, kill switch, egress ------------------- #
 
 
-async def test_relay_mode_off_by_default(
+async def test_relay_mode_available_by_default(
     client: AsyncClient, admin_headers: dict[str, str]
 ) -> None:
     s = await client.get("/api/v1/relays/settings", headers=admin_headers)
-    assert s.status_code == 200 and s.json()["enabled"] is False
-    # Operations are refused while disabled.
+    assert s.status_code == 200 and s.json()["enabled"] is True
+    # A relay is available like a Scout: enrolling needs only a site, no opt-in.
+    site = (
+        await client.post(
+            "/api/v1/sites",
+            json={"name": "Relay default site", "code": "RELAY-DEF"},
+            headers=admin_headers,
+        )
+    ).json()
     cmd = await client.post(
-        "/api/v1/relays/enrollment-command", json={"name": "site-b"}, headers=admin_headers
+        "/api/v1/relays/enrollment-command",
+        json={"name": "site-b", "site_id": site["id"]},
+        headers=admin_headers,
     )
-    assert cmd.status_code == 409
+    assert cmd.status_code == 200
 
 
 async def test_enable_requires_admin(
