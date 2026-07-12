@@ -24,7 +24,9 @@ chmod 0644 "$STATE_DIR/server.pub"
 cleanup_routes() {
 	[ -f "$STATE_DIR/routes" ] || return 0
 	while IFS= read -r cidr; do
-		[ -n "$cidr" ] && ip route del "$cidr" dev "$INTERFACE" 2>/dev/null || true
+		if [ -n "$cidr" ]; then
+			ip route del "$cidr" dev "$INTERFACE" 2>/dev/null || true
+		fi
 	done <"$STATE_DIR/routes"
 	: >"$STATE_DIR/routes"
 }
