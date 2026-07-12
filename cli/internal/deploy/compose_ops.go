@@ -28,6 +28,22 @@ func DataVolumeKeys() []string {
 	return []string{"keys", "reports", "evidence", "scout_state", "bootstrap"}
 }
 
+// DatabaseEnvKeys are every .env variable the backend uses to connect to the
+// database (config.py AliasChoices). On a restore they must ALL come from THIS host
+// — the postgres_data volume is not re-initialized, so its roles/credentials are the
+// current host's. Preserving only POSTGRES_* would let a stale DATABASE_URL or a
+// prefixed variant in the backup override them and point the app at the wrong DB.
+func DatabaseEnvKeys() []string {
+	return []string{
+		"VULNA_DATABASE_URL", "DATABASE_URL",
+		"VULNA_POSTGRES_HOST", "POSTGRES_HOST",
+		"VULNA_POSTGRES_PORT", "POSTGRES_PORT",
+		"VULNA_POSTGRES_DB", "POSTGRES_DB",
+		"VULNA_POSTGRES_USER", "POSTGRES_USER",
+		"VULNA_POSTGRES_PASSWORD", "POSTGRES_PASSWORD",
+	}
+}
+
 // ProjectName resolves the compose project name (volumes are `<project>_<key>`).
 func ProjectName(installDir string) string {
 	args := append(ComposeArgs(installDir), "config", "--format", "json")
@@ -185,11 +201,13 @@ func StartServices(installDir string, stdout, stderr io.Writer, services ...stri
 
 // RunningNonPostgresServices returns the currently-running services other than
 // postgres — the writers that must be quiesced for a consistent backup and then
-// restarted afterward.
-func RunningNonPostgresServices(installDir string) []string {
+// restarted afterward. It returns an ERROR (rather than an empty list) when it can't
+// inspect the stack, so the caller fails closed instead of assuming "no writers" and
+// backing up an inconsistent, live deployment.
+func RunningNonPostgresServices(installDir string) ([]string, error) {
 	states, err := serviceStates(installDir)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("could not inspect running services: %w", err)
 	}
 	var out []string
 	for _, s := range states {
@@ -197,7 +215,7 @@ func RunningNonPostgresServices(installDir string) []string {
 			out = append(out, s.Service)
 		}
 	}
-	return out
+	return out, nil
 }
 
 // WaitPostgresReady polls until postgres accepts connections or the timeout passes.

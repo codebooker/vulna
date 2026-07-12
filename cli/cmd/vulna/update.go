@@ -537,7 +537,7 @@ func backupPresent(dir string) (bool, string) {
 	return false, ""
 }
 
-func runBackup(dir string, stdout, stderr io.Writer) (string, error) {
+func runBackup(dir string, stdout, stderr io.Writer) (archivePath string, err error) {
 	// Locate the script under the deployment dir OR the cwd (same resolution as
 	// restore). Fail closed if it is missing: a caller that promised a safety backup
 	// (pre-update, pre-restore) must not silently proceed unprotected.
@@ -589,14 +589,23 @@ func runBackup(dir string, stdout, stderr io.Writer) (string, error) {
 		// copies represent ONE consistent point in time — a report can't be half-
 		// written, and the Scout can't mutate its queue mid-copy. postgres stays up for
 		// the dump; the stopped services are restarted afterward, preserving the
-		// running state.
-		quiesced := deploy.RunningNonPostgresServices(dir)
+		// running state. Fail CLOSED if we can't determine the writers (don't take an
+		// inconsistent backup), and surface a failed restart (don't return success
+		// while the deployment is left stopped).
+		quiesced, qErr := deploy.RunningNonPostgresServices(dir)
+		if qErr != nil {
+			return "", fmt.Errorf("cannot take a consistent backup: %w", qErr)
+		}
 		if len(quiesced) > 0 {
 			fmt.Fprintln(stdout, "Pausing services for a consistent backup ...")
 			if err := deploy.StopServices(dir, stdout, stderr, quiesced...); err != nil {
 				return "", fmt.Errorf("quiescing services for a consistent backup: %w", err)
 			}
-			defer func() { _ = deploy.StartServices(dir, stdout, stderr, quiesced...) }()
+			defer func() {
+				if rErr := deploy.StartServices(dir, stdout, stderr, quiesced...); rErr != nil && err == nil {
+					err = fmt.Errorf("backup taken, but restarting services failed (deployment may be stopped): %w", rErr)
+				}
+			}()
 		}
 
 		dumpPath := filepath.Join(stage, "db.dump")

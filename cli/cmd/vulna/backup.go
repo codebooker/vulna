@@ -444,29 +444,25 @@ func safeRestore(dir, archivePath string, stdout, stderr io.Writer) error {
 	}
 
 	// Restore the deployment .env (evidence master key + app secrets) — but KEEP this
-	// host's POSTGRES_USER/DB/PASSWORD. Those belong to the postgres_data volume, which
-	// a restore does NOT re-initialize (pg_restore loads into the existing cluster and
-	// does not restore roles or create databases). Overwriting them with the backup's
-	// values would point the app at a role/database that does not exist on this host
-	// (the cross-host user/db/password mismatch). The master key still comes from the
-	// backup so the restored, encrypted evidence remains decryptable.
+	// host's DATABASE connection settings. They belong to the postgres_data volume,
+	// which a restore does NOT re-initialize (pg_restore loads into the existing
+	// cluster and does not restore roles or create databases). We preserve EVERY DB
+	// variable the backend reads (DATABASE_URL, prefixed and unprefixed host/port/db/
+	// user/password), not just POSTGRES_* — otherwise a stale DATABASE_URL or prefixed
+	// variant in the backup would override the preserved values and point the app at a
+	// role/database that does not exist on this host. The master key still comes from
+	// the backup so the restored, encrypted evidence remains decryptable.
 	if envSrc := filepath.Join(extract, "config", "env"); fileExists(envSrc) {
 		restored, rerr := deploy.ReadEnv(envSrc)
 		if rerr != nil {
 			return rerr
 		}
 		current, _ := deploy.ReadEnv(filepath.Join(dir, deploy.EnvFile))
-		for _, k := range []string{"POSTGRES_USER", "POSTGRES_DB", "POSTGRES_PASSWORD"} {
-			if v, ok := current[k]; ok {
-				restored[k] = v
-			} else {
-				delete(restored, k)
-			}
-		}
-		if werr := deploy.WriteEnv(filepath.Join(dir, deploy.EnvFile), restored); werr != nil {
+		merged := mergeRestoredEnv(current, restored)
+		if werr := deploy.WriteEnv(filepath.Join(dir, deploy.EnvFile), merged); werr != nil {
 			return werr
 		}
-		fmt.Fprintln(stdout, "Deployment .env restored (this host's database credentials preserved).")
+		fmt.Fprintln(stdout, "Deployment .env restored (this host's database connection settings preserved).")
 	}
 
 	fmt.Fprintln(stdout, "Bringing the stack back up on the restored state ...")
@@ -482,6 +478,25 @@ func safeRestore(dir, archivePath string, stdout, stderr io.Writer) error {
 func fileExists(p string) bool {
 	_, err := os.Stat(p)
 	return err == nil
+}
+
+// mergeRestoredEnv returns the backup's .env but with EVERY database-connection
+// variable taken from the current host (or removed if the host doesn't set it), so a
+// stale DATABASE_URL / prefixed variant in the backup can't override the host's
+// credentials and point the app at a database that doesn't exist here.
+func mergeRestoredEnv(current, restored map[string]string) map[string]string {
+	out := make(map[string]string, len(restored))
+	for k, v := range restored {
+		out[k] = v
+	}
+	for _, k := range deploy.DatabaseEnvKeys() {
+		if v, ok := current[k]; ok {
+			out[k] = v
+		} else {
+			delete(out, k)
+		}
+	}
+	return out
 }
 
 // resolveBackupScript finds a deploy/backup script either under the deployment
