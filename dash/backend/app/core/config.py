@@ -186,7 +186,7 @@ class Settings(BaseSettings):
     kev_feed_url: str = (
         "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
     )
-    epss_feed_url: str = "https://epss.cyentia.com/epss_scores-current.csv.gz"
+    epss_feed_url: str = "https://epss.empiricalsecurity.com/epss_scores-current.csv.gz"
     # A feed with no successful sync within this many hours is reported "stale".
     feed_stale_after_hours: int = 48
     # EPSS probability at/above which a change crossing it raises an event.
