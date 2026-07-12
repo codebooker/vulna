@@ -10,7 +10,7 @@ import type {
 } from '../types/inventory';
 import type { Network, NewNetwork } from '../types/network';
 import type { PentestSession, RulesOfEngagement } from '../types/pentest';
-import type { NewSchedule, ScanSchedule } from '../types/schedule';
+import type { Job, NewSchedule, ScanSchedule } from '../types/schedule';
 import type { FeedHealth, SyncResult } from '../types/intelligence';
 import type {
   ComponentHealth,
@@ -307,6 +307,14 @@ export const api = {
       token,
       body: { probe_id: probeId, targets, mode: 'vulnerability_assessment' },
     });
+  },
+  listJobs(token: string, status?: string, limit = 100): Promise<Page<Job>> {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (status) params.set('status', status);
+    return request<Page<Job>>(`/api/v1/jobs?${params.toString()}`, { token });
+  },
+  cancelJob(token: string, id: string): Promise<Job> {
+    return request<Job>(`/api/v1/jobs/${id}/cancel`, { method: 'POST', token });
   },
 
   // --- Update center (Phase 24, display only) ---
