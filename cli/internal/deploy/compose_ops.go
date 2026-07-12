@@ -232,26 +232,40 @@ func WaitPostgresReady(installDir string, timeout time.Duration) error {
 	}
 }
 
-// PostgresRunning reports whether the postgres CONTAINER is running — distinct from
-// PostgresReady, which also requires it to accept connections. A running-but-unhealthy
-// container is running but not ready. Used to record postgres's original state so a
-// backup that started it can put it back exactly as it found it.
-//
-// It returns an ERROR (rather than false) when the state cannot be determined, so a
-// caller does not fail open: mistaking a running database for a stopped one would let
-// the backup "start" it (a no-op) and then STOP it on cleanup, tearing the database
-// out from under the API after a supposedly successful backup.
-func PostgresRunning(installDir string) (bool, error) {
+// Postgres container states we distinguish. Compose reports the Docker container
+// state verbatim (created, restarting, running, removing, paused, exited, dead), plus
+// "absent" here when no container exists at all.
+const (
+	// PgAbsent — no postgres container exists (definitively inactive).
+	PgAbsent = "absent"
+	// PgExited / PgCreated — definitively inactive: safe to start for a backup and
+	// stop again afterward.
+	PgExited  = "exited"
+	PgCreated = "created"
+	// PgRunning — up (may or may not be ready).
+	PgRunning = "running"
+	// PgRestarting — auto-recovering under its restart policy; TRANSITIONAL, must be
+	// preserved (never started/stopped) — misreading it as stopped would let a backup
+	// stop the recovering database.
+	PgRestarting = "restarting"
+)
+
+// PostgresContainerState returns the postgres container's actual state ("absent" when
+// there is none) rather than a boolean, so a caller can act ONLY on definitively
+// inactive states and preserve/reject transitional ones (restarting, paused,
+// removing, dead). It returns an ERROR (never a made-up state) when it cannot inspect
+// the stack, so a caller fails closed instead of misclassifying a live database.
+func PostgresContainerState(installDir string) (string, error) {
 	states, err := serviceStates(installDir)
 	if err != nil {
-		return false, err
+		return "", err
 	}
 	for _, s := range states {
 		if s.Service == "postgres" {
-			return s.State == "running", nil
+			return s.State, nil
 		}
 	}
-	return false, nil // no postgres container exists -> definitively not running
+	return PgAbsent, nil
 }
 
 // PostgresReady reports whether the postgres service is up and accepting

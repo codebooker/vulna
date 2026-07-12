@@ -538,6 +538,30 @@ func backupPresent(dir string) (bool, string) {
 	return false, ""
 }
 
+// pgAction is what a backup should do with the postgres container given its state.
+type pgAction int
+
+const (
+	pgLeave  pgAction = iota // running / restarting -> preserve, don't touch
+	pgStart                  // exited / created / absent -> start for the backup, stop after
+	pgReject                 // paused / removing / dead / unknown -> refuse (don't guess)
+)
+
+// pgBackupAction classifies a postgres container state. Only DEFINITIVELY inactive
+// states are auto-started; running and the transitional "restarting" (auto-recovery)
+// are preserved so a backup never stops a recovering database; everything else is
+// rejected rather than guessed at.
+func pgBackupAction(state string) pgAction {
+	switch state {
+	case deploy.PgRunning, deploy.PgRestarting:
+		return pgLeave
+	case deploy.PgExited, deploy.PgCreated, deploy.PgAbsent:
+		return pgStart
+	default:
+		return pgReject
+	}
+}
+
 func runBackup(dir string, stdout, stderr io.Writer) (archivePath string, err error) {
 	// Locate the script under the deployment dir OR the cwd (same resolution as
 	// restore). Fail closed if it is missing: a caller that promised a safety backup
@@ -571,20 +595,24 @@ func runBackup(dir string, stdout, stderr io.Writer) (archivePath string, err er
 	// stopped host), bring ONLY postgres up so we can still dump it — otherwise the
 	// documented stopped-host restore could never take its safety backup and abort.
 	if deploy.HasPostgresService(dir) && deploy.PostgresDataExists(dir) {
-		// Record postgres's ORIGINAL container state. `!PostgresReady()` is NOT the same
-		// as "stopped" (a running-but-unhealthy container is also not ready), so decide
-		// on the actual running state and, if we start it, put it back EXACTLY as we
-		// found it on every exit path — never leave a postgres container we started
-		// lingering when a later step (readiness, temp dir, snapshot, backup.sh) fails.
-		//
-		// Fail CLOSED if we can't determine the state: assuming "stopped" for a
-		// running database would make the cleanup STOP it, tearing it out from under the
-		// API after the backup.
-		running, stateErr := deploy.PostgresRunning(dir)
+		// Act on postgres's ACTUAL container state, not a boolean. We only start (and
+		// then stop) it for states that are DEFINITIVELY inactive; a running or
+		// auto-recovering (restarting) database is preserved untouched, and any other
+		// transitional/broken state is rejected rather than guessed at. Fail CLOSED if
+		// the state can't be determined.
+		state, stateErr := deploy.PostgresContainerState(dir)
 		if stateErr != nil {
 			return "", fmt.Errorf("cannot determine postgres state for a safe backup: %w", stateErr)
 		}
-		if !running {
+		switch pgBackupAction(state) {
+		case pgLeave:
+			// Running or recovering on its own — do NOT start or stop; just wait for
+			// readiness (a restarting DB is settling; a running-but-unhealthy one may
+			// still be starting up).
+		case pgStart:
+			// Definitively inactive — start ONLY postgres for the backup, and restore
+			// that inactive state on every exit path so we never leave a container we
+			// started lingering when a later step fails.
 			fmt.Fprintln(stdout, "Starting postgres to take a backup ...")
 			if upErr := deploy.UpServices(dir, stdout, stderr, "postgres"); upErr != nil {
 				return "", fmt.Errorf("starting postgres for the backup: %w", upErr)
@@ -595,6 +623,10 @@ func runBackup(dir string, stdout, stderr io.Writer) (archivePath string, err er
 						"stopping postgres (started only for the backup) failed — it may be left running: %w", sErr))
 				}
 			}()
+		default: // pgReject: paused / removing / dead / anything unexpected — don't guess.
+			return "", fmt.Errorf(
+				"postgres is in the transitional/unexpected state %q; refusing to back up "+
+					"automatically — resolve it and retry", state)
 		}
 		if wErr := deploy.WaitPostgresReady(dir, 60*time.Second); wErr != nil {
 			return "", wErr
