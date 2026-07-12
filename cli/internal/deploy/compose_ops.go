@@ -236,17 +236,22 @@ func WaitPostgresReady(installDir string, timeout time.Duration) error {
 // PostgresReady, which also requires it to accept connections. A running-but-unhealthy
 // container is running but not ready. Used to record postgres's original state so a
 // backup that started it can put it back exactly as it found it.
-func PostgresRunning(installDir string) bool {
+//
+// It returns an ERROR (rather than false) when the state cannot be determined, so a
+// caller does not fail open: mistaking a running database for a stopped one would let
+// the backup "start" it (a no-op) and then STOP it on cleanup, tearing the database
+// out from under the API after a supposedly successful backup.
+func PostgresRunning(installDir string) (bool, error) {
 	states, err := serviceStates(installDir)
 	if err != nil {
-		return false
+		return false, err
 	}
 	for _, s := range states {
 		if s.Service == "postgres" {
-			return s.State == "running"
+			return s.State == "running", nil
 		}
 	}
-	return false
+	return false, nil // no postgres container exists -> definitively not running
 }
 
 // PostgresReady reports whether the postgres service is up and accepting

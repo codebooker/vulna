@@ -576,7 +576,15 @@ func runBackup(dir string, stdout, stderr io.Writer) (archivePath string, err er
 		// on the actual running state and, if we start it, put it back EXACTLY as we
 		// found it on every exit path — never leave a postgres container we started
 		// lingering when a later step (readiness, temp dir, snapshot, backup.sh) fails.
-		if !deploy.PostgresRunning(dir) {
+		//
+		// Fail CLOSED if we can't determine the state: assuming "stopped" for a
+		// running database would make the cleanup STOP it, tearing it out from under the
+		// API after the backup.
+		running, stateErr := deploy.PostgresRunning(dir)
+		if stateErr != nil {
+			return "", fmt.Errorf("cannot determine postgres state for a safe backup: %w", stateErr)
+		}
+		if !running {
 			fmt.Fprintln(stdout, "Starting postgres to take a backup ...")
 			if upErr := deploy.UpServices(dir, stdout, stderr, "postgres"); upErr != nil {
 				return "", fmt.Errorf("starting postgres for the backup: %w", upErr)
