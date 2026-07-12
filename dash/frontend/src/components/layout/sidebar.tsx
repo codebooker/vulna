@@ -102,7 +102,13 @@ export function Sidebar({
                 );
                 return (
                   <li key={item.id}>
-                    {collapsed ? <Tooltip label={item.label}>{btn}</Tooltip> : btn}
+                    {collapsed ? (
+                      <Tooltip label={item.label} className="w-full">
+                        {btn}
+                      </Tooltip>
+                    ) : (
+                      btn
+                    )}
                   </li>
                 );
               })}

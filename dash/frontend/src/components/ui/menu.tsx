@@ -86,9 +86,17 @@ export function MenuLabel({ children }: { children: ReactNode }) {
 }
 
 /** Simple hover/focus tooltip. */
-export function Tooltip({ label, children }: { label: string; children: ReactNode }) {
+export function Tooltip({
+  label,
+  children,
+  className,
+}: {
+  label: string;
+  children: ReactNode;
+  className?: string;
+}) {
   return (
-    <span className="group/tt relative inline-flex">
+    <span className={cn('group/tt relative inline-flex', className)}>
       {children}
       <span
         role="tooltip"
