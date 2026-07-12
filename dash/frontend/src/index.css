@@ -299,8 +299,10 @@ kbd,
   gap: 0.55rem;
   min-width: 0;
 }
-.topbar .crumb h2 {
+.topbar .crumb .crumb-title {
   font-size: 1.02rem;
+  font-weight: 650;
+  letter-spacing: -0.011em;
 }
 .topbar .crumb .sub {
   color: var(--faint);
@@ -1056,7 +1058,11 @@ section.card + section.card {
   place-items: center;
   padding: 2rem 1.5rem;
   background:
-    radial-gradient(60rem 40rem at 50% -10%, color-mix(in oklch, var(--brand) 20%, transparent), transparent 70%),
+    radial-gradient(
+      60rem 40rem at 50% -10%,
+      color-mix(in oklch, var(--brand) 20%, transparent),
+      transparent 70%
+    ),
     var(--bg);
 }
 .login-box {

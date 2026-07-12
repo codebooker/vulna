@@ -40,46 +40,166 @@ const NAV: { group: string; items: NavItem[] }[] = [
   {
     group: 'Overview',
     items: [
-      { id: 'overview', label: 'Overview', sub: 'What needs attention right now', icon: 'overview', Component: HomeDashboard },
+      {
+        id: 'overview',
+        label: 'Overview',
+        sub: 'What needs attention right now',
+        icon: 'overview',
+        Component: HomeDashboard,
+      },
     ],
   },
   {
     group: 'Assessment',
     items: [
-      { id: 'findings', label: 'Findings', sub: 'Tracked vulnerabilities across your assets', icon: 'findings', Component: FindingsPage },
-      { id: 'sites', label: 'Sites', sub: 'Locations and their network scopes', icon: 'sites', Component: SitesPage },
-      { id: 'networks', label: 'Networks', sub: 'Approved network ranges and scopes', icon: 'networks', Component: NetworksPage },
-      { id: 'schedules', label: 'Schedules', sub: 'Recurring scans', icon: 'schedules', Component: SchedulesPage },
-      { id: 'presets', label: 'Scan presets', sub: 'Scanner profiles and intensity', icon: 'presets', Component: PresetsPage },
-      { id: 'pentest', label: 'Pentest', sub: 'Controlled, approval-gated testing', icon: 'pentest', Component: PentestPage },
+      {
+        id: 'findings',
+        label: 'Findings',
+        sub: 'Tracked vulnerabilities across your assets',
+        icon: 'findings',
+        Component: FindingsPage,
+      },
+      {
+        id: 'sites',
+        label: 'Sites',
+        sub: 'Locations and their network scopes',
+        icon: 'sites',
+        Component: SitesPage,
+      },
+      {
+        id: 'networks',
+        label: 'Networks',
+        sub: 'Approved network ranges and scopes',
+        icon: 'networks',
+        Component: NetworksPage,
+      },
+      {
+        id: 'schedules',
+        label: 'Schedules',
+        sub: 'Recurring scans',
+        icon: 'schedules',
+        Component: SchedulesPage,
+      },
+      {
+        id: 'presets',
+        label: 'Scan presets',
+        sub: 'Scanner profiles and intensity',
+        icon: 'presets',
+        Component: PresetsPage,
+      },
+      {
+        id: 'pentest',
+        label: 'Pentest',
+        sub: 'Controlled, approval-gated testing',
+        icon: 'pentest',
+        Component: PentestPage,
+      },
     ],
   },
   {
     group: 'Fleet',
     items: [
-      { id: 'scouts', label: 'Scouts', sub: 'Enroll and manage probes', icon: 'scouts', Component: AddScoutPage },
-      { id: 'relay', label: 'Relay', sub: 'Scanner-free egress endpoints', icon: 'relay', Component: RelayPage },
-      { id: 'networking', label: 'Networking', sub: 'Connectivity and interfaces', icon: 'networking', Component: NetworkingPage },
+      {
+        id: 'scouts',
+        label: 'Scouts',
+        sub: 'Enroll and manage probes',
+        icon: 'scouts',
+        Component: AddScoutPage,
+      },
+      {
+        id: 'relay',
+        label: 'Relay',
+        sub: 'Scanner-free egress endpoints',
+        icon: 'relay',
+        Component: RelayPage,
+      },
+      {
+        id: 'networking',
+        label: 'Networking',
+        sub: 'Connectivity and interfaces',
+        icon: 'networking',
+        Component: NetworkingPage,
+      },
     ],
   },
   {
     group: 'Intelligence',
     items: [
-      { id: 'feeds', label: 'CVE feeds', sub: 'NVD, CISA KEV, and EPSS sync health', icon: 'feeds', Component: FeedsPage },
-      { id: 'reports', label: 'Reports', sub: 'Export findings and evidence', icon: 'reports', Component: ReportsPage },
-      { id: 'changes', label: 'Activity', sub: 'What changed and when', icon: 'changes', Component: ChangesPage },
+      {
+        id: 'feeds',
+        label: 'CVE feeds',
+        sub: 'NVD, CISA KEV, and EPSS sync health',
+        icon: 'feeds',
+        Component: FeedsPage,
+      },
+      {
+        id: 'reports',
+        label: 'Reports',
+        sub: 'Export findings and evidence',
+        icon: 'reports',
+        Component: ReportsPage,
+      },
+      {
+        id: 'changes',
+        label: 'Activity',
+        sub: 'What changed and when',
+        icon: 'changes',
+        Component: ChangesPage,
+      },
     ],
   },
   {
     group: 'System',
     items: [
-      { id: 'system-health', label: 'System health', sub: 'Component and service status', icon: 'system-health', Component: SystemHealthPage },
-      { id: 'updates', label: 'Updates', sub: 'Version and upgrade center', icon: 'updates', Component: UpdateCenterPage },
-      { id: 'backups', label: 'Backups', sub: 'Snapshots and restore', icon: 'backups', Component: BackupCenterPage },
-      { id: 'notifications', label: 'Notifications', sub: 'Channels and delivery', icon: 'notifications', Component: NotificationsPage },
-      { id: 'maintenance', label: 'Maintenance', sub: 'Cleanup, retention, diagnostics', icon: 'maintenance', Component: MaintenancePage },
-      { id: 'privacy', label: 'Privacy', sub: 'Outbound data and secrets', icon: 'privacy', Component: PrivacyPage },
-      { id: 'help', label: 'Help', sub: 'Topics and exposure checklist', icon: 'help', Component: HelpPage },
+      {
+        id: 'system-health',
+        label: 'System health',
+        sub: 'Component and service status',
+        icon: 'system-health',
+        Component: SystemHealthPage,
+      },
+      {
+        id: 'updates',
+        label: 'Updates',
+        sub: 'Version and upgrade center',
+        icon: 'updates',
+        Component: UpdateCenterPage,
+      },
+      {
+        id: 'backups',
+        label: 'Backups',
+        sub: 'Snapshots and restore',
+        icon: 'backups',
+        Component: BackupCenterPage,
+      },
+      {
+        id: 'notifications',
+        label: 'Notifications',
+        sub: 'Channels and delivery',
+        icon: 'notifications',
+        Component: NotificationsPage,
+      },
+      {
+        id: 'maintenance',
+        label: 'Maintenance',
+        sub: 'Cleanup, retention, diagnostics',
+        icon: 'maintenance',
+        Component: MaintenancePage,
+      },
+      {
+        id: 'privacy',
+        label: 'Privacy',
+        sub: 'Outbound data and secrets',
+        icon: 'privacy',
+        Component: PrivacyPage,
+      },
+      {
+        id: 'help',
+        label: 'Help',
+        sub: 'Topics and exposure checklist',
+        icon: 'help',
+        Component: HelpPage,
+      },
     ],
   },
 ];
@@ -198,7 +318,13 @@ export function App() {
             <span className="email">{user.email}</span>
             <span className="role">{user.role}</span>
           </div>
-          <button type="button" className="icon-btn" title="Sign out" onClick={logout}>
+          <button
+            type="button"
+            className="icon-btn"
+            title="Sign out"
+            aria-label="Sign out"
+            onClick={logout}
+          >
             <Icon name="logout" />
           </button>
         </div>
@@ -215,7 +341,7 @@ export function App() {
             <Icon name="menu" />
           </button>
           <div className="crumb">
-            <h2>{active.label}</h2>
+            <span className="crumb-title">{active.label}</span>
             <span className="sub">{active.sub}</span>
           </div>
           <div className="spacer" />

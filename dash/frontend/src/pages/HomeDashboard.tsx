@@ -102,7 +102,8 @@ export function HomeDashboard() {
         <section className="card">
           <h3>Recently changed</h3>
           <p className="detail" style={{ marginTop: '-0.3rem', marginBottom: '0.7rem' }}>
-            {summary.changed_recently.total} change(s) in the last {summary.changed_recently.window_days} days.
+            {summary.changed_recently.total} change(s) in the last{' '}
+            {summary.changed_recently.window_days} days.
           </p>
           <ul className="status-list">
             {summary.changed_recently.recent.slice(0, 5).map((c, i) => (

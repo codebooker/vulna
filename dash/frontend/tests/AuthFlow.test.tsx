@@ -122,12 +122,16 @@ describe('Authentication flow', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
 
-    // Authenticated view appears.
+    // Authenticated shell appears with the sidebar nav and a sign-out control.
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument(),
+    );
+    // Navigate to the Sites section via the sidebar.
+    fireEvent.click(screen.getByRole('button', { name: 'Sites' }));
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Sites' })).toBeInTheDocument());
     expect(screen.getByText('Head Office')).toBeInTheDocument();
-    // Admins get the create form and a sign-out control.
+    // Admins get the create form.
     expect(screen.getByRole('heading', { name: 'Add a site' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
     // Token persisted for session restore.
     expect(localStorage.getItem('vulna.token')).toBe('tok123');
   });
