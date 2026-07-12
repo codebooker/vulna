@@ -50,6 +50,51 @@ def test_parses_up_host_only() -> None:
     assert host.operating_system == "Linux 5.4"  # highest-accuracy osmatch
 
 
+# No <os> block (unprivileged connect scan): OS is fingerprinted from -sV signals.
+SV_ONLY_XML = b"""<?xml version="1.0"?>
+<nmaprun scanner="nmap" version="7.94">
+  <host>
+    <status state="up"/>
+    <address addr="10.20.0.7" addrtype="ipv4"/>
+    <ports>
+      <port protocol="tcp" portid="445">
+        <state state="open"/>
+        <service name="microsoft-ds" product="Microsoft Windows Server" ostype="Windows">
+          <cpe>cpe:/o:microsoft:windows</cpe>
+        </service>
+      </port>
+      <port protocol="tcp" portid="3389">
+        <state state="open"/>
+        <service name="ms-wbt-server" ostype="Windows"/>
+      </port>
+      <port protocol="tcp" portid="22">
+        <state state="open"/>
+        <service name="ssh" product="OpenSSH">
+          <cpe>cpe:/a:openbsd:openssh</cpe>
+          <cpe>cpe:/o:linux:linux_kernel</cpe>
+        </service>
+      </port>
+    </ports>
+  </host>
+</nmaprun>
+"""
+
+
+def test_os_fingerprinted_from_service_detection() -> None:
+    host = parse_nmap_xml(SV_ONLY_XML)[0]
+    # Two services say Windows (ostype), one implies Linux (OS CPE): majority wins.
+    assert host.operating_system == "Windows"
+    ports = {s.port: s for s in host.services}
+    assert ports[445].os_hint == "Windows"
+    assert ports[22].os_hint == "Linux"  # derived from cpe:/o:linux:linux_kernel
+
+
+def test_osmatch_takes_priority_over_service_hints() -> None:
+    # When a raw-socket OS scan is present, its result wins over -sV guesses.
+    host = parse_nmap_xml(SAMPLE_XML)[0]
+    assert host.operating_system == "Linux 5.4"
+
+
 def test_parses_open_services_only() -> None:
     host = parse_nmap_xml(SAMPLE_XML)[0]
     ports = {s.port: s for s in host.services}
