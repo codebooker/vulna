@@ -521,7 +521,10 @@ export const api = {
     return request<SearchResults>(`/api/v1/search?q=${encodeURIComponent(q)}`, { token });
   },
   listFindings(token: string, limit = 50): Promise<FindingPage<Finding>> {
-    return request<FindingPage<Finding>>(`/api/v1/findings?limit=${limit}`, { token });
+    // The API caps page size at 200; requesting more 422s, which would leave the
+    // findings list (and any severity/asset counts derived from it) empty.
+    const capped = Math.min(limit, 200);
+    return request<FindingPage<Finding>>(`/api/v1/findings?limit=${capped}`, { token });
   },
   getFinding(token: string, id: string): Promise<Finding> {
     return request<Finding>(`/api/v1/findings/${encodeURIComponent(id)}`, { token });
