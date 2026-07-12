@@ -26,6 +26,23 @@ export interface NewSite {
   description?: string | null;
 }
 
+export interface Asset {
+  id: string;
+  organization_id: string;
+  site_id: string;
+  canonical_name: string;
+  asset_type: string;
+  status: string;
+  operating_system: string | null;
+  manufacturer: string | null;
+  identity_confidence: number;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+  last_assessed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface NetworkScope {
   id: string;
   organization_id: string;

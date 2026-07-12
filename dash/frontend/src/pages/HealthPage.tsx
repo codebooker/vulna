@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react';
 import { fetchHealth, fetchSystemInfo } from '../api/client';
+import { cn } from '../lib/utils';
+import { Code } from '../components/ui/misc';
 import type { SystemInfoResponse } from '../types/system';
 
 type ConnectionState = 'pending' | 'ok' | 'error';
 
+/** Compact backend connectivity status (shown on the login screen). */
 export function HealthPage() {
   const [state, setState] = useState<ConnectionState>('pending');
   const [info, setInfo] = useState<SystemInfoResponse | null>(null);
@@ -45,24 +48,29 @@ export function HealthPage() {
         : 'Checking backend…';
 
   return (
-    <div className="card">
-      <h2>System health</h2>
-      <div className="status-row">
-        <span className={`dot ${state === 'ok' ? 'ok' : state === 'error' ? 'bad' : 'pending'}`} />
+    <div>
+      <div className="flex items-center gap-2 text-[13px] text-text">
+        <span
+          aria-hidden
+          className={cn(
+            'h-2 w-2 rounded-full',
+            state === 'ok' ? 'bg-ok' : state === 'error' ? 'bg-bad' : 'bg-warn animate-pulse',
+          )}
+        />
         <span>{label}</span>
       </div>
 
       {state === 'ok' && info && (
-        <div className="detail">
-          Service <code>{info.service}</code> version <code>{info.version}</code> · environment{' '}
-          <code>{info.environment}</code> · API <code>{info.api_version}</code>
-        </div>
+        <p className="mt-1.5 text-xs text-muted">
+          Service <Code>{info.service}</Code> version <Code>{info.version}</Code> · environment{' '}
+          <Code>{info.environment}</Code> · API <Code>{info.api_version}</Code>
+        </p>
       )}
 
       {state === 'error' && error && (
-        <div className="detail">
-          Could not reach the VulnaDash API: <code>{error}</code>
-        </div>
+        <p className="mt-1.5 text-xs text-muted">
+          Could not reach the VulnaDash API: <Code>{error}</Code>
+        </p>
       )}
     </div>
   );

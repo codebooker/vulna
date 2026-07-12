@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
+import { DownloadCloud } from 'lucide-react';
 import { ApiError, api } from '../api/client';
 import { useAuth } from '../auth/useAuth';
+import { useToast } from '../lib/toast';
+import { humanize } from '../lib/utils';
+import { Badge } from '../components/ui/badge';
+import { Button } from '../components/ui/button';
+import { Card } from '../components/ui/card';
+import { Switch } from '../components/ui/misc';
+import { InlineError } from '../components/ui/states';
 import type {
   OutboundConnection,
   PrivacySettings,
@@ -8,11 +16,11 @@ import type {
   TelemetryPreview,
 } from '../types/privacy';
 
-/** Privacy & data ownership: what can leave the deployment, what secrets are
- *  configured (never their values), opt-in telemetry with a field-level preview,
- *  and a data export. */
+/** Privacy & data ownership: what can leave the deployment, configured secrets
+ *  (never values), opt-in telemetry with a field-level preview, and export. */
 export function PrivacyPage() {
   const { token, user } = useAuth();
+  const { toast } = useToast();
   const [outbound, setOutbound] = useState<OutboundConnection[]>([]);
   const [secrets, setSecrets] = useState<SecretItem[]>([]);
   const [settings, setSettings] = useState<PrivacySettings | null>(null);
@@ -44,6 +52,7 @@ export function PrivacyPage() {
     try {
       const next = await api.updatePrivacySettings(token, { [key]: !settings[key] });
       setSettings(next.settings);
+      toast('success', 'Privacy settings updated.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update settings.');
     }
@@ -61,87 +70,91 @@ export function PrivacyPage() {
       a.download = 'vulna-export.json';
       a.click();
       URL.revokeObjectURL(url);
+      toast('success', 'Export downloaded.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Export failed.');
     }
   };
 
   return (
-    <section className="card" aria-label="Privacy">
-      <h2>Privacy &amp; data ownership</h2>
-      {error && (
-        <p role="alert" className="error">
-          {error}
-        </p>
-      )}
+    <div aria-label="Privacy">
+      <h2 className="mb-4 text-[15px] font-semibold text-text">Privacy &amp; data ownership</h2>
+      {error && <InlineError message={error} className="mb-3" />}
 
-      <h3>What can leave this deployment</h3>
-      <ul className="status-list">
-        {outbound.map((c) => (
-          <li key={c.name}>
-            <span className={c.enabled ? 'pending' : 'ok'}>{c.enabled ? 'active' : 'off'}</span>{' '}
-            <strong>{c.name}</strong>
-            {c.destination ? ` → ${c.destination}` : ''}
-            <div className="detail">{c.purpose}</div>
-          </li>
-        ))}
-      </ul>
+      <Card className="mb-3 p-4">
+        <h3 className="mb-2 text-[13px] font-semibold text-text">What can leave this deployment</h3>
+        <ul className="flex flex-col gap-2">
+          {outbound.map((c) => (
+            <li key={c.name} className="flex items-start justify-between gap-3">
+              <span className="min-w-0">
+                <span className="block text-[13px] font-medium text-text">
+                  {c.name}
+                  {c.destination && <span className="text-muted"> → {c.destination}</span>}
+                </span>
+                <span className="block text-xs text-muted">{c.purpose}</span>
+              </span>
+              <Badge tone={c.enabled ? 'warn' : 'ok'}>{c.enabled ? 'active' : 'off'}</Badge>
+            </li>
+          ))}
+        </ul>
+      </Card>
 
       {settings && (
-        <>
-          <h3>Privacy settings</h3>
-          <ul className="status-list">
+        <Card className="mb-3 p-4">
+          <h3 className="mb-2 text-[13px] font-semibold text-text">Privacy settings</h3>
+          <ul className="flex flex-col gap-2.5">
             {(Object.keys(settings) as (keyof PrivacySettings)[]).map((key) => (
-              <li key={key}>
-                <span className={settings[key] ? 'ok' : 'pending'}>
-                  {settings[key] ? 'on' : 'off'}
-                </span>{' '}
-                {key.replace(/_/g, ' ')}
-                {isAdmin && (
-                  <button
-                    type="button"
-                    className="btn ghost"
-                    style={{ marginLeft: '0.75rem' }}
-                    onClick={() => void toggle(key)}
-                  >
-                    Toggle
-                  </button>
+              <li key={key} className="flex items-center justify-between gap-3">
+                <span className="text-[13px] text-text">{humanize(key)}</span>
+                {isAdmin ? (
+                  <Switch
+                    checked={!!settings[key]}
+                    onChange={() => void toggle(key)}
+                    ariaLabel={humanize(key)}
+                  />
+                ) : (
+                  <Badge tone={settings[key] ? 'ok' : 'neutral'}>
+                    {settings[key] ? 'on' : 'off'}
+                  </Badge>
                 )}
               </li>
             ))}
           </ul>
           {preview && !settings.telemetry_enabled && (
-            <p className="detail">
+            <p className="mt-3 border-t border-border pt-2.5 text-xs text-muted">
               Telemetry is off. If enabled, it would send only these anonymous counts:{' '}
               {Object.keys(preview.counts).join(', ')} (no IPs, hostnames, usernames, findings, or
               CVEs).
             </p>
           )}
-        </>
+        </Card>
       )}
 
       {isAdmin && secrets.length > 0 && (
-        <>
-          <h3>Secret inventory</h3>
-          <ul className="status-list">
+        <Card className="mb-3 p-4">
+          <h3 className="mb-2 text-[13px] font-semibold text-text">Secret inventory</h3>
+          <ul className="flex flex-col gap-1.5">
             {secrets.map((s) => (
-              <li key={s.name}>
-                <span className={s.present ? 'ok' : 'bad'}>{s.present ? 'set' : 'missing'}</span>{' '}
-                {s.name}
+              <li key={s.name} className="flex items-center justify-between gap-2 text-[13px]">
+                <span className="font-mono text-xs text-text">{s.name}</span>
+                <Badge tone={s.present ? 'ok' : 'bad'}>{s.present ? 'set' : 'missing'}</Badge>
               </li>
             ))}
           </ul>
-        </>
+        </Card>
       )}
 
       {isAdmin && (
-        <>
-          <h3>Take your data with you</h3>
-          <button type="button" className="btn ghost" onClick={() => void download()}>
-            Download data export (JSON)
-          </button>
-        </>
+        <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
+          <div>
+            <h3 className="text-[13px] font-semibold text-text">Take your data with you</h3>
+            <p className="text-xs text-muted">Full JSON export of your deployment's data.</p>
+          </div>
+          <Button variant="outline" onClick={() => void download()}>
+            <DownloadCloud size={14} aria-hidden /> Download data export (JSON)
+          </Button>
+        </Card>
       )}
-    </section>
+    </div>
   );
 }

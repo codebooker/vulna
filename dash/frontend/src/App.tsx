@@ -1,222 +1,145 @@
-import { useCallback, useEffect, useState, type ComponentType } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ComponentType } from 'react';
+import {
+  Activity as ActivityIcon,
+  Building2,
+  ClipboardCheck,
+  Crosshair,
+  FileText,
+  HardDrive,
+  History,
+  LayoutDashboard,
+  Network,
+  Radar,
+  Rocket,
+  Rss,
+  Server,
+  Settings as SettingsIcon,
+  ShieldAlert,
+  SlidersHorizontal,
+  Webhook,
+} from 'lucide-react';
 import { api } from './api/client';
 import { useAuth } from './auth/useAuth';
-import { GlobalSearch } from './components/GlobalSearch';
-import { Icon } from './components/Icon';
-import { AddScoutPage } from './pages/AddScoutPage';
-import { BackupCenterPage } from './pages/BackupCenterPage';
+import { Sidebar, type NavSectionDef } from './components/layout/sidebar';
+import { Topbar } from './components/layout/topbar';
+import { NavContext, hashFor, parseHash, type RouteParams } from './lib/nav';
+import { AssetsPage } from './pages/AssetsPage';
 import { ChangesPage } from './pages/ChangesPage';
+import { AppliancesPage } from './pages/AppliancesPage';
 import { FeedsPage } from './pages/FeedsPage';
 import { FindingsPage } from './pages/FindingsPage';
-import { HealthPage } from './pages/HealthPage';
-import { HelpPage } from './pages/HelpPage';
+import { GettingStartedPage } from './pages/GettingStartedPage';
 import { HomeDashboard } from './pages/HomeDashboard';
-import { LoginPage } from './pages/LoginPage';
-import { MaintenancePage } from './pages/MaintenancePage';
-import { NetworkingPage } from './pages/NetworkingPage';
+import { LoginScreen } from './pages/LoginPage';
 import { NetworksPage } from './pages/NetworksPage';
-import { PentestPage } from './pages/PentestPage';
-import { SchedulesPage } from './pages/SchedulesPage';
 import { NotificationsPage } from './pages/NotificationsPage';
-import { PrivacyPage } from './pages/PrivacyPage';
-import { RelayPage } from './pages/RelayPage';
-import { OnboardingWizard } from './pages/OnboardingWizard';
+import { PentestPage } from './pages/PentestPage';
 import { PresetsPage } from './pages/PresetsPage';
+import { RemediationPage } from './pages/RemediationPage';
 import { ReportsPage } from './pages/ReportsPage';
+import { ScansPage } from './pages/SchedulesPage';
+import { SettingsPage } from './pages/SettingsPage';
 import { SitesPage } from './pages/SitesPage';
 import { SystemHealthPage } from './pages/SystemHealthPage';
-import { UpdateCenterPage } from './pages/UpdateCenterPage';
 import type { OnboardingState } from './types/onboarding';
 
-type NavItem = {
+interface RouteDef {
   id: string;
   label: string;
-  sub: string;
-  icon: string;
+  icon: typeof LayoutDashboard;
   Component: ComponentType;
-};
+}
 
-const NAV: { group: string; items: NavItem[] }[] = [
+interface SectionDef {
+  id: string;
+  label: string;
+  items: RouteDef[];
+}
+
+const NAV: SectionDef[] = [
   {
-    group: 'Overview',
+    id: 'operations',
+    label: 'Operations',
     items: [
-      {
-        id: 'overview',
-        label: 'Overview',
-        sub: 'What needs attention right now',
-        icon: 'overview',
-        Component: HomeDashboard,
-      },
+      { id: 'overview', label: 'Overview', icon: LayoutDashboard, Component: HomeDashboard },
+      { id: 'assets', label: 'Assets', icon: Server, Component: AssetsPage },
+      { id: 'findings', label: 'Findings', icon: ShieldAlert, Component: FindingsPage },
+      { id: 'scans', label: 'Scans', icon: Radar, Component: ScansPage },
+      { id: 'sites', label: 'Sites', icon: Building2, Component: SitesPage },
+      { id: 'changes', label: 'Activity', icon: History, Component: ChangesPage },
     ],
   },
   {
-    group: 'Assessment',
+    id: 'management',
+    label: 'Management',
     items: [
-      {
-        id: 'findings',
-        label: 'Findings',
-        sub: 'Tracked vulnerabilities across your assets',
-        icon: 'findings',
-        Component: FindingsPage,
-      },
-      {
-        id: 'sites',
-        label: 'Sites',
-        sub: 'Locations and their network scopes',
-        icon: 'sites',
-        Component: SitesPage,
-      },
-      {
-        id: 'networks',
-        label: 'Networks',
-        sub: 'Approved network ranges and scopes',
-        icon: 'networks',
-        Component: NetworksPage,
-      },
-      {
-        id: 'schedules',
-        label: 'Schedules',
-        sub: 'Recurring scans',
-        icon: 'schedules',
-        Component: SchedulesPage,
-      },
-      {
-        id: 'presets',
-        label: 'Scan presets',
-        sub: 'Scanner profiles and intensity',
-        icon: 'presets',
-        Component: PresetsPage,
-      },
-      {
-        id: 'pentest',
-        label: 'Pentest',
-        sub: 'Controlled, approval-gated testing',
-        icon: 'pentest',
-        Component: PentestPage,
-      },
+      { id: 'remediation', label: 'Remediation', icon: ClipboardCheck, Component: RemediationPage },
+      { id: 'reports', label: 'Reports', icon: FileText, Component: ReportsPage },
+      { id: 'appliances', label: 'Appliances', icon: HardDrive, Component: AppliancesPage },
+      { id: 'networks', label: 'Networks', icon: Network, Component: NetworksPage },
+      { id: 'presets', label: 'Scan presets', icon: SlidersHorizontal, Component: PresetsPage },
+      { id: 'pentest', label: 'Pentest', icon: Crosshair, Component: PentestPage },
     ],
   },
   {
-    group: 'Fleet',
+    id: 'administration',
+    label: 'Administration',
     items: [
-      {
-        id: 'scouts',
-        label: 'Scouts',
-        sub: 'Enroll and manage probes',
-        icon: 'scouts',
-        Component: AddScoutPage,
-      },
-      {
-        id: 'relay',
-        label: 'Relay',
-        sub: 'Scanner-free egress endpoints',
-        icon: 'relay',
-        Component: RelayPage,
-      },
-      {
-        id: 'networking',
-        label: 'Networking',
-        sub: 'Connectivity and interfaces',
-        icon: 'networking',
-        Component: NetworkingPage,
-      },
-    ],
-  },
-  {
-    group: 'Intelligence',
-    items: [
-      {
-        id: 'feeds',
-        label: 'CVE feeds',
-        sub: 'NVD, CISA KEV, and EPSS sync health',
-        icon: 'feeds',
-        Component: FeedsPage,
-      },
-      {
-        id: 'reports',
-        label: 'Reports',
-        sub: 'Export findings and evidence',
-        icon: 'reports',
-        Component: ReportsPage,
-      },
-      {
-        id: 'changes',
-        label: 'Activity',
-        sub: 'What changed and when',
-        icon: 'changes',
-        Component: ChangesPage,
-      },
-    ],
-  },
-  {
-    group: 'System',
-    items: [
+      { id: 'feeds', label: 'CVE feeds', icon: Rss, Component: FeedsPage },
+      { id: 'notifications', label: 'Integrations', icon: Webhook, Component: NotificationsPage },
+      { id: 'settings', label: 'Settings', icon: SettingsIcon, Component: SettingsPage },
       {
         id: 'system-health',
         label: 'System health',
-        sub: 'Component and service status',
-        icon: 'system-health',
+        icon: ActivityIcon,
         Component: SystemHealthPage,
       },
       {
-        id: 'updates',
-        label: 'Updates',
-        sub: 'Version and upgrade center',
-        icon: 'updates',
-        Component: UpdateCenterPage,
-      },
-      {
-        id: 'backups',
-        label: 'Backups',
-        sub: 'Snapshots and restore',
-        icon: 'backups',
-        Component: BackupCenterPage,
-      },
-      {
-        id: 'notifications',
-        label: 'Notifications',
-        sub: 'Channels and delivery',
-        icon: 'notifications',
-        Component: NotificationsPage,
-      },
-      {
-        id: 'maintenance',
-        label: 'Maintenance',
-        sub: 'Cleanup, retention, diagnostics',
-        icon: 'maintenance',
-        Component: MaintenancePage,
-      },
-      {
-        id: 'privacy',
-        label: 'Privacy',
-        sub: 'Outbound data and secrets',
-        icon: 'privacy',
-        Component: PrivacyPage,
-      },
-      {
-        id: 'help',
-        label: 'Help',
-        sub: 'Topics and exposure checklist',
-        icon: 'help',
-        Component: HelpPage,
+        id: 'getting-started',
+        label: 'Getting started',
+        icon: Rocket,
+        Component: GettingStartedPage,
       },
     ],
   },
 ];
 
-const ALL_ITEMS = NAV.flatMap((g) => g.items);
+const ALL_ITEMS = NAV.flatMap((s) => s.items);
 
-function currentViewFromHash(): string {
-  const id = window.location.hash.replace(/^#/, '');
-  return ALL_ITEMS.some((i) => i.id === id) ? id : 'overview';
+/** Legacy hash ids continue to work and land on the equivalent redesigned view. */
+const ALIASES: Record<string, { id: string; params?: RouteParams }> = {
+  schedules: { id: 'scans' },
+  scouts: { id: 'appliances', params: { tab: 'scouts' } },
+  relay: { id: 'appliances', params: { tab: 'relay' } },
+  networking: { id: 'settings', params: { section: 'networking' } },
+  updates: { id: 'settings', params: { section: 'updates' } },
+  backups: { id: 'settings', params: { section: 'backups' } },
+  maintenance: { id: 'settings', params: { section: 'maintenance' } },
+  privacy: { id: 'settings', params: { section: 'privacy' } },
+  help: { id: 'settings', params: { section: 'help' } },
+};
+
+function resolveRoute(hash: string): { id: string; params: RouteParams } {
+  const { id, params } = parseHash(hash);
+  const alias = ALIASES[id];
+  if (alias) return { id: alias.id, params: { ...alias.params, ...params } };
+  return ALL_ITEMS.some((i) => i.id === id) ? { id, params } : { id: 'overview', params: {} };
 }
+
+const SIDEBAR_KEY = 'vulnadash.sidebar-collapsed';
 
 export function App() {
   const { user, token, initializing, logout } = useAuth();
   const [onboarding, setOnboarding] = useState<OnboardingState | null>(null);
-  const [resume, setResume] = useState(false);
-  const [view, setView] = useState<string>(currentViewFromHash());
-  const [navOpen, setNavOpen] = useState(false);
+  const [route, setRoute] = useState(() => resolveRoute(window.location.hash));
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem(SIDEBAR_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
 
   const loadOnboarding = useCallback(async () => {
     if (!token) return;
@@ -232,141 +155,87 @@ export function App() {
   }, [user, token, loadOnboarding]);
 
   useEffect(() => {
-    const onHash = () => setView(currentViewFromHash());
+    const onHash = () => setRoute(resolveRoute(window.location.hash));
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
-  const go = useCallback((id: string) => {
-    window.location.hash = id;
-    setView(id);
-    setNavOpen(false);
+  const go = useCallback((id: string, params?: RouteParams) => {
+    window.location.hash = hashFor(id, params);
+    setRoute(resolveRoute(hashFor(id, params)));
+    setMobileNavOpen(false);
   }, []);
 
-  const incomplete = onboarding !== null && onboarding.completed_at === null;
-  const showWizard = incomplete && (!onboarding?.dismissed || resume);
+  const navValue = useMemo(() => ({ current: route, go }), [route, go]);
+
+  const toggleCollapsed = useCallback(() => {
+    setCollapsed((c) => {
+      try {
+        localStorage.setItem(SIDEBAR_KEY, c ? '0' : '1');
+      } catch {
+        // ignore
+      }
+      return !c;
+    });
+  }, []);
 
   if (initializing) {
     return (
-      <div className="login-screen">
-        <p className="detail">Loading…</p>
+      <div className="flex h-screen items-center justify-center bg-bg">
+        <p className="text-sm text-muted">Loading…</p>
       </div>
     );
   }
 
   if (!user) {
-    return (
-      <div className="login-screen">
-        <div className="login-box">
-          <div className="brand">
-            <img src="/vulna-mark.svg" alt="" width={34} height={34} />
-            <h1>
-              Vulna<b>Dash</b>
-            </h1>
-          </div>
-          <LoginPage />
-          <div style={{ marginTop: '1.1rem' }}>
-            <HealthPage />
-          </div>
-          <span className="tag">Self-hosted security assessment across every site.</span>
-        </div>
-      </div>
-    );
+    return <LoginScreen />;
   }
 
-  const active = ALL_ITEMS.find((i) => i.id === view) ?? ALL_ITEMS[0];
+  const incomplete = onboarding !== null && onboarding.completed_at === null;
+  const section = NAV.find((s) => s.items.some((i) => i.id === route.id)) ?? NAV[0];
+  const active = ALL_ITEMS.find((i) => i.id === route.id) ?? ALL_ITEMS[0];
   const ActivePage = active.Component;
-  const initial = (user.email?.[0] ?? '?').toUpperCase();
+
+  const sections: NavSectionDef[] = NAV.map((s) => ({
+    id: s.id,
+    label: s.label,
+    // Hide "Getting started" from the sidebar once setup is complete;
+    // the route itself keeps working.
+    items: s.items
+      .filter((i) => i.id !== 'getting-started' || incomplete)
+      .map(({ id, label, icon }) => ({ id, label, icon })),
+  }));
 
   return (
-    <div className={`app-shell${navOpen ? ' nav-open' : ''}`}>
-      {navOpen && <div className="scrim" onClick={() => setNavOpen(false)} />}
-
-      <aside className="sidebar">
-        <div className="sidebar-brand">
-          <img src="/vulna-mark.svg" alt="" width={26} height={26} />
-          <span className="word">
-            Vulna<b>Dash</b>
-          </span>
-        </div>
-
-        <nav className="sidebar-nav" aria-label="Primary">
-          {NAV.map((group) => (
-            <div className="nav-group" key={group.group}>
-              <div className="nav-group-label">{group.group}</div>
-              {group.items.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  className={`nav-item${view === item.id ? ' active' : ''}`}
-                  aria-current={view === item.id ? 'page' : undefined}
-                  onClick={() => go(item.id)}
-                >
-                  <Icon name={item.icon} />
-                  <span>{item.label}</span>
-                </button>
-              ))}
+    <NavContext.Provider value={navValue}>
+      <div className="flex min-h-screen bg-bg text-text">
+        <Sidebar
+          sections={sections}
+          currentId={active.id}
+          onNavigate={go}
+          collapsed={collapsed}
+          onToggleCollapsed={toggleCollapsed}
+          mobileOpen={mobileNavOpen}
+          onCloseMobile={() => setMobileNavOpen(false)}
+          userEmail={user.email}
+          userRole={user.role}
+          onLogout={logout}
+        />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <Topbar
+            sectionLabel={section.label}
+            pageLabel={active.label}
+            onOpenMobileNav={() => setMobileNavOpen(true)}
+            showResumeSetup={incomplete && active.id !== 'getting-started'}
+            onResumeSetup={() => go('getting-started')}
+          />
+          <main className="mx-auto w-full max-w-[1400px] flex-1 px-4 py-4 sm:px-6 sm:py-5">
+            <div key={`${active.id}`} className="vd-fade-in">
+              <ActivePage />
             </div>
-          ))}
-        </nav>
-
-        <div className="sidebar-foot">
-          <div className="avatar" aria-hidden="true">
-            {initial}
-          </div>
-          <div className="who">
-            <span className="email">{user.email}</span>
-            <span className="role">{user.role}</span>
-          </div>
-          <button
-            type="button"
-            className="icon-btn"
-            title="Sign out"
-            aria-label="Sign out"
-            onClick={logout}
-          >
-            <Icon name="logout" />
-          </button>
-        </div>
-      </aside>
-
-      <div className="main-col">
-        <header className="topbar">
-          <button
-            type="button"
-            className="icon-btn menu-btn"
-            aria-label="Menu"
-            onClick={() => setNavOpen((o) => !o)}
-          >
-            <Icon name="menu" />
-          </button>
-          <div className="crumb">
-            <span className="crumb-title">{active.label}</span>
-            <span className="sub">{active.sub}</span>
-          </div>
-          <div className="spacer" />
-          {incomplete && onboarding?.dismissed && !resume && (
-            <button type="button" className="btn ghost" onClick={() => setResume(true)}>
-              Resume setup
-            </button>
-          )}
-          <GlobalSearch />
-        </header>
-
-        <div className="content">
-          <div className="content-inner">
-            {showWizard && view === 'overview' && (
-              <OnboardingWizard
-                onFinished={() => {
-                  setResume(false);
-                  void loadOnboarding();
-                }}
-              />
-            )}
-            <ActivePage />
-          </div>
+          </main>
         </div>
       </div>
-    </div>
+    </NavContext.Provider>
   );
 }

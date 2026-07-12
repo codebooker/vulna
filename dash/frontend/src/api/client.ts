@@ -1,5 +1,13 @@
 import type { CurrentUser, TokenResponse } from '../types/auth';
-import type { ChangeEvent, NetworkScope, NewScope, NewSite, Page, Site } from '../types/inventory';
+import type {
+  Asset,
+  ChangeEvent,
+  NetworkScope,
+  NewScope,
+  NewSite,
+  Page,
+  Site,
+} from '../types/inventory';
 import type { Network, NewNetwork } from '../types/network';
 import type { PentestSession, RulesOfEngagement } from '../types/pentest';
 import type { NewSchedule, ScanSchedule } from '../types/schedule';
@@ -114,6 +122,11 @@ export const api = {
   },
   createSite(token: string, payload: NewSite): Promise<Site> {
     return request<Site>('/api/v1/sites', { method: 'POST', token, body: payload });
+  },
+  listAssets(token: string, limit = 200, siteId?: string): Promise<Page<Asset>> {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (siteId) params.set('site_id', siteId);
+    return request<Page<Asset>>(`/api/v1/assets?${params.toString()}`, { token });
   },
   listScopes(token: string, siteId?: string): Promise<Page<NetworkScope>> {
     const query = siteId ? `?site_id=${encodeURIComponent(siteId)}` : '';
