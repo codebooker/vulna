@@ -48,7 +48,11 @@ fi
 # postgres pg_restore` in the CLI, not this host-mode path.)
 if [ -f "$STAGE/db.dump" ]; then
 	if [ -n "${DATABASE_URL:-}" ] && command -v pg_restore >/dev/null 2>&1; then
-		pg_restore --clean --if-exists --no-owner --dbname "$DATABASE_URL" "$STAGE/db.dump"
+		# Atomic restore: --single-transaction (+ --exit-on-error) so a mid-way failure
+		# rolls back and leaves the database unchanged, rather than partly dropped and
+		# partly restored.
+		pg_restore --clean --if-exists --no-owner --single-transaction --exit-on-error \
+			--dbname "$DATABASE_URL" "$STAGE/db.dump"
 	elif [ -n "${VULNA_DB_RESTORE_OUT:-}" ]; then
 		# Explicit test hook: write the dump to a caller-named path. Used by the smoke
 		# test to exercise the archive mechanics WITHOUT a live PostgreSQL. Not a real
