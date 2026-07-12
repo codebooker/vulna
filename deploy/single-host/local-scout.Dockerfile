@@ -83,9 +83,17 @@ USER root
 RUN apk add --no-cache \
       nmap nmap-scripts \
       bash procps coreutils openssl bind-tools \
-      ca-certificates \
+      ca-certificates libcap \
  && addgroup -S vulna \
- && adduser -S -G vulna -u 10001 -h /var/lib/vulna vulna
+ && adduser -S -G vulna -u 10001 -h /var/lib/vulna vulna \
+ # The Metasploit base grants file capabilities (e.g. cap_net_raw on the ruby
+ # interpreter) so it can raw-socket as non-root. This scout runs with
+ # `cap_drop: ALL` + `no-new-privileges`, under which the kernel REFUSES to exec
+ # a capability-bearing file as a non-root user (EPERM) — so msfconsole (a ruby
+ # script) would fail to launch. The dropped caps are unusable here anyway and
+ # the scanners are connect-based, so strip every file capability to keep the
+ # hardened, unprivileged posture while letting the interpreters exec.
+ && getcap -r / 2>/dev/null | awk '{print $1}' | while read -r f; do setcap -r "$f" 2>/dev/null || true; done
 
 COPY --from=build /out/vulnascout /usr/local/bin/vulnascout
 COPY --from=tools /out/nuclei /usr/local/bin/nuclei
