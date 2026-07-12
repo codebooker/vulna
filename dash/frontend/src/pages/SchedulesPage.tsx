@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
-import { CalendarClock, Crosshair, Play, Plus, Radar } from 'lucide-react';
+import { CalendarClock, Crosshair, FileText, Play, Plus, Radar } from 'lucide-react';
 import { ApiError, api } from '../api/client';
 import { useAuth } from '../auth/useAuth';
 import { useNav } from '../lib/nav';
@@ -39,7 +39,7 @@ function intervalLabel(minutes: number): string {
  *  schedule runs recurring assessments of a network's bound Scout. */
 export function ScansPage() {
   const { token, user, logout } = useAuth();
-  const { current } = useNav();
+  const { current, go } = useNav();
   const { toast } = useToast();
   const [schedules, setSchedules] = useState<ScanSchedule[]>([]);
   const [networks, setNetworks] = useState<Network[]>([]);
@@ -122,6 +122,24 @@ export function ScansPage() {
     }
   };
 
+  const generateReport = useCallback(
+    async (jobId: string) => {
+      if (!token) return;
+      setBusy(true);
+      setError(null);
+      try {
+        await api.createReports(token, jobId, ['executive_pdf', 'technical_pdf', 'findings_csv']);
+        toast('success', 'Report generated. Opening Reports…');
+        go('reports');
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Failed to generate report.');
+      } finally {
+        setBusy(false);
+      }
+    },
+    [token, go, toast],
+  );
+
   const runningJobs = jobs.filter((j) => ACTIVE_STATES.includes(j.status));
   const completedJobs = jobs.filter((j) => j.status === 'completed');
   const failedJobs = jobs.filter((j) => FAILED_STATES.includes(j.status));
@@ -203,7 +221,7 @@ export function ScansPage() {
         header: 'Actions',
         align: 'right',
         cell: (j) =>
-          isOperator && ACTIVE_STATES.includes(j.status) ? (
+          !isOperator ? null : ACTIVE_STATES.includes(j.status) ? (
             <span className="flex items-center justify-end" onClick={(e) => e.stopPropagation()}>
               <Button
                 size="sm"
@@ -215,11 +233,23 @@ export function ScansPage() {
                 Cancel
               </Button>
             </span>
+          ) : j.status === 'completed' ? (
+            <span className="flex items-center justify-end" onClick={(e) => e.stopPropagation()}>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={busy}
+                title="Generate a report from this scan"
+                onClick={() => void generateReport(j.id)}
+              >
+                <FileText size={12} aria-hidden /> Report
+              </Button>
+            </span>
           ) : null,
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [probeName, isOperator, busy, token],
+    [probeName, isOperator, busy, token, generateReport],
   );
 
   const scheduleColumns: ColumnDef<ScanSchedule>[] = useMemo(
