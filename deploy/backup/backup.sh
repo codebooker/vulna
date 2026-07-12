@@ -10,8 +10,16 @@
 set -euo pipefail
 
 VULNA_DATA="${VULNA_DATA:-/var/lib/vulna}"
-OUT_DIR="${1:-${BACKUP_DIR:-/var/backups/vulna}}"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+# Output path: VULNA_BACKUP_FILE pins an EXACT archive path (so the caller can record
+# and later restore precisely this backup); otherwise a timestamped name in OUT_DIR.
+if [ -n "${VULNA_BACKUP_FILE:-}" ]; then
+	ARCHIVE="$VULNA_BACKUP_FILE"
+	OUT_DIR="$(dirname "$ARCHIVE")"
+else
+	OUT_DIR="${1:-${BACKUP_DIR:-/var/backups/vulna}}"
+	ARCHIVE="$OUT_DIR/vulna-backup-$STAMP.tar.gz"
+fi
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 
@@ -49,7 +57,6 @@ if [ -n "${VULNA_ENV_FILE:-}" ] && [ -f "$VULNA_ENV_FILE" ]; then
 fi
 
 # 3. Archive + checksum.
-ARCHIVE="$OUT_DIR/vulna-backup-$STAMP.tar.gz"
 tar -czf "$ARCHIVE" -C "$STAGE" .
 ( cd "$OUT_DIR" && sha256sum "$(basename "$ARCHIVE")" > "$ARCHIVE.sha256" )
 
