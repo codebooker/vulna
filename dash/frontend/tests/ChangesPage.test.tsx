@@ -61,7 +61,9 @@ describe('ChangesPage', () => {
         <ChangesPage />
       </AuthProvider>,
     );
-    await waitFor(() => expect(screen.getByText('Port opened')).toBeInTheDocument());
+    // "Port opened" appears both as a table cell and as a filter option in the
+    // redesigned activity table, so assert on at least one occurrence.
+    await waitFor(() => expect(screen.getAllByText('Port opened').length).toBeGreaterThan(0));
     expect(screen.getByText(/Port 80\/tcp opened on 10\.20\.0\.5/)).toBeInTheDocument();
   });
 });

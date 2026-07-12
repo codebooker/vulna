@@ -1,12 +1,19 @@
 import { useCallback, useEffect, useState } from 'react';
+import { BookOpen } from 'lucide-react';
 import { ApiError, api } from '../api/client';
 import { useAuth } from '../auth/useAuth';
+import { useToast } from '../lib/toast';
+import { Button } from '../components/ui/button';
+import { Card } from '../components/ui/card';
+import { Code } from '../components/ui/misc';
+import { InlineError } from '../components/ui/states';
 import type { DemoStatus, HelpTopic } from '../types/help';
 
-/** Help & demo: contextual documentation links, the exposure checklist, and a
- *  safe demo mode (sample data, no scanning) that admins can toggle. */
+/** Help & demo: documentation topics, the exposure checklist, and a safe demo
+ *  mode (sample data, no scanning) that admins can toggle. */
 export function HelpPage() {
   const { token, user } = useAuth();
+  const { toast } = useToast();
   const [topics, setTopics] = useState<HelpTopic[]>([]);
   const [checklist, setChecklist] = useState<string[]>([]);
   const [demo, setDemo] = useState<DemoStatus | null>(null);
@@ -36,7 +43,9 @@ export function HelpPage() {
     setBusy(true);
     setError(null);
     try {
-      setDemo(demo.demo_mode ? await api.disableDemo(token) : await api.enableDemo(token));
+      const next = demo.demo_mode ? await api.disableDemo(token) : await api.enableDemo(token);
+      setDemo(next);
+      toast('success', next.demo_mode ? 'Demo mode enabled.' : 'Demo mode disabled.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to change demo mode.');
     } finally {
@@ -45,50 +54,65 @@ export function HelpPage() {
   };
 
   return (
-    <section className="card" aria-label="Help and demo">
-      <h2>Help &amp; demo</h2>
-      {error && (
-        <p role="alert" className="error">
-          {error}
-        </p>
-      )}
+    <div aria-label="Help and demo">
+      <h2 className="mb-4 text-[15px] font-semibold text-text">Help &amp; demo</h2>
+      {error && <InlineError message={error} className="mb-3" />}
 
       {demo && (
-        <div className="preview">
-          <p>
-            Demo mode is <strong>{demo.demo_mode ? 'on' : 'off'}</strong>.{' '}
-            {demo.demo_mode
-              ? 'Sample data is loaded and real scans are blocked.'
-              : 'Turn it on to explore with sample data and no scanning.'}
-          </p>
+        <Card className="mb-3 flex flex-wrap items-center justify-between gap-3 p-4">
+          <div className="min-w-0">
+            <p className="text-[13px] font-semibold text-text">
+              Demo mode is {demo.demo_mode ? 'on' : 'off'}
+            </p>
+            <p className="text-xs text-muted">
+              {demo.demo_mode
+                ? 'Sample data is loaded and real scans are blocked.'
+                : 'Turn it on to explore with sample data and no scanning.'}
+            </p>
+          </div>
           {isAdmin && (
-            <button
-              type="button"
-              className="btn ghost"
-              disabled={busy}
-              onClick={() => void toggleDemo()}
-            >
+            <Button variant="outline" disabled={busy} onClick={() => void toggleDemo()}>
               {demo.demo_mode ? 'Disable demo mode' : 'Enable demo mode'}
-            </button>
+            </Button>
           )}
-        </div>
+        </Card>
       )}
 
-      <h3>Guides</h3>
-      <ul className="status-list">
-        {topics.map((t) => (
-          <li key={t.key}>
-            <strong>{t.title}</strong> — {t.summary} <code>{t.doc}</code>
-          </li>
-        ))}
-      </ul>
+      <Card className="mb-3 p-4">
+        <h3 className="mb-2 text-[13px] font-semibold text-text">Guides</h3>
+        <ul className="flex flex-col gap-1">
+          {topics.map((t) => (
+            <li
+              key={t.key}
+              className="flex items-start gap-2.5 rounded-lg px-2 py-1.5 hover:bg-surface-2"
+            >
+              <BookOpen size={14} aria-hidden className="mt-0.5 shrink-0 text-accent" />
+              <span className="min-w-0">
+                <span className="block text-[13px] font-medium text-text">{t.title}</span>
+                <span className="block text-xs text-muted">
+                  {t.summary} <Code>{t.doc}</Code>
+                </span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      </Card>
 
-      <h3>Before exposing Vulna beyond your LAN</h3>
-      <ol className="status-list">
-        {checklist.map((item, i) => (
-          <li key={i}>{item}</li>
-        ))}
-      </ol>
-    </section>
+      <Card className="p-4">
+        <h3 className="mb-2 text-[13px] font-semibold text-text">
+          Before exposing Vulna beyond your LAN
+        </h3>
+        <ol className="flex list-decimal flex-col gap-1.5 pl-5">
+          {checklist.map((item, i) => (
+            <li key={i} className="text-[13px] leading-relaxed text-text">
+              {item}
+            </li>
+          ))}
+        </ol>
+      </Card>
+    </div>
   );
 }
+
+/** Kept for compatibility with older imports. */
+export { HelpPage as default };

@@ -129,8 +129,9 @@ describe('Authentication flow', () => {
     // Navigate to the Sites section via the sidebar.
     fireEvent.click(screen.getByRole('button', { name: 'Sites' }));
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Sites' })).toBeInTheDocument());
-    expect(screen.getByText('Head Office')).toBeInTheDocument();
-    // Admins get the create form.
+    await waitFor(() => expect(screen.getByText('Head Office')).toBeInTheDocument());
+    // Admins get the create action; the form now opens in a modal.
+    fireEvent.click(screen.getByRole('button', { name: /Add site/ }));
     expect(screen.getByRole('heading', { name: 'Add a site' })).toBeInTheDocument();
     // Token persisted for session restore.
     expect(localStorage.getItem('vulna.token')).toBe('tok123');

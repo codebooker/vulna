@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ApiError, api } from '../api/client';
 import { useAuth } from '../auth/useAuth';
+import { Card } from '../components/ui/card';
+import { Code, CodeBlock } from '../components/ui/misc';
+import { InlineError } from '../components/ui/states';
 import type { UpdateCenter } from '../types/update';
 
-/** Update center (display only). The running app never fetches or applies
- *  releases; updates are checked and applied by the operator with the
- *  signature-verifying `vulna` CLI. */
+/** Update center (display only). Updates are checked and applied by the
+ *  operator with the signature-verifying `vulna` CLI. */
 export function UpdateCenterPage() {
   const { token, user } = useAuth();
   const [info, setInfo] = useState<UpdateCenter | null>(null);
@@ -29,35 +31,37 @@ export function UpdateCenterPage() {
 
   if (!isAdmin || !info) {
     return error ? (
-      <section className="card" aria-label="Updates">
-        <h2>Updates</h2>
-        <p role="alert" className="error">
-          {error}
-        </p>
-      </section>
+      <div aria-label="Updates">
+        <h2 className="mb-2 text-[15px] font-semibold text-text">Updates</h2>
+        <InlineError message={error} />
+      </div>
     ) : null;
   }
 
   return (
-    <section className="card" aria-label="Update center">
-      <h2>Updates</h2>
-      <p className="detail">
-        Current version <code>{info.current_version}</code> on the <strong>{info.channel}</strong>{' '}
-        channel. Updates are applied by an operator with the signature-verifying <code>vulna</code>{' '}
-        CLI — the web UI only shows version info.
+    <div aria-label="Update center">
+      <h2 className="mb-1 text-[15px] font-semibold text-text">Updates</h2>
+      <p className="mb-4 max-w-2xl text-[13px] text-muted">
+        Current version <Code>{info.current_version}</Code> on the{' '}
+        <strong className="text-text">{info.channel}</strong> channel. Updates are applied by an
+        operator with the signature-verifying <Code>vulna</Code> CLI — the web UI only shows version
+        info.
       </p>
-      <ul className="status-list">
-        <li>
-          Check for updates: <code>{info.how_to_check}</code>
-        </li>
-        <li>
-          Apply an update: <code>{info.how_to_apply}</code>
-        </li>
-      </ul>
-      <p className="detail">
+      {error && <InlineError message={error} className="mb-3" />}
+      <Card className="mb-3 p-4">
+        <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted">
+          Check for updates
+        </p>
+        <CodeBlock>{info.how_to_check}</CodeBlock>
+        <p className="mb-1.5 mt-3 text-xs font-semibold uppercase tracking-wide text-muted">
+          Apply an update
+        </p>
+        <CodeBlock>{info.how_to_apply}</CodeBlock>
+      </Card>
+      <p className="text-xs text-muted">
         These update types are kept separate: {info.update_types.join(', ')}.
       </p>
-      <p className="detail">{info.note}</p>
-    </section>
+      <p className="mt-1 text-xs text-muted">{info.note}</p>
+    </div>
   );
 }
