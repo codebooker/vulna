@@ -55,31 +55,36 @@ export function ScansPage() {
 
   const isOperator = user?.role === 'administrator' || user?.role === 'security_operator';
 
-  const load = useCallback(async () => {
-    if (!token) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const [scheds, nets, jobPage, probePage] = await Promise.all([
-        api.listSchedules(token),
-        api.listNetworks(token).catch(() => []),
-        api.listJobs(token, undefined, 200).catch(() => null),
-        api.listProbes(token).catch(() => null),
-      ]);
-      setSchedules(scheds);
-      setNetworks(nets);
-      setJobs(jobPage?.items ?? []);
-      setProbes(probePage?.items ?? []);
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 401) {
-        logout();
-        return;
+  const load = useCallback(
+    async (silent = false) => {
+      if (!token) return;
+      // Background polls and post-action refreshes update in place; only the
+      // first load shows the skeleton, so the table doesn't flicker every 5s.
+      if (!silent) setLoading(true);
+      try {
+        const [scheds, nets, jobPage, probePage] = await Promise.all([
+          api.listSchedules(token),
+          api.listNetworks(token).catch(() => []),
+          api.listJobs(token, undefined, 200).catch(() => null),
+          api.listProbes(token).catch(() => null),
+        ]);
+        setSchedules(scheds);
+        setNetworks(nets);
+        setJobs(jobPage?.items ?? []);
+        setProbes(probePage?.items ?? []);
+        setError(null);
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 401) {
+          logout();
+          return;
+        }
+        setError(err instanceof Error ? err.message : 'Failed to load scans.');
+      } finally {
+        if (!silent) setLoading(false);
       }
-      setError(err instanceof Error ? err.message : 'Failed to load scans.');
-    } finally {
-      setLoading(false);
-    }
-  }, [token, logout]);
+    },
+    [token, logout],
+  );
 
   useEffect(() => {
     void load();
@@ -89,7 +94,7 @@ export function ScansPage() {
   const hasActive = jobs.some((j) => ACTIVE_STATES.includes(j.status));
   useEffect(() => {
     if (!hasActive) return;
-    const t = setInterval(() => void load(), 5000);
+    const t = setInterval(() => void load(true), 5000);
     return () => clearInterval(t);
   }, [hasActive, load]);
 
@@ -108,7 +113,7 @@ export function ScansPage() {
     setBusy(true);
     try {
       await fn();
-      await load();
+      await load(true);
       toast('success', success);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Action failed.');
