@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ShieldAlert } from 'lucide-react';
 import { ApiError, api } from '../api/client';
 import { useAuth } from '../auth/useAuth';
@@ -71,6 +71,19 @@ export function FindingsPage() {
     setTab('overview');
     setActionError(null);
   };
+
+  // Deep link from elsewhere (e.g. an asset's vulnerabilities): #findings?finding=<id>
+  // opens that finding's detail once, without reopening after the user closes it.
+  const deepFindingId = current.params.finding;
+  const handledDeepLink = useRef<string | null>(null);
+  useEffect(() => {
+    if (!deepFindingId || handledDeepLink.current === deepFindingId) return;
+    const match = findings.find((f) => f.id === deepFindingId);
+    if (match) {
+      handledDeepLink.current = deepFindingId;
+      openDetail(match);
+    }
+  }, [deepFindingId, findings]);
 
   const act = async (fn: () => Promise<unknown>, success: string) => {
     if (!token || !selected) return;
