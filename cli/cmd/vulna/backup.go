@@ -274,17 +274,26 @@ func cmdBackupRestore(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	// The restore script does the destructive DB + data work; locate it before
-	// touching anything so a missing script fails early, not half-way through.
-	restoreScript, ok := resolveBackupScript(*dir, "restore.sh")
-	if !ok {
-		fmt.Fprintln(stderr, "restore: deploy/backup/restore.sh not found in this deployment; cannot apply the backup.")
-		return 1
+	compose := deploy.HasPostgresService(*dir)
+
+	// The host/dev restore path needs restore.sh; the Compose path uses safeRestore.
+	// Locate the script up front ONLY for the host path so a missing script fails
+	// early there (and never blocks a Compose restore, which does not use it).
+	restoreScript := ""
+	if !compose {
+		s, ok := resolveBackupScript(*dir, "restore.sh")
+		if !ok {
+			fmt.Fprintln(stderr, "restore: deploy/backup/restore.sh not found in this deployment; cannot apply the backup.")
+			return 1
+		}
+		restoreScript = s
 	}
 
-	// 4. Take a safety backup of the current deployment first. If it fails we
-	//    abort before any destructive step rather than leave the host unprotected.
-	if existing {
+	// 4. Take a safety backup of the current deployment first — but only when there is
+	//    actual data to protect. On a clean host (compose files present, no database
+	//    volume yet) there is nothing to back up, so skip straight to the restore
+	//    instead of aborting on "no database dump source".
+	if existing && (!compose || deploy.PostgresDataExists(*dir)) {
 		fmt.Fprintln(stdout, "Taking a safety backup of the current deployment before restoring ...")
 		if _, err := runBackup(*dir, stdout, stderr); err != nil {
 			fmt.Fprintln(stderr, "restore: safety backup failed; aborting before any destructive step:", err)
@@ -328,7 +337,7 @@ func cmdBackupRestore(args []string, stdout, stderr io.Writer) int {
 	// 6. Apply.
 	fmt.Fprintf(stdout, "Restoring %s (app %s, schema %s) ...\n",
 		bundle, rep.Manifest.AppVersion, orDashB(rep.Manifest.SchemaVersion))
-	if deploy.HasPostgresService(*dir) {
+	if compose {
 		// Compose deployment: safe-restore works whether the stack is running,
 		// stopped, or the host is clean (it stops writers, isolates postgres, restores
 		// the DB + volumes + .env, then restarts) — the documented DR workflow.
@@ -415,6 +424,10 @@ func safeRestore(dir, archivePath string, stdout, stderr io.Writer) error {
 		return err
 	}
 
+	// Capture the password the RUNNING postgres was initialized with (this host's),
+	// before the restore overwrites .env with the backup's (original host's) password.
+	currentDBPassword := deploy.CurrentDBPassword(dir)
+
 	df, err := os.Open(dumpPath) //nolint:gosec // path inside our temp extract dir
 	if err != nil {
 		return err
@@ -444,10 +457,29 @@ func safeRestore(dir, archivePath string, stdout, stderr io.Writer) error {
 			return werr
 		}
 		fmt.Fprintln(stdout, "Deployment .env restored.")
+
+		// pg_restore does NOT restore cluster roles/passwords, so the postgres volume
+		// still authenticates with THIS host's password while the restored .env carries
+		// the ORIGINAL host's. Re-align the role to the restored password (connecting
+		// with the current one) so the API can authenticate; otherwise a cross-host
+		// restore leaves the stack unable to connect.
+		user, db, restoredPassword := deploy.PGCreds(dir)
+		if restoredPassword != "" && restoredPassword != currentDBPassword {
+			fmt.Fprintln(stdout, "Aligning the database password with the restored config ...")
+			if err := deploy.SetDatabasePassword(dir, currentDBPassword, user, db, restoredPassword); err != nil {
+				return err
+			}
+		}
 	}
 
 	fmt.Fprintln(stdout, "Bringing the stack back up on the restored state ...")
-	return deploy.Up(dir, stdout, stderr)
+	if err := deploy.Up(dir, stdout, stderr); err != nil {
+		return err
+	}
+	// Confirm the restored stack actually comes up healthy (e.g. the API can connect
+	// to the database) — do not report a successful restore before that.
+	fmt.Fprintln(stdout, "Waiting for the restored stack to become healthy ...")
+	return deploy.WaitHealthy(dir, 3*time.Minute, stdout)
 }
 
 func fileExists(p string) bool {
