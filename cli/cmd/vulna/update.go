@@ -585,6 +585,20 @@ func runBackup(dir string, stdout, stderr io.Writer) (string, error) {
 		}
 		defer os.RemoveAll(stage)
 
+		// Quiesce the writers (API, local Scout, ...) so the DB dump and the volume
+		// copies represent ONE consistent point in time — a report can't be half-
+		// written, and the Scout can't mutate its queue mid-copy. postgres stays up for
+		// the dump; the stopped services are restarted afterward, preserving the
+		// running state.
+		quiesced := deploy.RunningNonPostgresServices(dir)
+		if len(quiesced) > 0 {
+			fmt.Fprintln(stdout, "Pausing services for a consistent backup ...")
+			if err := deploy.StopServices(dir, stdout, stderr, quiesced...); err != nil {
+				return "", fmt.Errorf("quiescing services for a consistent backup: %w", err)
+			}
+			defer func() { _ = deploy.StartServices(dir, stdout, stderr, quiesced...) }()
+		}
+
 		dumpPath := filepath.Join(stage, "db.dump")
 		df, err := os.Create(dumpPath) //nolint:gosec // temp path we just created
 		if err != nil {
