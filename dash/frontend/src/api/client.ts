@@ -341,6 +341,22 @@ export const api = {
       body: payload,
     });
   },
+  pentestModules(token: string): Promise<{ modules: string[] }> {
+    return request<{ modules: string[] }>('/api/v1/pentest/allowlisted-modules', { token });
+  },
+  pentestCandidates(token: string): Promise<Finding[]> {
+    return request<Finding[]>('/api/v1/pentest/candidates', { token });
+  },
+  createPentestSession(
+    token: string,
+    payload: { finding_id: string; module: string; rules_of_engagement_id?: string },
+  ): Promise<PentestSession> {
+    return request<PentestSession>('/api/v1/pentest/sessions', {
+      method: 'POST',
+      token,
+      body: payload,
+    });
+  },
   listPentestSessions(token: string): Promise<Page<PentestSession>> {
     return request<Page<PentestSession>>('/api/v1/pentest/sessions', { token });
   },
