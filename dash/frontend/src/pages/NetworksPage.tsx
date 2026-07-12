@@ -175,6 +175,7 @@ function NetworkCard({
   const { token } = useAuth();
   const { toast } = useToast();
   const [cidr, setCidr] = useState('');
+  const [allowPublic, setAllowPublic] = useState(false);
   const [scoutId, setScoutId] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [renaming, setRenaming] = useState(false);
@@ -317,14 +318,30 @@ function NetworkCard({
             value={cidr}
             onChange={(e) => setCidr(e.target.value)}
           />
+          <label
+            className="flex items-center gap-1.5 text-xs text-muted"
+            title="Only scan hosts you are authorized to test."
+          >
+            <input
+              type="checkbox"
+              checked={allowPublic}
+              onChange={(e) => setAllowPublic(e.target.checked)}
+              className="accent-[var(--accent)]"
+            />
+            Allow public
+          </label>
           <Button
             size="sm"
             variant="outline"
             disabled={!cidr}
             onClick={() =>
-              void run(() => api.addNetworkRange(token!, net.id, cidr), 'Range added.').then(() =>
-                setCidr(''),
-              )
+              void run(
+                () => api.addNetworkRange(token!, net.id, cidr, allowPublic),
+                'Range added.',
+              ).then(() => {
+                setCidr('');
+                setAllowPublic(false);
+              })
             }
           >
             Add range
@@ -392,6 +409,7 @@ function CreateNetworkModal({
   const [siteId, setSiteId] = useState('');
   const [name, setName] = useState('');
   const [cidr, setCidr] = useState('');
+  const [allowPublic, setAllowPublic] = useState(false);
   const [scoutId, setScoutId] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -405,11 +423,12 @@ function CreateNetworkModal({
       await api.createNetwork(token, {
         site_id: siteId,
         name,
-        ranges: cidr ? [{ cidr }] : [],
+        ranges: cidr ? [{ cidr, allow_public_addresses: allowPublic }] : [],
         scouts: scoutId ? [{ probe_id: scoutId, is_primary: true }] : [],
       });
       setName('');
       setCidr('');
+      setAllowPublic(false);
       setScoutId('');
       toast('success', 'Network created.');
       onCreated();
@@ -455,6 +474,23 @@ function CreateNetworkModal({
             onChange={(e) => setCidr(e.target.value)}
           />
         </Field>
+        {cidr.trim() !== '' && (
+          <label className="flex items-start gap-2 rounded-lg border border-border px-3 py-2.5 text-[13px]">
+            <input
+              type="checkbox"
+              checked={allowPublic}
+              onChange={(e) => setAllowPublic(e.target.checked)}
+              className="mt-0.5 accent-[var(--accent)]"
+            />
+            <span>
+              <span className="block font-medium text-text">Allow public IP ranges</span>
+              <span className="block text-xs text-muted">
+                Private ranges are allowed by default. Tick this to approve a public range — only
+                scan hosts you are explicitly authorized to test.
+              </span>
+            </span>
+          </label>
+        )}
         <Field label="Primary scout (optional)" htmlFor="net-scout">
           <Select id="net-scout" value={scoutId} onChange={(e) => setScoutId(e.target.value)}>
             <option value="">None</option>

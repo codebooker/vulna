@@ -32,6 +32,6 @@ export interface NewNetwork {
   site_id: string;
   name: string;
   description?: string | null;
-  ranges?: { cidr: string }[];
+  ranges?: { cidr: string; allow_public_addresses?: boolean }[];
   scouts?: { probe_id: string; is_primary: boolean }[];
 }
