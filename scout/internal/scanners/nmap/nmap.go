@@ -220,7 +220,14 @@ func (w *Worker) Run(ctx context.Context, job *policy.Job) ([]byte, error) {
 		return nil, err
 	}
 
-	runCtx, cancel := context.WithTimeout(ctx, w.timeout())
+	// Bound the run by the policy-approved duration when present, so a large but
+	// legitimate scan (several /24s) isn't killed by the fixed fallback timeout.
+	// The rate floor and --host-timeout keep it from wasting that budget idling.
+	timeout := w.timeout()
+	if secs := job.Limits.MaxDurationSeconds; secs > 0 {
+		timeout = time.Duration(secs) * time.Second
+	}
+	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(runCtx, w.binary(), args...)
 	var stderr bytes.Buffer

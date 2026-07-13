@@ -29,6 +29,17 @@ SAMPLE_XML = b"""<?xml version="1.0"?>
 </nmaprun>
 """
 
+# A -Pn scan reports every scanned address as "up" even when nothing is there.
+# An address with no open service (and no MAC on the local segment) is empty space.
+EMPTY_HOST_XML = b"""<?xml version="1.0"?>
+<nmaprun scanner="nmap" version="7.94">
+  <host>
+    <status state="up"/>
+    <address addr="10.20.0.9" addrtype="ipv4"/>
+  </host>
+</nmaprun>
+"""
+
 _XML_HEADERS = {"Content-Type": "application/xml"}
 
 
@@ -76,6 +87,27 @@ async def test_upload_discovers_assets_and_services(
     assert {s["port"] for s in body["services"]} == {22, 80}
     id_values = {i["identifier_value"] for i in body["identifiers"]}
     assert {"10.20.0.5", "00:11:22:33:44:55", "host5.lan"} <= id_values
+
+
+async def test_empty_address_does_not_create_phantom_asset(
+    client: AsyncClient, admin_headers: dict[str, str], enroll_probe: EnrollFactory
+) -> None:
+    probe = await _ready_probe(client, admin_headers, enroll_probe)
+    job_id = await _create_job(client, admin_headers, probe)
+    headers = {**probe_cert_headers(probe["fingerprint"]), **_XML_HEADERS}
+
+    resp = await client.post(
+        f"/api/v1/probes/{probe['probe_id']}/jobs/{job_id}/results",
+        content=EMPTY_HOST_XML,
+        headers=headers,
+    )
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["hosts_seen"] == 1
+    assert body["assets_created"] == 0  # empty address is not a device
+
+    listed = await client.get("/api/v1/assets", headers=admin_headers)
+    assert listed.json()["total"] == 0
 
 
 async def test_reupload_updates_not_duplicates(
