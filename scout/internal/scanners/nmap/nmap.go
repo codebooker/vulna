@@ -31,6 +31,10 @@ const (
 // can never be mistaken for an nmap flag (argument-injection defense).
 var portSpecRE = regexp.MustCompile(`^[0-9][0-9,\-]*$`)
 
+// durationRE bounds an nmap time value (e.g. --host-timeout) to a number with an
+// nmap unit suffix, so it can never be mistaken for a flag (argument-injection).
+var durationRE = regexp.MustCompile(`^[0-9]+(ms|s|m|h)$`)
+
 // ImportantPorts is the default port set: the whole well-known range (1-1024)
 // plus a curated list of high-value service ports that nmap's frequency-based
 // --top-ports MISSES — databases, caches, message queues, admin panels,
@@ -52,15 +56,30 @@ type Profile struct {
 	Ports            string // explicit nmap -p spec; overrides TopPorts when set
 	TopPorts         int    // number of top ports to scan (1..65535); used if Ports == ""
 	Timing           int    // nmap -T level, clamped to 0..4
-	MaxRate          int    // --max-rate packets/sec (0 = unset)
+	MaxRate          int    // --max-rate packets/sec ceiling (0 = unset)
+	MinRate          int    // --min-rate packets/sec floor (0 = unset); clamped to <= MaxRate
+	MaxRetries       int    // --max-retries probe retransmissions (0 = unset / nmap default)
+	HostTimeout      string // --host-timeout, e.g. "15m" ("" = unset)
 	ServiceDetection bool   // -sV
 }
 
 // SafeDiscoveryProfile returns the default discovery profile: the curated
 // important-ports set (see ImportantPorts) with service detection, over a
 // non-privileged TCP connect scan.
+//
+// It stays deliberately gentle on the network (the packet rate is ceiling-capped
+// by the signed policy) but avoids crawling: a --min-rate floor keeps the scan
+// from idling on unresponsive hosts (see Worker.Run), retries are trimmed so dead
+// addresses aren't retried to death, and a per-host timeout stops one black-hole
+// host from starving the run.
 func SafeDiscoveryProfile() Profile {
-	return Profile{Ports: ImportantPorts, Timing: 3, ServiceDetection: true}
+	return Profile{
+		Ports:            ImportantPorts,
+		Timing:           3,
+		MaxRetries:       2,
+		HostTimeout:      "15m",
+		ServiceDetection: true,
+	}
 }
 
 func clamp(v, lo, hi int) int {
@@ -115,6 +134,24 @@ func BuildArgs(profile Profile, outPath string, targets []string) ([]string, err
 	}
 	if profile.MaxRate > 0 {
 		args = append(args, "--max-rate", strconv.Itoa(profile.MaxRate))
+	}
+	// A rate floor keeps nmap from throttling itself to a crawl on unresponsive
+	// hosts, but never above the ceiling, so the traffic stays bounded.
+	minRate := profile.MinRate
+	if profile.MaxRate > 0 && minRate > profile.MaxRate {
+		minRate = profile.MaxRate
+	}
+	if minRate > 0 {
+		args = append(args, "--min-rate", strconv.Itoa(minRate))
+	}
+	if profile.MaxRetries > 0 {
+		args = append(args, "--max-retries", strconv.Itoa(profile.MaxRetries))
+	}
+	if profile.HostTimeout != "" {
+		if !durationRE.MatchString(profile.HostTimeout) {
+			return nil, fmt.Errorf("invalid host-timeout %q", profile.HostTimeout)
+		}
+		args = append(args, "--host-timeout", profile.HostTimeout)
 	}
 	args = append(args, "-oX", outPath)
 	for _, t := range targets {
@@ -174,6 +211,9 @@ func (w *Worker) Run(ctx context.Context, job *policy.Job) ([]byte, error) {
 	profile := w.Profile
 	if job.Limits.MaxPacketsPerSecond > 0 {
 		profile.MaxRate = job.Limits.MaxPacketsPerSecond
+		// Hold a floor at half the operator-approved ceiling so the scan never
+		// drops to a crawl on dead space, while the ceiling still bounds the load.
+		profile.MinRate = profile.MaxRate / 2
 	}
 	args, err := BuildArgs(profile, outPath, job.Targets)
 	if err != nil {

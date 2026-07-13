@@ -17,7 +17,12 @@ func TestBuildArgsSafeProfile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"-sT", "-Pn", "-sV", "-T3", "-p", "-oX", "/tmp/out.xml", "10.20.0.0/24"} {
+	for _, want := range []string{
+		"-sT", "-Pn", "-sV", "-T3", "-p", "-oX", "/tmp/out.xml", "10.20.0.0/24",
+		// Gentle-but-not-slothful defaults: trimmed retries and a per-host timeout
+		// so dead space and black-hole hosts don't stall the run.
+		"--max-retries", "2", "--host-timeout", "15m",
+	} {
 		if !slices.Contains(args, want) {
 			t.Errorf("args missing %q: %v", want, args)
 		}
@@ -73,6 +78,49 @@ func TestBuildArgsClampsTimingAndRate(t *testing.T) {
 	}
 	if slices.Contains(args, "-sV") {
 		t.Errorf("service detection should be off: %v", args)
+	}
+}
+
+// argValue returns the token following flag in args, or "" if absent.
+func argValue(args []string, flag string) string {
+	i := slices.Index(args, flag)
+	if i < 0 || i+1 >= len(args) {
+		return ""
+	}
+	return args[i+1]
+}
+
+func TestBuildArgsRateFloorStaysUnderCeiling(t *testing.T) {
+	// A floor below the ceiling is emitted as-is: the scan won't idle but stays
+	// bounded by --max-rate.
+	args, err := BuildArgs(Profile{MaxRate: 1000, MinRate: 500}, "/tmp/o.xml", []string{"10.0.0.1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := argValue(args, "--min-rate"); got != "500" {
+		t.Errorf("--min-rate = %q, want 500: %v", got, args)
+	}
+	if got := argValue(args, "--max-rate"); got != "1000" {
+		t.Errorf("--max-rate = %q, want 1000: %v", got, args)
+	}
+
+	// A floor above the ceiling is clamped down so the scan never exceeds the
+	// operator-approved packet rate.
+	clamped, err := BuildArgs(Profile{MaxRate: 200, MinRate: 500}, "/tmp/o.xml", []string{"10.0.0.1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := argValue(clamped, "--min-rate"); got != "200" {
+		t.Errorf("--min-rate not clamped to ceiling: got %q, want 200: %v", got, clamped)
+	}
+}
+
+func TestBuildArgsRejectsInvalidHostTimeout(t *testing.T) {
+	_, err := BuildArgs(
+		Profile{Ports: "80", HostTimeout: "30m; rm -rf /"}, "/tmp/o.xml", []string{"10.0.0.1"},
+	)
+	if err == nil {
+		t.Error("expected rejection of a malformed host-timeout")
 	}
 }
 
