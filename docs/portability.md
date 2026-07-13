@@ -12,6 +12,8 @@ access metadata), user-site assignments, assets, services, findings, report
 metadata, and remediation history. It contains **no** password hashes, invitation
 or reset hashes, recovery codes, keys, tokens, certificates, lifecycle event
 details, or report file bytes.
+Session records, device/IP history, and refresh-token hashes are also excluded.
+They are authentication state, not portable organization content.
 
 The bundle can be validated **independently**:
 

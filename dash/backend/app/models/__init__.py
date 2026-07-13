@@ -61,6 +61,7 @@ from app.models.scan_artifact import ScanArtifact
 from app.models.scan_job import ScanJob
 from app.models.scan_schedule import ScanSchedule
 from app.models.service import Service
+from app.models.session import SessionRefreshToken, UserSession
 from app.models.site import Site
 from app.models.user import User
 from app.models.user_lifecycle import (
@@ -124,6 +125,7 @@ __all__ = [
     "Service",
     "ServiceState",
     "ServiceTransport",
+    "SessionRefreshToken",
     "Severity",
     "Site",
     "SiteAccessMode",
@@ -133,6 +135,7 @@ __all__ = [
     "UserLifecycleEvent",
     "UserRole",
     "UserSiteAssignment",
+    "UserSession",
     "ValidationStatus",
     "WebScanProfile",
     "WorkflowRun",

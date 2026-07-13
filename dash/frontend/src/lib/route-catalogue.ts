@@ -13,6 +13,7 @@ import {
   Rocket,
   Rss,
   Server,
+  Smartphone,
   Settings as SettingsIcon,
   ShieldAlert,
   SlidersHorizontal,
@@ -34,6 +35,7 @@ import { PresetsPage } from '../pages/PresetsPage';
 import { RemediationPage } from '../pages/RemediationPage';
 import { ReportsPage } from '../pages/ReportsPage';
 import { ScansPage } from '../pages/SchedulesPage';
+import { SessionManagementPage } from '../pages/SessionManagementPage';
 import { SettingsPage } from '../pages/SettingsPage';
 import { SitesPage } from '../pages/SitesPage';
 import { SystemHealthPage } from '../pages/SystemHealthPage';
@@ -157,6 +159,13 @@ export const ROUTE_CATALOGUE: RouteSection[] = [
         icon: UserRoundCog,
         Component: UsersPage,
         roles: ['administrator'],
+      },
+      {
+        id: 'sessions',
+        visibilityKey: 'settings',
+        label: 'Sessions',
+        icon: Smartphone,
+        Component: SessionManagementPage,
       },
       { id: 'feeds', visibilityKey: 'feeds', label: 'CVE feeds', icon: Rss, Component: FeedsPage },
       {

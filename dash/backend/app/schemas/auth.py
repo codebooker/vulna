@@ -14,6 +14,8 @@ class LoginRequest(BaseModel):
 
     email: EmailStr
     password: str = Field(min_length=1, max_length=1024)
+    device_name: str | None = Field(default=None, max_length=255)
+    trust_device: bool = False
 
 
 class TokenResponse(BaseModel):
@@ -22,6 +24,7 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"  # noqa: S105  (label, not a secret)
     expires_in: int = Field(description="Token lifetime in seconds")
+    session_id: uuid.UUID | None = None
 
 
 class CurrentUserResponse(BaseModel):

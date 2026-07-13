@@ -21,15 +21,18 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 class AccountTokenPurpose(StrEnum):
     INVITATION = "invitation"
     PASSWORD_RESET = "password_reset"  # noqa: S105 - protocol purpose, not a secret
+    SESSION_REFRESH = "session_refresh"  # noqa: S105 - protocol purpose
 
 
 _PREFIX = {
     AccountTokenPurpose.INVITATION: "vui",
     AccountTokenPurpose.PASSWORD_RESET: "vpr",
+    AccountTokenPurpose.SESSION_REFRESH: "vsr",
 }
 _CONTEXT = {
     AccountTokenPurpose.INVITATION: b"vulna-user-invitation-token-v1",
     AccountTokenPurpose.PASSWORD_RESET: b"vulna-password-reset-token-v1",
+    AccountTokenPurpose.SESSION_REFRESH: b"vulna-session-refresh-token-v1",
 }
 
 

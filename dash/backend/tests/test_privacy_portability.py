@@ -123,6 +123,8 @@ async def test_export_is_versioned_checksummed_and_schema_valid(
         "signing_key",
         "token_hash",
         "recovery_codes",
+        "session_refresh_tokens",
+        "user_agent",
     ):
         assert banned not in text
 

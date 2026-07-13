@@ -86,6 +86,7 @@ beforeEach(() => {
       if (url.endsWith('/lifecycle') || url.endsWith('/login-history')) {
         return jsonResponse({ items: [], total: 0, limit: 50, offset: 0 });
       }
+      if (url.endsWith('/sessions')) return jsonResponse([]);
       return jsonResponse({ items: [admin], total: 1, limit: 50, offset: 0 });
     }),
   );
@@ -130,6 +131,7 @@ it('opens a user detail with lifecycle, login, access, and MFA information', asy
   fireEvent.click(await screen.findByText('admin@example.com'));
   expect(await screen.findByText('Lifecycle actions')).toBeInTheDocument();
   expect(screen.getByText('Login history')).toBeInTheDocument();
+  expect(screen.getByText('Sessions')).toBeInTheDocument();
   expect(screen.getByText('Lifecycle history')).toBeInTheDocument();
   expect(screen.getAllByText(/Phase 36/).length).toBeGreaterThan(0);
   expect(screen.getByLabelText('Role')).toBeDisabled();

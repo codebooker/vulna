@@ -49,9 +49,11 @@ ownership**, and refuses to overwrite an existing deployment without `--confirm`
 restoring does **not** require re-enrolling every Scout.
 
 The database dump includes Phase 34 account status, site assignments, lifecycle
-history, and still-valid invitation/reset hashes. A restore test should verify
+history, still-valid invitation/reset hashes, and Phase 35 session/refresh state.
+A restore test should verify
 that an assigned user sees the same sites, a deactivated user remains unable to
-sign in, and consumed one-time links remain unusable. Unlike the non-secret
+sign in, consumed one-time links remain unusable, revoked sessions remain revoked,
+and a refresh token cannot be reused after restore. Unlike the non-secret
 portability export, backup data is sensitive and must remain encrypted.
 
 ## Destinations

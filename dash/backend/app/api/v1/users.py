@@ -22,6 +22,8 @@ from app.models.enums import (
     SiteAccessMode,
     UserRole,
 )
+from app.models.organization import Organization
+from app.models.session import UserSession
 from app.models.user import User
 from app.models.user_lifecycle import (
     PasswordResetToken,
@@ -29,6 +31,7 @@ from app.models.user_lifecycle import (
     UserLifecycleEvent,
 )
 from app.schemas.common import Page
+from app.schemas.session import SessionRead
 from app.schemas.user import (
     InvitationIssued,
     LifecycleEventRead,
@@ -43,6 +46,13 @@ from app.schemas.user import (
 )
 from app.services.account_tokens import AccountTokenPurpose, generate_account_token
 from app.services.audit import record_audit
+from app.services.sessions import (
+    aware,
+    is_session_active,
+    revoke_session,
+    revoke_user_sessions,
+    session_policy,
+)
 from app.services.user_lifecycle import (
     active_admin_count,
     assigned_site_ids,
@@ -93,6 +103,28 @@ def _read_user(user: User, site_ids: list[uuid.UUID]) -> UserRead:
 async def _read_one(session: AsyncSession, user: User) -> UserRead:
     assignments = await assigned_site_ids(session, [user.id])
     return _read_user(user, assignments[user.id])
+
+
+def _admin_session_read(value: UserSession, privileged_minutes: int) -> SessionRead:
+    return SessionRead(
+        id=value.id,
+        user_id=value.user_id,
+        created_at=value.created_at,
+        last_seen_at=value.last_seen_at,
+        authenticated_at=value.authenticated_at,
+        idle_expires_at=value.idle_expires_at,
+        absolute_expires_at=value.absolute_expires_at,
+        revoked_at=value.revoked_at,
+        revocation_reason=value.revocation_reason,
+        device_name=value.device_name,
+        source_ip=value.source_ip,
+        user_agent=value.user_agent,
+        trusted_until=value.trusted_until,
+        current=False,
+        active=is_session_active(value),
+        privileged_until=aware(value.authenticated_at)
+        + timedelta(minutes=privileged_minutes),
+    )
 
 
 def _public_url(request: Request, settings: Settings, route: str, secret: str) -> str:
@@ -363,6 +395,7 @@ async def update_user(
         previous_role = user.role
         user.role = changes.pop("role")
         user.auth_version += 1
+        await revoke_user_sessions(session, user.id, reason="role changed")
         lifecycle_event(
             session,
             user=user,
@@ -454,6 +487,7 @@ async def set_site_access(
     old_mode = user.site_access_mode
     user.site_access_mode = payload.mode
     user.auth_version += 1
+    await revoke_user_sessions(session, user.id, reason="site access changed")
     lifecycle_event(
         session,
         user=user,
@@ -624,6 +658,73 @@ async def issue_password_reset(
         user_id=user.id,
         reset_url=_public_url(request, settings, "reset-password", generated.secret),
         expires_at=token.expires_at,
+    )
+
+
+@router.get(
+    "/{user_id}/sessions",
+    response_model=list[SessionRead],
+    summary="List a user's sessions",
+)
+async def list_user_sessions(
+    user_id: uuid.UUID,
+    admin: Annotated[User, Depends(require_admin)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> list[SessionRead]:
+    user = await _get_owned_user(session, user_id, admin.organization_id)
+    org = await session.get(Organization, admin.organization_id)
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
+    rows = list(
+        (
+            await session.execute(
+                select(UserSession)
+                .where(
+                    UserSession.user_id == user.id,
+                    UserSession.organization_id == admin.organization_id,
+                )
+                .order_by(UserSession.last_seen_at.desc())
+            )
+        ).scalars()
+    )
+    privileged_minutes = session_policy(org).privileged_window_minutes
+    return [_admin_session_read(value, privileged_minutes) for value in rows]
+
+
+@router.delete(
+    "/{user_id}/sessions/{session_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Administratively revoke a user session",
+)
+async def revoke_user_session(
+    user_id: uuid.UUID,
+    session_id: uuid.UUID,
+    admin: Annotated[User, Depends(require_admin)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    context: Annotated[RequestContext, Depends(get_request_context)],
+    reason: Annotated[str, Query(min_length=1, max_length=255)] = "administrator revoked session",
+) -> None:
+    await _get_owned_user(session, user_id, admin.organization_id)
+    value = await session.scalar(
+        select(UserSession).where(
+            UserSession.id == session_id,
+            UserSession.user_id == user_id,
+            UserSession.organization_id == admin.organization_id,
+        )
+    )
+    if value is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+    await revoke_session(session, value, reason=reason)
+    record_audit(
+        session,
+        action="auth.session_revoked_by_admin",
+        actor=admin,
+        target_type="session",
+        target_id=value.id,
+        source_ip=context.source_ip,
+        user_agent=context.user_agent,
+        request_id=context.request_id,
+        metadata={"user_id": str(user_id), "reason": reason},
     )
 
 

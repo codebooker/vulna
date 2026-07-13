@@ -11,6 +11,7 @@ export function LoginPage() {
   const { login } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [trustDevice, setTrustDevice] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -19,7 +20,7 @@ export function LoginPage() {
     setError(null);
     setSubmitting(true);
     try {
-      await login(email, password);
+      await login(email, password, trustDevice);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         setError('Invalid email or password.');
@@ -55,6 +56,14 @@ export function LoginPage() {
             required
           />
         </Field>
+        <label className="flex items-center gap-2 text-xs text-muted">
+          <input
+            type="checkbox"
+            checked={trustDevice}
+            onChange={(event) => setTrustDevice(event.target.checked)}
+          />
+          Trust this device for future authentication checks
+        </label>
         {error && <InlineError message={error} />}
         <Button
           type="submit"

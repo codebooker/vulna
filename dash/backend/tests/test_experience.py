@@ -34,6 +34,10 @@ async def test_capability_matrix_is_public_and_conservative(client: AsyncClient)
         item for item in body["capabilities"] if item["key"] == "identity_lifecycle"
     )
     assert identity["status"] == "available"
+    sessions = next(
+        item for item in body["capabilities"] if item["key"] == "revocable_sessions"
+    )
+    assert sessions["status"] == "available"
 
 
 async def test_phase33_interfaces_are_in_openapi(client: AsyncClient) -> None:

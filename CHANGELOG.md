@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 35: revocable sessions
+
+- Sign-in now creates a database-backed user session and a family of hashed,
+  rotating refresh tokens. Reusing an already rotated token immediately revokes
+  the family and records a security audit event.
+- Access tokens last 15 minutes and stay in browser memory. Session restoration
+  uses an HttpOnly, SameSite=Lax refresh cookie that is Secure in production;
+  legacy stateless tokens are rejected after upgrade, requiring one sign-in.
+- Organization session policies default to a 12-hour idle timeout, 30-day absolute
+  lifetime, 15-minute privileged window, 10 concurrent sessions, and 30-day
+  trusted-device duration. Administrators can update these audited defaults.
+- Users can review and revoke their sessions or sign out everywhere. Administrators
+  can inspect and revoke a user's sessions from the Users page. Password, role,
+  status, and site-access changes revoke all active sessions immediately.
+- Additive migration, rotation/reuse and cross-organization security regressions,
+  browser integration coverage, OpenAPI checks, documentation, and release-gate
+  coverage are included. Session/refresh records remain backup-only and never
+  appear in portability exports.
+
 ### Added — Phase 34: user administration and lifecycle
 
 - Administrators now invite users with hashed, expiring, single-use links instead

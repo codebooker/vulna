@@ -16,6 +16,7 @@ from pathlib import Path
 # A signing secret must exist before any settings are loaded. This is a test-only
 # value and is never used outside the suite.
 os.environ.setdefault("VULNA_SECRET_KEY", "test-only-secret-do-not-use-in-production")
+os.environ.setdefault("VULNA_ENV", "test")
 
 # Point the internal CA and job-signing key at a writable temp directory so
 # enrollment/signing tests do not touch /var/lib/vulna.

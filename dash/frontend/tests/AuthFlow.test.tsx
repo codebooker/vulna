@@ -19,7 +19,7 @@ const adminUser = {
   is_active: true,
 };
 
-function installFetchMock() {
+function installFetchMock({ refreshSession = false }: { refreshSession?: boolean } = {}) {
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     const method = init?.method ?? 'GET';
@@ -45,9 +45,25 @@ function installFetchMock() {
     if (url.endsWith('/api/v1/auth/login') && method === 'POST') {
       const creds = JSON.parse(String(init?.body)) as { password: string };
       if (creds.password === 'right-password') {
-        return jsonResponse({ access_token: 'tok123', token_type: 'bearer', expires_in: 3600 });
+        return jsonResponse({
+          access_token: 'tok123',
+          token_type: 'bearer',
+          expires_in: 900,
+          session_id: 'session-1',
+        });
       }
       return jsonResponse({ detail: 'Invalid email or password' }, 401);
+    }
+    if (url.endsWith('/api/v1/auth/refresh')) {
+      if (refreshSession) {
+        return jsonResponse({
+          access_token: 'tok123',
+          token_type: 'bearer',
+          expires_in: 900,
+          session_id: 'session-1',
+        });
+      }
+      return jsonResponse({ detail: 'No refresh session' }, 401);
     }
     if (url.endsWith('/api/v1/auth/me')) {
       if (headers.Authorization === 'Bearer tok123') {
@@ -110,6 +126,20 @@ describe('Authentication flow', () => {
     );
   });
 
+  it('restores a session from the HttpOnly refresh cookie without browser storage', async () => {
+    vi.restoreAllMocks();
+    installFetchMock({ refreshSession: true });
+    renderApp();
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument(),
+    );
+    expect(localStorage.getItem('vulna.token')).toBeNull();
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/api/v1/auth/refresh'),
+      expect.objectContaining({ method: 'POST', credentials: 'include' }),
+    );
+  });
+
   it('logs in and shows the sites list with an admin create form', async () => {
     renderApp();
     await screen.findByRole('heading', { name: 'Sign in' });
@@ -120,6 +150,7 @@ describe('Authentication flow', () => {
     fireEvent.change(screen.getByLabelText('Password'), {
       target: { value: 'right-password' },
     });
+    fireEvent.click(screen.getByLabelText(/Trust this device/));
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
 
     // Authenticated shell appears with the sidebar nav and a sign-out control.
@@ -133,8 +164,21 @@ describe('Authentication flow', () => {
     // Admins get the create action; the form now opens in a modal.
     fireEvent.click(screen.getByRole('button', { name: /Add site/ }));
     expect(screen.getByRole('heading', { name: 'Add a site' })).toBeInTheDocument();
-    // Token persisted for session restore.
-    expect(localStorage.getItem('vulna.token')).toBe('tok123');
+    // Access tokens stay in memory; only the HttpOnly refresh cookie restores a session.
+    expect(localStorage.getItem('vulna.token')).toBeNull();
+    const loginCall = vi
+      .mocked(fetch)
+      .mock.calls.find(([input]) => String(input).endsWith('/api/v1/auth/login'));
+    expect(loginCall?.[1]).toEqual(
+      expect.objectContaining({
+        credentials: 'include',
+        body: JSON.stringify({
+          email: 'admin@example.com',
+          password: 'right-password',
+          trust_device: true,
+        }),
+      }),
+    );
   });
 
   it('shows an error on invalid credentials', async () => {

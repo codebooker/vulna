@@ -66,7 +66,7 @@ CAPABILITIES: tuple[dict[str, Any], ...] = (
     {
         "key": "revocable_sessions",
         "name": "Revocable sessions",
-        "status": "planned",
+        "status": "available",
         "production_ready": False,
     },
     {

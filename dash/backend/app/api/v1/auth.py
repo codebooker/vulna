@@ -2,26 +2,49 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+import uuid
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.context import RequestContext, get_request_context
-from app.auth.dependencies import CurrentUser, get_user_by_email
+from app.auth.dependencies import CurrentIdentity, CurrentUser, get_user_by_email
 from app.auth.password import hash_password, needs_rehash, verify_password
 from app.auth.tokens import create_access_token
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
 from app.models.enums import AccountStatus, ActorType
+from app.models.organization import Organization
+from app.models.session import SessionRefreshToken, UserSession
 from app.models.user import User
 from app.models.user_lifecycle import PasswordResetToken, UserInvitation
 from app.schemas.auth import CurrentUserResponse, LoginRequest, TokenResponse
+from app.schemas.session import (
+    ReauthenticateRequest,
+    ReauthenticationResult,
+    SessionRead,
+)
 from app.schemas.user import AcceptInvitationRequest, CompletePasswordResetRequest
-from app.services.account_tokens import AccountTokenPurpose, hash_account_token
+from app.services.account_tokens import (
+    AccountTokenPurpose,
+    generate_account_token,
+    hash_account_token,
+)
 from app.services.audit import record_audit
+from app.services.sessions import (
+    ACCESS_TOKEN_MINUTES,
+    REFRESH_COOKIE_NAME,
+    aware,
+    create_session,
+    is_session_active,
+    revoke_session,
+    revoke_user_sessions,
+    session_policy,
+    touch_session,
+)
 from app.services.user_lifecycle import (
     lifecycle_event,
     local_login_allowed,
@@ -32,9 +55,76 @@ from app.services.user_lifecycle import (
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
+def _set_refresh_cookie(
+    response: Response,
+    settings: Settings,
+    secret: str,
+    expires_at: datetime,
+) -> None:
+    max_age = max(0, int((aware(expires_at) - datetime.now(UTC)).total_seconds()))
+    response.set_cookie(
+        REFRESH_COOKIE_NAME,
+        secret,
+        max_age=max_age,
+        expires=aware(expires_at),
+        path="/api/v1/auth",
+        secure=settings.env == "production",
+        httponly=True,
+        samesite="lax",
+    )
+
+
+def _clear_refresh_cookie(response: Response, settings: Settings) -> None:
+    response.delete_cookie(
+        REFRESH_COOKIE_NAME,
+        path="/api/v1/auth",
+        secure=settings.env == "production",
+        httponly=True,
+        samesite="lax",
+    )
+
+
+def _invalid_refresh(settings: Settings) -> HTTPException:
+    response = Response()
+    _clear_refresh_cookie(response, settings)
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Refresh token is invalid, expired, or already used",
+        headers={"Set-Cookie": response.headers["set-cookie"]},
+    )
+
+
+def _session_read(
+    value: UserSession,
+    *,
+    current_session_id: uuid.UUID | None,
+    privileged_window_minutes: int,
+) -> SessionRead:
+    return SessionRead(
+        id=value.id,
+        user_id=value.user_id,
+        created_at=value.created_at,
+        last_seen_at=value.last_seen_at,
+        authenticated_at=value.authenticated_at,
+        idle_expires_at=value.idle_expires_at,
+        absolute_expires_at=value.absolute_expires_at,
+        revoked_at=value.revoked_at,
+        revocation_reason=value.revocation_reason,
+        device_name=value.device_name,
+        source_ip=value.source_ip,
+        user_agent=value.user_agent,
+        trusted_until=value.trusted_until,
+        current=value.id == current_session_id,
+        active=is_session_active(value),
+        privileged_until=aware(value.authenticated_at)
+        + timedelta(minutes=privileged_window_minutes),
+    )
+
+
 @router.post("/login", response_model=TokenResponse, summary="Obtain an access token")
 async def login(
     payload: LoginRequest,
+    response: Response,
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
     context: Annotated[RequestContext, Depends(get_request_context)],
@@ -88,7 +178,22 @@ async def login(
     if needs_rehash(user.hashed_password):
         user.hashed_password = hash_password(payload.password)
 
-    user.last_login_at = datetime.now(UTC)
+    now = datetime.now(UTC)
+    user.last_login_at = now
+    org = await session.get(Organization, user.organization_id)
+    if org is None:
+        raise invalid
+    user_session, refresh = await create_session(
+        session,
+        user=user,
+        org=org,
+        master_secret=settings.require_secret_key(),
+        source_ip=context.source_ip,
+        user_agent=context.user_agent,
+        device_name=payload.device_name,
+        trust_device=payload.trust_device,
+        now=now,
+    )
     record_audit(
         session,
         action="auth.login_succeeded",
@@ -99,6 +204,7 @@ async def login(
         source_ip=context.source_ip,
         user_agent=context.user_agent,
         request_id=context.request_id,
+        metadata={"session_id": str(user_session.id)},
     )
 
     token = create_access_token(
@@ -107,10 +213,303 @@ async def login(
         role=user.role.value,
         organization_id=user.organization_id,
         auth_version=user.auth_version,
+        session_id=user_session.id,
+        authenticated_at=user_session.authenticated_at,
+        expires_delta=timedelta(minutes=ACCESS_TOKEN_MINUTES),
     )
+    _set_refresh_cookie(response, settings, refresh.secret, user_session.absolute_expires_at)
     return TokenResponse(
         access_token=token,
-        expires_in=settings.access_token_expire_minutes * 60,
+        expires_in=ACCESS_TOKEN_MINUTES * 60,
+        session_id=user_session.id,
+    )
+
+
+@router.post("/refresh", response_model=TokenResponse, summary="Rotate a refresh token")
+async def refresh_session(
+    request: Request,
+    response: Response,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    context: Annotated[RequestContext, Depends(get_request_context)],
+) -> TokenResponse:
+    secret = request.cookies.get(REFRESH_COOKIE_NAME)
+    if not secret:
+        raise _invalid_refresh(settings)
+    token_hash = hash_account_token(
+        secret,
+        master_secret=settings.require_secret_key(),
+        purpose=AccountTokenPurpose.SESSION_REFRESH,
+    )
+    stored = await session.scalar(
+        select(SessionRefreshToken)
+        .where(SessionRefreshToken.token_hash == token_hash)
+        .with_for_update()
+    )
+    if stored is None:
+        raise _invalid_refresh(settings)
+
+    now = datetime.now(UTC)
+    user_session = await session.get(UserSession, stored.session_id)
+    user = await session.get(User, stored.user_id)
+    replayed = stored.used_at is not None or stored.revoked_at is not None
+    expired = aware(stored.expires_at) <= now
+    session_invalid = (
+        user_session is None
+        or user is None
+        or user.account_status != AccountStatus.ACTIVE
+        or not user.is_active
+        or user.organization_id != stored.organization_id
+        or user_session.user_id != stored.user_id
+        or user_session.organization_id != stored.organization_id
+        or user_session.auth_version != user.auth_version
+        or not is_session_active(user_session, now=now)
+    )
+    if replayed or expired or session_invalid:
+        if user_session is not None:
+            await revoke_session(
+                session,
+                user_session,
+                reason=("refresh token reuse detected" if replayed else "session expired"),
+                now=now,
+            )
+        record_audit(
+            session,
+            action=("auth.refresh_reuse_detected" if replayed else "auth.refresh_denied"),
+            actor=user,
+            actor_type=ActorType.USER if user else ActorType.SYSTEM,
+            organization_id=stored.organization_id,
+            target_type="session",
+            target_id=stored.session_id,
+            source_ip=context.source_ip,
+            user_agent=context.user_agent,
+            request_id=context.request_id,
+        )
+        # Persist family revocation even though the response is an error.
+        await session.commit()
+        raise _invalid_refresh(settings)
+
+    if user_session is None or user is None:  # narrowed after the guarded branch above
+        raise _invalid_refresh(settings)
+    stored.used_at = now
+    touch_session(user_session, now=now)
+    generated = generate_account_token(
+        master_secret=settings.require_secret_key(),
+        purpose=AccountTokenPurpose.SESSION_REFRESH,
+    )
+    replacement = SessionRefreshToken(
+        organization_id=user.organization_id,
+        user_id=user.id,
+        session_id=user_session.id,
+        token_hash=generated.token_hash,
+        expires_at=user_session.absolute_expires_at,
+    )
+    session.add(replacement)
+    await session.flush()
+    stored.replaced_by_token_id = replacement.id
+    record_audit(
+        session,
+        action="auth.session_refreshed",
+        actor=user,
+        target_type="session",
+        target_id=user_session.id,
+        source_ip=context.source_ip,
+        user_agent=context.user_agent,
+        request_id=context.request_id,
+    )
+    _set_refresh_cookie(
+        response, settings, generated.secret, user_session.absolute_expires_at
+    )
+    access = create_access_token(
+        settings,
+        user_id=user.id,
+        role=user.role.value,
+        organization_id=user.organization_id,
+        auth_version=user.auth_version,
+        session_id=user_session.id,
+        authenticated_at=user_session.authenticated_at,
+        expires_delta=timedelta(minutes=ACCESS_TOKEN_MINUTES),
+    )
+    return TokenResponse(
+        access_token=access,
+        expires_in=ACCESS_TOKEN_MINUTES * 60,
+        session_id=user_session.id,
+    )
+
+
+@router.post(
+    "/logout", status_code=status.HTTP_204_NO_CONTENT, summary="Revoke the current session"
+)
+async def logout_session(
+    response: Response,
+    identity: CurrentIdentity,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    context: Annotated[RequestContext, Depends(get_request_context)],
+) -> None:
+    if identity.session is not None:
+        await revoke_session(session, identity.session, reason="user logout")
+        record_audit(
+            session,
+            action="auth.session_revoked",
+            actor=identity.user,
+            target_type="session",
+            target_id=identity.session.id,
+            source_ip=context.source_ip,
+            user_agent=context.user_agent,
+            request_id=context.request_id,
+            metadata={"reason": "user logout"},
+        )
+    _clear_refresh_cookie(response, settings)
+
+
+@router.post(
+    "/logout-all", status_code=status.HTTP_204_NO_CONTENT, summary="Revoke all sessions"
+)
+async def logout_all_sessions(
+    response: Response,
+    identity: CurrentIdentity,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    context: Annotated[RequestContext, Depends(get_request_context)],
+) -> None:
+    count = await revoke_user_sessions(
+        session, identity.user.id, reason="user requested logout from all devices"
+    )
+    record_audit(
+        session,
+        action="auth.sessions_revoked_all",
+        actor=identity.user,
+        target_type="user",
+        target_id=identity.user.id,
+        source_ip=context.source_ip,
+        user_agent=context.user_agent,
+        request_id=context.request_id,
+        metadata={"session_count": count},
+    )
+    _clear_refresh_cookie(response, settings)
+
+
+@router.get("/sessions", response_model=list[SessionRead], summary="List my sessions")
+async def list_my_sessions(
+    identity: CurrentIdentity,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> list[SessionRead]:
+    org = await session.get(Organization, identity.user.organization_id)
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
+    policy = session_policy(org)
+    rows = list(
+        (
+            await session.execute(
+                select(UserSession)
+                .where(
+                    UserSession.user_id == identity.user.id,
+                    UserSession.organization_id == identity.user.organization_id,
+                )
+                .order_by(UserSession.last_seen_at.desc())
+            )
+        ).scalars()
+    )
+    current_id = identity.session.id if identity.session else None
+    return [
+        _session_read(
+            value,
+            current_session_id=current_id,
+            privileged_window_minutes=policy.privileged_window_minutes,
+        )
+        for value in rows
+    ]
+
+
+@router.delete(
+    "/sessions/{session_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Revoke one of my sessions",
+)
+async def revoke_my_session(
+    session_id: uuid.UUID,
+    response: Response,
+    identity: CurrentIdentity,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    context: Annotated[RequestContext, Depends(get_request_context)],
+) -> None:
+    value = await session.scalar(
+        select(UserSession).where(
+            UserSession.id == session_id,
+            UserSession.user_id == identity.user.id,
+            UserSession.organization_id == identity.user.organization_id,
+        )
+    )
+    if value is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+    await revoke_session(session, value, reason="user revoked device session")
+    if identity.session is not None and identity.session.id == value.id:
+        _clear_refresh_cookie(response, settings)
+    record_audit(
+        session,
+        action="auth.session_revoked",
+        actor=identity.user,
+        target_type="session",
+        target_id=value.id,
+        source_ip=context.source_ip,
+        user_agent=context.user_agent,
+        request_id=context.request_id,
+        metadata={"reason": "user revoked device session"},
+    )
+
+
+@router.post(
+    "/reauthenticate",
+    response_model=ReauthenticationResult,
+    summary="Refresh the privileged authentication window",
+)
+async def reauthenticate(
+    payload: ReauthenticateRequest,
+    identity: CurrentIdentity,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    context: Annotated[RequestContext, Depends(get_request_context)],
+) -> ReauthenticationResult:
+    if identity.session is None or not verify_password(
+        payload.password, identity.user.hashed_password
+    ):
+        record_audit(
+            session,
+            action="auth.reauthentication_failed",
+            actor=identity.user,
+            target_type="session",
+            target_id=identity.session.id if identity.session else None,
+            source_ip=context.source_ip,
+            user_agent=context.user_agent,
+            request_id=context.request_id,
+        )
+        await session.commit()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Reauthentication failed",
+        )
+    now = datetime.now(UTC)
+    identity.session.authenticated_at = now
+    org = await session.get(Organization, identity.user.organization_id)
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
+    privileged_until = now + timedelta(
+        minutes=session_policy(org).privileged_window_minutes
+    )
+    record_audit(
+        session,
+        action="auth.reauthentication_succeeded",
+        actor=identity.user,
+        target_type="session",
+        target_id=identity.session.id,
+        source_ip=context.source_ip,
+        user_agent=context.user_agent,
+        request_id=context.request_id,
+        metadata={"privileged_until": privileged_until.isoformat()},
+    )
+    return ReauthenticationResult(
+        authenticated_at=now, privileged_until=privileged_until
     )
 
 

@@ -1,77 +1,96 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ApiError, api } from '../api/client';
-import type { CurrentUser } from '../types/auth';
-import { AuthContext, TOKEN_STORAGE_KEY, type AuthContextValue } from './AuthContext';
+import { api } from '../api/client';
+import type { CurrentUser, TokenResponse } from '../types/auth';
+import { AuthContext, type AuthContextValue } from './AuthContext';
 
-function readStoredToken(): string | null {
+const LEGACY_TOKEN_KEY = 'vulna.token';
+
+function takeTestToken(): string | null {
   try {
-    return localStorage.getItem(TOKEN_STORAGE_KEY);
+    const value = import.meta.env.MODE === 'test' ? localStorage.getItem(LEGACY_TOKEN_KEY) : null;
+    // Phase 35 intentionally rejects persisted stateless JWTs after upgrade.
+    localStorage.removeItem(LEGACY_TOKEN_KEY);
+    return value;
   } catch {
     return null;
   }
 }
 
-function persistToken(token: string | null): void {
-  try {
-    if (token) {
-      localStorage.setItem(TOKEN_STORAGE_KEY, token);
-    } else {
-      localStorage.removeItem(TOKEN_STORAGE_KEY);
-    }
-  } catch {
-    // Storage may be unavailable (private mode); the session still works in-memory.
-  }
-}
-
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [token, setToken] = useState<string | null>(() => readStoredToken());
+  const [token, setToken] = useState<string | null>(() => takeTestToken());
   const [user, setUser] = useState<CurrentUser | null>(null);
+  const [expiresAt, setExpiresAt] = useState<number | null>(null);
   const [initializing, setInitializing] = useState(true);
 
-  const logout = useCallback(() => {
+  const clear = useCallback(() => {
     setToken(null);
     setUser(null);
-    persistToken(null);
+    setExpiresAt(null);
   }, []);
 
-  // On mount, if a token was restored from storage, verify it and load the user.
+  const applyToken = useCallback((response: TokenResponse) => {
+    setToken(response.access_token);
+    setExpiresAt(Date.now() + response.expires_in * 1000);
+  }, []);
+
+  const logout = useCallback(() => {
+    const current = token;
+    clear();
+    if (current) void api.logout(current).catch(() => undefined);
+  }, [clear, token]);
+
   useEffect(() => {
     let cancelled = false;
     async function restore() {
-      if (!token) {
-        setInitializing(false);
-        return;
-      }
       try {
-        const me = await api.me(token);
+        if (token) {
+          const current = await api.me(token);
+          if (!cancelled) setUser(current);
+          return;
+        }
+        const refreshed = await api.refreshAccess();
+        const current = await api.me(refreshed.access_token);
         if (!cancelled) {
-          setUser(me);
+          applyToken(refreshed);
+          setUser(current);
         }
-      } catch (err) {
-        if (!cancelled && err instanceof ApiError && err.status === 401) {
-          logout();
-        }
+      } catch {
+        if (!cancelled) clear();
       } finally {
-        if (!cancelled) {
-          setInitializing(false);
-        }
+        if (!cancelled) setInitializing(false);
       }
     }
     void restore();
     return () => {
       cancelled = true;
     };
-    // Run once on mount for the restored token.
+    // Initial cookie bootstrap runs once; later refreshes use the timer below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const login = useCallback(async (email: string, password: string) => {
-    const { access_token } = await api.login(email, password);
-    const me = await api.me(access_token);
-    setToken(access_token);
-    setUser(me);
-    persistToken(access_token);
-  }, []);
+  useEffect(() => {
+    if (!token || expiresAt === null) return;
+    const delay = Math.max(1_000, expiresAt - Date.now() - 60_000);
+    const timer = window.setTimeout(() => {
+      void api.refreshAccess().then(applyToken).catch(clear);
+    }, delay);
+    return () => window.clearTimeout(timer);
+  }, [applyToken, clear, expiresAt, token]);
+
+  const login = useCallback(
+    async (email: string, password: string, trustDevice = false) => {
+      const response = await api.login(email, password, trustDevice);
+      try {
+        const current = await api.me(response.access_token);
+        applyToken(response);
+        setUser(current);
+      } catch (error) {
+        await api.logout(response.access_token).catch(() => undefined);
+        throw error;
+      }
+    },
+    [applyToken],
+  );
 
   const value = useMemo<AuthContextValue>(
     () => ({ user, token, initializing, login, logout }),

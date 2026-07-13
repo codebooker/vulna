@@ -8,11 +8,18 @@ beforeEach(() => {
   vi.stubGlobal(
     'fetch',
     vi.fn(
-      async () =>
-        new Response(JSON.stringify({ status: 'accepted' }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        }),
+      async (input: RequestInfo | URL) =>
+        new Response(
+          JSON.stringify(
+            String(input).endsWith('/api/v1/auth/refresh')
+              ? { detail: 'No refresh session' }
+              : { status: 'accepted' },
+          ),
+          {
+            status: String(input).endsWith('/api/v1/auth/refresh') ? 401 : 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
     ),
   );
 });

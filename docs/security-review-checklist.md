@@ -14,6 +14,11 @@ directly. See also [`threat-model.md`](threat-model.md) and
 - [ ] Organization scoping on every resource read/write (cross-org access returns 404).
 - [ ] Account status and authentication version are checked on every authenticated
   request; status/password/role/site changes immediately invalidate Phase 34 access.
+- [ ] Access tokens are 15-minute, session-bound, and held in browser memory;
+  refresh tokens are purpose-bound hashes in rotating families and an observed
+  reuse revokes the whole session (`app/services/sessions.py`, `tests/test_sessions.py`).
+- [ ] Refresh cookies are HttpOnly and SameSite=Lax, Secure in production, and
+  session idle/absolute expiry plus administrator revocation are server-enforced.
 - [ ] Assigned-site query filters and detail checks cover every site-bound API;
   frontend visibility is not treated as authorization (`app/auth/site_scope.py`).
 - [ ] Self-deactivation/self-demotion and loss of the last active administrator are

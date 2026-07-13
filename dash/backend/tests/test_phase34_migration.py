@@ -65,7 +65,9 @@ def test_phase34_upgrades_prior_head_backfills_and_downgrades(tmp_path: Path) ->
                     active,
                 ),
             )
-    _alembic(database, "upgrade", "head")
+    # Pin the Phase 34 assertion to its own revision. Later migrations may
+    # intentionally transform these fields (Phase 35 increments auth_version).
+    _alembic(database, "upgrade", "f8a9b0c1d2e3")
     with sqlite3.connect(database) as connection:
         rows = connection.execute(
             """

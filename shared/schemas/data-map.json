@@ -52,6 +52,8 @@
     { "category": "audit log", "store": "database", "sensitivity": "medium", "in_export": false },
     { "category": "user lifecycle and site access metadata", "store": "database", "sensitivity": "high", "in_export": "metadata_only" },
     { "category": "password/invitation/reset/recovery material", "store": "database (hashed)", "sensitivity": "critical", "in_export": false },
+    { "category": "session device/IP metadata", "store": "database", "sensitivity": "high", "in_export": false },
+    { "category": "refresh-token hashes", "store": "database (hashed)", "sensitivity": "critical", "in_export": false },
     { "category": "internal CA + signing keys", "store": "keys volume", "sensitivity": "critical", "in_export": false },
     { "category": "notification/SMTP secrets", "store": "database (encrypted)", "sensitivity": "high", "in_export": false }
   ]

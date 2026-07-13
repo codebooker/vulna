@@ -65,7 +65,7 @@ class Settings(BaseSettings):
     # function; there is intentionally no default so a secret is never shipped.
     secret_key: str | None = None
     jwt_algorithm: str = "HS256"
-    access_token_expire_minutes: int = 720  # 12 hours
+    access_token_expire_minutes: int = 15
     invitation_token_ttl_hours: int = 72
     password_reset_token_ttl_minutes: int = 60
 

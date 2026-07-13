@@ -78,6 +78,7 @@ VulnaRelay notes.
 | Keep it healthy / clean up | [maintenance](maintenance.md) |
 | Get notified | [notifications](notifications.md) |
 | Invite, suspend, or assign users | [user lifecycle](user-lifecycle.md) |
+| Review or revoke signed-in devices | [sessions](sessions.md) |
 | Run on small or offline hardware | [low-resource](low-resource.md) |
 | Diagnose a problem | [diagnostics](diagnostics.md) · [troubleshooting](troubleshooting.md) |
 | Choose a dashboard experience | [experience profiles](experience-profiles.md) |

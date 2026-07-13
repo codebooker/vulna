@@ -18,6 +18,7 @@ from app.models.user_lifecycle import (
     UserLifecycleEvent,
     UserSiteAssignment,
 )
+from app.services.sessions import revoke_user_sessions
 
 
 def utcnow() -> datetime:
@@ -127,6 +128,9 @@ async def revoke_pending_credentials(
     user.auth_version += 1
     user.recovery_codes_json = []
     user.recovery_codes_generated_at = None
+    await revoke_user_sessions(
+        session, user.id, reason="account credentials changed", now=now
+    )
     await session.execute(
         update(UserInvitation)
         .where(

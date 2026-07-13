@@ -24,8 +24,10 @@ from app.schemas.organization import (
     OrganizationRead,
     OrganizationUpdate,
 )
+from app.schemas.session import SessionPolicyRead, SessionPolicyUpdate
 from app.services.audit import record_audit
 from app.services.experience import experience_payload
+from app.services.sessions import policy_dict, session_policy, update_session_policy
 
 router = APIRouter(prefix="/organizations", tags=["organizations"])
 
@@ -133,6 +135,49 @@ async def update_current_experience(
         },
     )
     return ExperienceRead.model_validate(result)
+
+
+@router.get(
+    "/current/session-policy",
+    response_model=SessionPolicyRead,
+    summary="Get the organization session policy",
+)
+async def get_session_policy(
+    admin: Annotated[User, Depends(require_admin)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> SessionPolicyRead:
+    org = await _get_own_org(session, admin.organization_id)
+    return SessionPolicyRead.model_validate(policy_dict(session_policy(org)))
+
+
+@router.patch(
+    "/current/session-policy",
+    response_model=SessionPolicyRead,
+    summary="Update the organization session policy",
+)
+async def patch_session_policy(
+    payload: SessionPolicyUpdate,
+    admin: Annotated[User, Depends(require_admin)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    context: Annotated[RequestContext, Depends(get_request_context)],
+) -> SessionPolicyRead:
+    org = await _get_own_org(session, admin.organization_id)
+    old = policy_dict(session_policy(org))
+    changes = payload.model_dump(exclude_none=True)
+    updated = update_session_policy(org, changes)
+    await session.flush()
+    record_audit(
+        session,
+        action="organization.session_policy_updated",
+        actor=admin,
+        target_type="organization",
+        target_id=org.id,
+        source_ip=context.source_ip,
+        user_agent=context.user_agent,
+        request_id=context.request_id,
+        metadata={"old": old, "new": policy_dict(updated)},
+    )
+    return SessionPolicyRead.model_validate(policy_dict(updated))
 
 
 @router.get("/{org_id}", response_model=OrganizationRead, summary="Get an organization")

@@ -1,7 +1,10 @@
 """Authentication and authorization: password hashing, JWTs, RBAC dependencies."""
 
 from app.auth.dependencies import (
+    AuthenticatedIdentity,
+    CurrentIdentity,
     CurrentUser,
+    get_authenticated_identity,
     get_current_user,
     get_user_by_email,
     require_admin,
@@ -21,11 +24,14 @@ from app.auth.tokens import TokenError, create_access_token, decode_access_token
 
 __all__ = [
     "accessible_site_ids",
+    "AuthenticatedIdentity",
+    "CurrentIdentity",
     "CurrentUser",
     "TokenError",
     "create_access_token",
     "decode_access_token",
     "get_current_user",
+    "get_authenticated_identity",
     "get_user_by_email",
     "hash_password",
     "needs_rehash",

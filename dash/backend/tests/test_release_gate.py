@@ -35,6 +35,7 @@ REQUIRED_GATE_MODULES = [
     "test_maintenance.py",
     "test_experience.py",
     "test_user_lifecycle.py",
+    "test_sessions.py",
 ]
 
 

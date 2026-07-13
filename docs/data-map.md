@@ -31,10 +31,13 @@ cross-installation identifier.
 | Audit log | database | medium | no |
 | User lifecycle / site access metadata | database | high | yes, metadata only |
 | Password, invitation, reset, recovery material | database (hashed) | critical | no |
+| Session device/IP metadata | database | high | no |
+| Refresh-token hashes | database (hashed) | critical | no |
 | Internal CA + signing keys | keys volume | critical | no |
 | Notification / SMTP secrets | database (encrypted) | high | no |
 
 The [export](portability.md) contains only the non-secret categories marked "yes"
 or "metadata only". User lifecycle events are backup-only; exported user records
-contain status/source/role/site access metadata but never authentication material.
+contain status/source/role/site access metadata but never authentication or
+session material.
 Secrets, keys, evidence, and raw output never appear in an export.

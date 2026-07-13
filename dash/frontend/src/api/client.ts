@@ -9,7 +9,9 @@ import type {
   PasswordResetIssued,
   Role,
   SiteAccessMode,
+  SessionPolicy,
   TokenResponse,
+  UserSession,
   UserSummary,
 } from '../types/auth';
 import type { Experience, ExperienceChange, ExperiencePreview } from '../types/experience';
@@ -102,6 +104,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     method,
     headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,
+    credentials: 'include',
   });
 
   if (!response.ok) {
@@ -124,10 +127,45 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 }
 
 export const api = {
-  login(email: string, password: string): Promise<TokenResponse> {
+  login(email: string, password: string, trustDevice = false): Promise<TokenResponse> {
     return request<TokenResponse>('/api/v1/auth/login', {
       method: 'POST',
-      body: { email, password },
+      body: { email, password, trust_device: trustDevice },
+    });
+  },
+  refreshAccess(): Promise<TokenResponse> {
+    return request<TokenResponse>('/api/v1/auth/refresh', { method: 'POST' });
+  },
+  logout(token: string): Promise<void> {
+    return request<void>('/api/v1/auth/logout', { method: 'POST', token });
+  },
+  logoutAll(token: string): Promise<void> {
+    return request<void>('/api/v1/auth/logout-all', { method: 'POST', token });
+  },
+  listMySessions(token: string): Promise<UserSession[]> {
+    return request<UserSession[]>('/api/v1/auth/sessions', { token });
+  },
+  revokeMySession(token: string, sessionId: string): Promise<void> {
+    return request<void>(`/api/v1/auth/sessions/${sessionId}`, { method: 'DELETE', token });
+  },
+  reauthenticate(
+    token: string,
+    password: string,
+  ): Promise<{ authenticated_at: string; privileged_until: string }> {
+    return request('/api/v1/auth/reauthenticate', {
+      method: 'POST',
+      token,
+      body: { password },
+    });
+  },
+  sessionPolicy(token: string): Promise<SessionPolicy> {
+    return request<SessionPolicy>('/api/v1/organizations/current/session-policy', { token });
+  },
+  updateSessionPolicy(token: string, payload: Partial<SessionPolicy>): Promise<SessionPolicy> {
+    return request<SessionPolicy>('/api/v1/organizations/current/session-policy', {
+      method: 'PATCH',
+      token,
+      body: payload,
     });
   },
   me(token: string): Promise<CurrentUser> {
@@ -209,6 +247,15 @@ export const api = {
   },
   userLoginHistory(token: string, userId: string): Promise<Page<LoginHistoryEvent>> {
     return request<Page<LoginHistoryEvent>>(`/api/v1/users/${userId}/login-history`, { token });
+  },
+  userSessions(token: string, userId: string): Promise<UserSession[]> {
+    return request<UserSession[]>(`/api/v1/users/${userId}/sessions`, { token });
+  },
+  revokeUserSession(token: string, userId: string, sessionId: string): Promise<void> {
+    return request<void>(
+      `/api/v1/users/${userId}/sessions/${sessionId}?reason=${encodeURIComponent('administrator revoked session')}`,
+      { method: 'DELETE', token },
+    );
   },
   acceptInvitation(
     secret: string,

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
@@ -15,7 +16,9 @@ from app.auth.tokens import TokenError, decode_access_token
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
 from app.models.enums import AccountStatus, UserRole
+from app.models.session import UserSession
 from app.models.user import User
+from app.services.sessions import is_session_active, touch_session
 
 bearer_scheme = HTTPBearer(auto_error=False, description="JWT access token")
 
@@ -26,11 +29,18 @@ _CREDENTIALS_EXCEPTION = HTTPException(
 )
 
 
-async def get_current_user(
+@dataclass(frozen=True)
+class AuthenticatedIdentity:
+    user: User
+    session: UserSession | None
+    claims: dict[str, object]
+
+
+async def get_authenticated_identity(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
-) -> User:
+) -> AuthenticatedIdentity:
     """Resolve the authenticated user from a Bearer token.
 
     Raises 401 if the token is absent, invalid, expired, or the user no longer
@@ -65,10 +75,45 @@ async def get_current_user(
         or token_auth_version != user.auth_version
     ):
         raise _CREDENTIALS_EXCEPTION
-    return user
+
+    session_id_claim = claims.get("sid")
+    if session_id_claim is None:
+        # Existing unit fixtures mint direct JWTs. Runtime-issued tokens always
+        # carry a session id; every non-test environment rejects stateless JWTs.
+        if settings.env != "test":
+            raise _CREDENTIALS_EXCEPTION
+        return AuthenticatedIdentity(user=user, session=None, claims=claims)
+    try:
+        session_id = uuid.UUID(str(session_id_claim))
+    except (TypeError, ValueError) as exc:
+        raise _CREDENTIALS_EXCEPTION from exc
+    user_session = await session.scalar(
+        select(UserSession).where(
+            UserSession.id == session_id,
+            UserSession.user_id == user.id,
+            UserSession.organization_id == user.organization_id,
+        )
+    )
+    if (
+        user_session is None
+        or user_session.auth_version != user.auth_version
+        or not is_session_active(user_session)
+    ):
+        raise _CREDENTIALS_EXCEPTION
+    touch_session(user_session)
+    return AuthenticatedIdentity(user=user, session=user_session, claims=claims)
+
+
+async def get_current_user(
+    identity: Annotated[AuthenticatedIdentity, Depends(get_authenticated_identity)],
+) -> User:
+    return identity.user
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
+CurrentIdentity = Annotated[
+    AuthenticatedIdentity, Depends(get_authenticated_identity)
+]
 
 
 def require_roles(*roles: UserRole) -> Callable[[User], Awaitable[User]]:

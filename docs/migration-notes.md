@@ -17,6 +17,14 @@ step is needed for schema changes unless noted.
 
 ## Unreleased (on `main`)
 
+- **Revocable sessions (Phase 35).** The upgrade creates server-side session and
+  hashed refresh-token tables and increments every existing user's authentication
+  version. All pre-upgrade stateless access tokens are intentionally rejected, so
+  every user signs in once after upgrade. New access tokens last 15 minutes and
+  stay in browser memory; the HttpOnly refresh cookie restores the session.
+  Downgrade removes the new tables but does not decrement authentication versions,
+  because doing so could resurrect a captured legacy token. Take and verify an
+  encrypted backup before downgrade.
 - **User lifecycle (Phase 34).** Existing users are backfilled to active/local
   with all-site access, so upgrades preserve their effective access. Administrators
   now invite users instead of choosing passwords; existing password hashes remain

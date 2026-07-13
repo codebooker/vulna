@@ -6,10 +6,8 @@ export interface AuthContextValue {
   token: string | null;
   /** True while the initial token-restore check is in flight. */
   initializing: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string, trustDevice?: boolean) => Promise<void>;
   logout: () => void;
 }
 
 export const AuthContext = createContext<AuthContextValue | null>(null);
-
-export const TOKEN_STORAGE_KEY = 'vulna.token';

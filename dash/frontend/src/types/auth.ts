@@ -23,6 +23,34 @@ export interface TokenResponse {
   access_token: string;
   token_type: string;
   expires_in: number;
+  session_id: string | null;
+}
+
+export interface UserSession {
+  id: string;
+  user_id: string;
+  created_at: string;
+  last_seen_at: string;
+  authenticated_at: string;
+  idle_expires_at: string;
+  absolute_expires_at: string;
+  revoked_at: string | null;
+  revocation_reason: string | null;
+  device_name: string | null;
+  source_ip: string | null;
+  user_agent: string | null;
+  trusted_until: string | null;
+  current: boolean;
+  active: boolean;
+  privileged_until: string;
+}
+
+export interface SessionPolicy {
+  idle_timeout_hours: number;
+  absolute_lifetime_days: number;
+  privileged_window_minutes: number;
+  max_concurrent_sessions: number;
+  trusted_device_days: number;
 }
 
 export interface UserSummary extends CurrentUser {

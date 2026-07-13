@@ -17,6 +17,7 @@ import type {
   LoginHistoryEvent,
   Role,
   SiteAccessMode,
+  UserSession,
   UserSummary,
 } from '../types/auth';
 import type { Site } from '../types/inventory';
@@ -390,6 +391,7 @@ function UserDrawer({
   const [siteIds, setSiteIds] = useState<string[]>([]);
   const [lifecycle, setLifecycle] = useState<LifecycleEvent[]>([]);
   const [logins, setLogins] = useState<LoginHistoryEvent[]>([]);
+  const [sessions, setSessions] = useState<UserSession[]>([]);
   const [statusAction, setStatusAction] = useState<AccountStatus | null>(null);
   const [reason, setReason] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -402,14 +404,20 @@ function UserDrawer({
     setSiteIds(user.site_ids);
     setError(null);
     if (token) {
-      void Promise.all([api.userLifecycle(token, user.id), api.userLoginHistory(token, user.id)])
-        .then(([events, history]) => {
+      void Promise.all([
+        api.userLifecycle(token, user.id),
+        api.userLoginHistory(token, user.id),
+        api.userSessions(token, user.id),
+      ])
+        .then(([events, history, sessionRows]) => {
           setLifecycle(events.items);
           setLogins(history.items);
+          setSessions(sessionRows);
         })
         .catch(() => {
           setLifecycle([]);
           setLogins([]);
+          setSessions([]);
         });
     }
   }, [token, user]);
@@ -474,6 +482,15 @@ function UserDrawer({
       setStatusAction(null);
       setReason('');
     }, `Account ${statusAction}.`);
+  };
+
+  const revokeSession = (sessionId: string) => {
+    if (!token || !user) return;
+    void run(async () => {
+      await api.revokeUserSession(token, user.id, sessionId);
+      const updated = await api.userSessions(token, user.id);
+      setSessions(updated);
+    }, 'Session revoked.');
   };
 
   const dirty =
@@ -572,6 +589,45 @@ function UserDrawer({
                     Deactivate
                   </Button>
                 )}
+              </div>
+            </section>
+            <section>
+              <h3 className="mb-2 text-xs font-semibold text-text">Sessions</h3>
+              <div className="space-y-2 rounded-lg border border-border p-3">
+                {sessions.length === 0 && (
+                  <p className="text-xs text-faint">No session records are available.</p>
+                )}
+                {sessions.map((session) => (
+                  <div
+                    key={session.id}
+                    className="flex flex-col justify-between gap-2 text-xs sm:flex-row sm:items-center"
+                  >
+                    <span className="min-w-0 text-muted">
+                      <span className="block truncate font-medium text-text">
+                        {session.device_name || 'Unnamed device'}
+                      </span>
+                      <span className="block truncate">
+                        {session.source_ip || 'Unknown IP'} · Last seen{' '}
+                        {formatWhenFull(session.last_seen_at)}
+                      </span>
+                    </span>
+                    <span className="flex shrink-0 items-center gap-2">
+                      <Badge tone={session.active ? 'ok' : 'neutral'}>
+                        {session.active ? 'Active' : 'Revoked or expired'}
+                      </Badge>
+                      {session.active && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          loading={busy}
+                          onClick={() => revokeSession(session.id)}
+                        >
+                          Revoke
+                        </Button>
+                      )}
+                    </span>
+                  </div>
+                ))}
               </div>
             </section>
             <section>

@@ -28,6 +28,8 @@ def create_access_token(
     role: str,
     organization_id: uuid.UUID,
     auth_version: int = 1,
+    session_id: uuid.UUID | None = None,
+    authenticated_at: datetime | None = None,
     expires_delta: timedelta | None = None,
 ) -> str:
     """Create a signed JWT access token for a user."""
@@ -45,6 +47,10 @@ def create_access_token(
         "jti": uuid.uuid4().hex,
         "typ": "access",
     }
+    if session_id is not None:
+        payload["sid"] = str(session_id)
+    if authenticated_at is not None:
+        payload["auth_time"] = int(authenticated_at.timestamp())
     return jwt.encode(payload, settings.require_secret_key(), algorithm=settings.jwt_algorithm)
 
 
