@@ -69,6 +69,7 @@ from app.models.enums import (
     PrincipalType,
     ProbeStatus,
     RelayStatus,
+    RemediationClassification,
     RemediationKeyType,
     RemediationSuggestionStatus,
     RemediationUnitStatus,
@@ -81,9 +82,15 @@ from app.models.enums import (
     ServiceTransport,
     Severity,
     SiteAccessMode,
+    SlaCalculationSource,
+    SlaExceptionStatus,
+    SlaHistoryEvent,
     SoftwareChangeType,
     SoftwareInventorySource,
     SsoPolicyMode,
+    TicketConnectorType,
+    TicketSyncAction,
+    TicketSyncStatus,
     UserRole,
     ValidationStatus,
     WebScanProfile,
@@ -136,6 +143,13 @@ from app.models.scim import (
 from app.models.service import Service
 from app.models.session import SessionRefreshToken, UserSession
 from app.models.site import Site
+from app.models.sla import (
+    FindingSlaCalculation,
+    RemediationGuidance,
+    SlaException,
+    SlaHistory,
+    SlaPolicy,
+)
 from app.models.software import (
     EolIntelligenceRecord,
     EolOverride,
@@ -151,6 +165,7 @@ from app.models.sso import (
     SsoPolicy,
     SsoProtocolState,
 )
+from app.models.ticketing import TicketConnector, TicketSync, TicketSyncEvent
 from app.models.user import User
 from app.models.user_lifecycle import (
     PasswordResetToken,
@@ -214,6 +229,7 @@ __all__ = [
     "FindingDecisionStatus",
     "FindingDecisionType",
     "FindingScoreSnapshot",
+    "FindingSlaCalculation",
     "FindingType",
     "GrantScopeType",
     "IdentifierType",
@@ -251,6 +267,8 @@ __all__ = [
     "RiskAcceptance",
     "RiskAcceptanceStatus",
     "RiskProfile",
+    "RemediationClassification",
+    "RemediationGuidance",
     "RemediationKeyType",
     "RemediationSuggestion",
     "RemediationSuggestionStatus",
@@ -277,6 +295,12 @@ __all__ = [
     "SoftwareInventoryHistory",
     "SoftwareInventoryItem",
     "SoftwareInventorySource",
+    "SlaCalculationSource",
+    "SlaException",
+    "SlaExceptionStatus",
+    "SlaHistory",
+    "SlaHistoryEvent",
+    "SlaPolicy",
     "SsoPolicy",
     "SsoPolicyMode",
     "SsoProtocolState",
@@ -287,6 +311,12 @@ __all__ = [
     "ScimRateLimitWindow",
     "ScimToken",
     "ThreatIntelEnrichment",
+    "TicketConnector",
+    "TicketConnectorType",
+    "TicketSync",
+    "TicketSyncAction",
+    "TicketSyncEvent",
+    "TicketSyncStatus",
     "TotpFactor",
     "User",
     "UserInvitation",

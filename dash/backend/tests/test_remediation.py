@@ -58,14 +58,15 @@ async def test_assign_and_owner_marks_ready_for_verification(
     _, fid = await _finding(client, admin_headers, enroll_probe)
     owner = await make_user(UserRole.REMEDIATION_OWNER)
 
-    # Admin assigns the finding + a due date.
-    due = (datetime.now(UTC) + timedelta(days=7)).isoformat()
+    # Ingestion establishes the immutable SLA deadline; assignment changes only
+    # workflow ownership. Deadline changes use the SLA exception endpoint.
     assign = await client.patch(
         f"/api/v1/findings/{fid}",
-        json={"status": "assigned", "owner_user_id": str(owner.id), "due_at": due},
+        json={"status": "assigned", "owner_user_id": str(owner.id)},
         headers=admin_headers,
     )
     assert assign.status_code == 200, assign.text
+    assert assign.json()["due_at"] is not None
     assert assign.json()["owner_user_id"] == str(owner.id)
 
     # The owner can move it to ready_for_verification.

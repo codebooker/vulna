@@ -18,6 +18,7 @@ from app.models.enums import ChangeEventType, FindingStatus, RiskAcceptanceStatu
 from app.models.finding import Finding
 from app.models.risk_acceptance import RiskAcceptance
 from app.models.scan_job import ScanJob
+from app.services import sla
 
 
 def _emit(
@@ -73,6 +74,7 @@ async def apply_verification(
         if finding.status not in (FindingStatus.RESOLVED, FindingStatus.RISK_ACCEPTED):
             finding.status = FindingStatus.RESOLVED
             finding.resolved_at = now
+            await sla.complete_finding(session, finding, now=now)
             _emit(
                 session,
                 finding,
@@ -128,6 +130,7 @@ async def decide_risk_acceptance(
         ra.status = RiskAcceptanceStatus.ACTIVE
         finding.status = FindingStatus.RISK_ACCEPTED
         finding.risk_acceptance_id = ra.id
+        await sla.pause_for_risk_acceptance(session, finding)
     else:
         ra.status = RiskAcceptanceStatus.REJECTED
 
@@ -148,6 +151,7 @@ async def expire_risk_acceptances(session: AsyncSession, now: datetime) -> int:
         if finding is not None and finding.risk_acceptance_id == ra.id:
             finding.risk_acceptance_id = None
             finding.status = FindingStatus.REOPENED
+            await sla.resume_after_risk_acceptance(session, finding, now=now)
             _emit(
                 session,
                 finding,

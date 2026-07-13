@@ -95,7 +95,17 @@ class Finding(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     owner_user_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    # ``due_at`` remains the compatibility/effective deadline. The immutable
+    # calculation that established it is stored separately and linked here.
     due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    current_sla_calculation_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    sla_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    sla_paused_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    sla_completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     # Points to the currently-active RiskAcceptance (soft reference; the owning FK
     # is risk_acceptances.finding_id, avoiding a circular foreign key).
     risk_acceptance_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)

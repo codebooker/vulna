@@ -29,6 +29,8 @@
 9. Personal/service automation client ↔ `/api/v1` (expiring API token).
 10. VulnaScout authenticated collector ↔ one assessed host (ephemeral in-memory
     credential, pinned host identity, fixed read-only command allowlist).
+11. VulnaDash worker ↔ operator-configured ticket provider (selected finding
+    fields, purpose-bound secret, outbound HTTPS).
 
 ## Threats and controls (STRIDE summary)
 
@@ -100,6 +102,16 @@
   asset-bound IP, fixed SSH/PowerShell commands, verified host keys/TLS, bounded
   time/output, memory-only secret handling, clearing after collection, strict
   normalized result parsing, and no secret-bearing output/evidence/logging.
+- Ticket outage or duplicate external side effect → findings commit before an
+  allowlisted worker task, provider operations use stable idempotency keys, and
+  sync failures/history are persisted separately without rolling back findings.
+- Ticket credential or evidence disclosure → a dedicated encryption purpose,
+  one-way APIs, step-up management, tested-before-enable configuration, selected
+  outbound fields, and explicit exclusion of evidence/raw scanner output from task
+  payloads, audit metadata, and portability exports.
+- Premature ticket closure or deadline tampering → immutable SLA calculations
+  and exception history, risk-acceptance pause only by explicit policy, and normal
+  closure only after a successful verification (or an explicit audited override).
 
 ## Required controls (baseline)
 

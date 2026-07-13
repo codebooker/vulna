@@ -19,6 +19,7 @@ class SecretPurpose(StrEnum):
     SAML_SP_PRIVATE_KEY = "saml_sp_private_key"
     CREDENTIAL_SSH_SECRET = "credential_ssh_secret"  # noqa: S105 - purpose label
     CREDENTIAL_WINRM_SECRET = "credential_winrm_secret"  # noqa: S105 - purpose label
+    TICKET_CONNECTOR_SECRET = "ticket_connector_secret"  # noqa: S105 - purpose label
 
 
 _CONTEXT = {
@@ -30,6 +31,7 @@ _CONTEXT = {
     SecretPurpose.SAML_SP_PRIVATE_KEY: b"vulna-saml-sp-private-key-encryption-v1",
     SecretPurpose.CREDENTIAL_SSH_SECRET: b"vulna-credential-ssh-secret-encryption-v1",
     SecretPurpose.CREDENTIAL_WINRM_SECRET: b"vulna-credential-winrm-secret-encryption-v1",
+    SecretPurpose.TICKET_CONNECTOR_SECRET: b"vulna-ticket-connector-secret-encryption-v1",
 }
 
 

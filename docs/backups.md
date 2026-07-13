@@ -104,6 +104,15 @@ Scout; Scout private X25519 keys live only in Scout state. A restored active vau
 must create an envelope decryptable by that Scout without exposing plaintext in the
 job row, export, report, evidence, or logs.
 
+A Phase 43 restore test must verify that each finding still points to the same
+latest immutable SLA calculation, all predecessor calculations, exceptions,
+guidance, pause/resume and breach/completion events remain reconstructable, and the
+`due_at` compatibility projection is unchanged. Connector secrets must decrypt only
+with the ticket-specific purpose; disabled or untested connectors must remain
+disabled, idempotency keys and external ticket identities must survive, and a
+restored worker retry must not duplicate a successful remote ticket. No connector
+secret may appear in portability, task payloads, audit metadata, or logs.
+
 Post-Phase-39 background tasks, lease/retry/dead-letter state, and worker heartbeats
 are ordinary PostgreSQL records and are included in the encrypted database backup.
 After restore, start the API/migrations before the scheduler and worker. Leases from

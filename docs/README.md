@@ -84,6 +84,7 @@ VulnaRelay notes.
 | Provision users and groups from a directory | [SCIM provisioning](scim.md) |
 | Create scoped roles, service accounts, or API tokens | [authorization](authorization.md) |
 | Collect authenticated software inventory | [authenticated inventory](authenticated-inventory.md) |
+| Set remediation SLAs or synchronize tickets | [SLA and ticketing](sla-ticketing.md) |
 | Inspect scheduler/worker tasks and dead letters | [durable tasks](background-tasks.md) |
 | Run on small or offline hardware | [low-resource](low-resource.md) |
 | Diagnose a problem | [diagnostics](diagnostics.md) · [troubleshooting](troubleshooting.md) |

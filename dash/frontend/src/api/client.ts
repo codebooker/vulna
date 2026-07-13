@@ -127,6 +127,14 @@ import type {
   CredentialUsagePage,
   SoftwarePage,
 } from '../types/credentials';
+import type {
+  SlaMetrics,
+  SlaPolicy,
+  TicketConnector,
+  TicketConnectorTest,
+  TicketConnectorType,
+  TicketSync,
+} from '../types/sla-ticketing';
 
 // In development, Vite proxies /api to the backend (see vite.config.ts).
 // In production the frontend is served behind the same reverse proxy as the API.
@@ -1126,6 +1134,81 @@ export const api = {
       method: 'POST',
       token,
       body: { ...payload, mode: 'vulnerability_assessment' },
+    });
+  },
+  listSlaPolicies(token: string): Promise<SlaPolicy[]> {
+    return request<SlaPolicy[]>('/api/v1/sla/policies', { token });
+  },
+  slaMetrics(token: string): Promise<SlaMetrics> {
+    return request<SlaMetrics>('/api/v1/sla/metrics', { token });
+  },
+  createSlaPolicy(
+    token: string,
+    payload: {
+      name: string;
+      priority: number;
+      match: Record<string, unknown>;
+      due_days: Record<string, number>;
+      pause_on_risk_acceptance: boolean;
+    },
+  ): Promise<SlaPolicy> {
+    return request<SlaPolicy>('/api/v1/sla/policies', { method: 'POST', token, body: payload });
+  },
+  listTicketConnectors(token: string): Promise<TicketConnector[]> {
+    return request<TicketConnector[]>('/api/v1/ticketing/connectors', { token });
+  },
+  createTicketConnector(
+    token: string,
+    payload: {
+      name: string;
+      connector_type: TicketConnectorType;
+      base_url: string;
+      project_key: string;
+      secret: string;
+      config: Record<string, unknown>;
+    },
+  ): Promise<TicketConnector> {
+    return request<TicketConnector>('/api/v1/ticketing/connectors', {
+      method: 'POST',
+      token,
+      body: payload,
+    });
+  },
+  updateTicketConnector(
+    token: string,
+    connectorId: string,
+    payload: Partial<Pick<TicketConnector, 'enabled' | 'close_after_verification'>>,
+  ): Promise<TicketConnector> {
+    return request<TicketConnector>(`/api/v1/ticketing/connectors/${connectorId}`, {
+      method: 'PATCH',
+      token,
+      body: payload,
+    });
+  },
+  testTicketConnector(token: string, connectorId: string): Promise<TicketConnectorTest> {
+    return request<TicketConnectorTest>(`/api/v1/ticketing/connectors/${connectorId}/test`, {
+      method: 'POST',
+      token,
+    });
+  },
+  listTicketSyncs(token: string): Promise<TicketSync[]> {
+    return request<TicketSync[]>('/api/v1/ticketing/syncs', { token });
+  },
+  queueTicketSync(
+    token: string,
+    findingId: string,
+    connectorId: string,
+    action: 'upsert' | 'close',
+    explicitCloseReason?: string,
+  ): Promise<BackgroundTask> {
+    return request<BackgroundTask>(`/api/v1/ticketing/findings/${findingId}/sync`, {
+      method: 'POST',
+      token,
+      body: {
+        connector_id: connectorId,
+        action,
+        explicit_close_reason: explicitCloseReason || undefined,
+      },
     });
   },
   // --- Controlled pentest ---

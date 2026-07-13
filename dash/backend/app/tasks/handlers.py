@@ -15,7 +15,7 @@ from app.intelligence.fetchers import HttpFetcher
 from app.models.background_task import BackgroundTask
 from app.models.enums import FeedSource, ReportType
 from app.models.scan_job import ScanJob
-from app.services import intelligence, notify, pentest, reaper, risk, scheduler
+from app.services import intelligence, notify, pentest, reaper, risk, scheduler, sla, ticketing
 from app.services.reports import generate_reports
 
 TaskHandler = Callable[[AsyncSession, BackgroundTask, Settings], Awaitable[dict[str, Any]]]
@@ -41,6 +41,9 @@ async def system_sweep(
             session, now, organization_id=task.organization_id
         ),
         "expired_finding_decisions": await risk.expire_finding_decisions(
+            session, now, organization_id=task.organization_id
+        ),
+        "sla": await sla.sweep_sla_status(
             session, now, organization_id=task.organization_id
         ),
     }
@@ -112,11 +115,18 @@ async def generate_report_task(
     return {"report_ids": [str(report.id) for report in reports]}
 
 
+async def sync_ticket_task(
+    session: AsyncSession, task: BackgroundTask, settings: Settings
+) -> dict[str, Any]:
+    return await ticketing.execute_sync_task(session, task, settings)
+
+
 HANDLERS: dict[str, TaskHandler] = {
     "system.sweep": system_sweep,
     "notifications.dispatch": dispatch_notifications,
     "feeds.sync": sync_feed,
     "reports.generate": generate_report_task,
+    "tickets.sync": sync_ticket_task,
 }
 
 

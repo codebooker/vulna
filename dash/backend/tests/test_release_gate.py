@@ -45,6 +45,8 @@ REQUIRED_GATE_MODULES = [
     "test_explainable_risk.py",
     "test_authenticated_inventory.py",
     "test_phase42_migration.py",
+    "test_sla_ticketing.py",
+    "test_phase43_migration.py",
 ]
 
 

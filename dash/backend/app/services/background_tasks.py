@@ -24,6 +24,16 @@ TERMINAL = (
 )
 
 
+class PersistedTaskFailure(RuntimeError):
+    """Retry a task while retaining handler-written failure history.
+
+    Ordinary handler exceptions roll back all handler writes. Connector handlers
+    use this signal only after recording a bounded, non-secret attempt result; the
+    runner then fences the lease and commits that history atomically with the task's
+    retry/dead-letter transition.
+    """
+
+
 def utcnow() -> datetime:
     return datetime.now(UTC)
 

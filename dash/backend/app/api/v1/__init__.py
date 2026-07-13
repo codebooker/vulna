@@ -39,10 +39,12 @@ from app.api.v1 import (
     scim,
     scopes,
     sites,
+    sla,
     software,
     sso,
     system,
     tasks,
+    ticketing,
     users,
     workflows,
 )
@@ -91,6 +93,8 @@ api_router.include_router(risk.profile_router)
 api_router.include_router(risk.score_router)
 api_router.include_router(risk.unit_router)
 api_router.include_router(risk.decision_router)
+api_router.include_router(sla.router)
+api_router.include_router(ticketing.router)
 api_router.include_router(findings.router)
 api_router.include_router(risk_acceptances.router)
 api_router.include_router(pentest.router)

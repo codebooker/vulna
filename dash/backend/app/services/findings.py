@@ -28,7 +28,7 @@ from app.models.enums import (
 from app.models.finding import Finding
 from app.models.scan_job import ScanJob
 from app.models.service import Service
-from app.services import risk
+from app.services import risk, sla
 
 
 @dataclass
@@ -212,4 +212,5 @@ async def ingest_findings(
                     summary.change_events += 1
         await session.flush()
         await risk.score_finding(session, finding, now=now)
+        await sla.calculate_deadline(session, finding, now=now)
     return summary

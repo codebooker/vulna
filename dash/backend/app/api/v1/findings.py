@@ -53,7 +53,7 @@ from app.schemas.finding import (
 )
 from app.schemas.job import JobRead
 from app.schemas.risk_acceptance import RiskAcceptanceCreate, RiskAcceptanceRead
-from app.services import asset_context, authorization, risk
+from app.services import asset_context, authorization, risk, sla
 from app.services.audit import record_audit
 from app.services.jobs import JobValidationError, create_scan_job
 from app.services.remediation import create_risk_acceptance
@@ -296,6 +296,7 @@ async def update_finding(
         finding.status = changes["status"]
         if changes["status"] == FindingStatus.RESOLVED:
             finding.resolved_at = datetime.now(UTC)
+            await sla.complete_finding(session, finding, now=finding.resolved_at)
     if "validation_status" in changes:
         finding.validation_status = changes["validation_status"]
     if "owner_user_id" in changes:
@@ -315,6 +316,14 @@ async def update_finding(
                 )
         finding.owner_user_id = changes["owner_user_id"]
     if "due_at" in changes:
+        if (
+            finding.current_sla_calculation_id is not None
+            and changes["due_at"] != finding.due_at
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="Use an approved SLA exception to change a calculated deadline",
+            )
         finding.due_at = changes["due_at"]
     if "false_positive_reason" in changes:
         finding.false_positive_reason = changes["false_positive_reason"]

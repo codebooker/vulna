@@ -68,6 +68,11 @@ directly. See also [`threat-model.md`](threat-model.md) and
 - [ ] Personal/service API tokens are random, shown once, hashed, expiring,
   optionally IP-bound, rotatable, immediately revocable, and rejected for step-up.
   Service accounts have no password, session, SSO, or SCIM login path.
+- [ ] SLA policy priority is unique and first-match evaluation is deterministic;
+  calculated deadlines, exceptions, pause/resume, breach, and completion events are
+  append-only. Direct edits cannot overwrite calculated `due_at`, and accepted risk
+  pauses only when the matched policy explicitly opts in (`app/services/sla.py`,
+  `tests/test_sla_ticketing.py`).
 
 ## Probe trust boundary (mTLS)
 - [ ] Caddy terminates mTLS with `client_auth mode require_and_verify` and a trust pool of the internal CA; `mode request` is not used (`deploy/Caddyfile`, ADR 0003 live validation).
@@ -110,6 +115,12 @@ directly. See also [`threat-model.md`](threat-model.md) and
   envelope is X25519/HKDF/ChaCha20-Poly1305 bound to one job/Scout/expiry and is
   decrypted only after Scout signature/policy/scope/opt-in checks. Plaintext never
   enters Scout state, argv, environment, output, evidence, logs, or portability.
+- [ ] Ticket secrets use a distinct HKDF purpose and are exposed only as
+  `has_secret`; connector configuration requires step-up and a successful test
+  before enablement. Worker payloads contain selected finding fields but no evidence
+  or raw output, remote failures cannot roll back findings, sync is idempotent, and
+  closure requires verification or an explicit audited reason
+  (`app/services/ticketing.py`, `tests/test_sla_ticketing.py`).
 - [ ] Scheduler replicas use PostgreSQL advisory-lock leader election and unique
   idempotency keys; queue backpressure is configured before connector workloads.
 - [ ] Untrusted scanner output parsed defensively (defusedxml for XML; malformed lines skipped).

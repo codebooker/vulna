@@ -11,6 +11,7 @@ import {
   ListChecks,
   Network,
   PackageSearch,
+  TimerReset,
   Radar,
   Rocket,
   Rss,
@@ -51,6 +52,7 @@ import { ScimProvisioningPage } from '../pages/ScimProvisioningPage';
 import { AuthorizationPage } from '../pages/AuthorizationPage';
 import { TaskOperationsPage } from '../pages/TaskOperationsPage';
 import { AuthenticatedInventoryPage } from '../pages/AuthenticatedInventoryPage';
+import { SlaTicketingPage } from '../pages/SlaTicketingPage';
 import type { Role } from '../types/auth';
 
 export interface RouteDef {
@@ -159,6 +161,14 @@ export const ROUTE_CATALOGUE: RouteSection[] = [
         icon: PackageSearch,
         Component: AuthenticatedInventoryPage,
         permission: 'credentials.read',
+      },
+      {
+        id: 'sla-ticketing',
+        visibilityKey: 'ticketing',
+        label: 'SLAs & ticketing',
+        icon: TimerReset,
+        Component: SlaTicketingPage,
+        permission: 'sla.read',
       },
       {
         id: 'networks',

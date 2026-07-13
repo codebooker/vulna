@@ -38,6 +38,7 @@ from app.models.organization import Organization
 from app.models.scan_job import ScanJob
 from app.models.scim import ScimToken
 from app.models.site import Site
+from app.models.ticketing import TicketConnector
 from app.models.user import User
 
 # Privacy toggles and their privacy-preserving defaults. Telemetry is OFF; nothing
@@ -216,6 +217,11 @@ async def secret_inventory(
             CredentialRecord.is_active.is_(True),
         )
     )
+    ticket_connectors = await session.scalar(
+        select(func.count())
+        .select_from(TicketConnector)
+        .where(TicketConnector.organization_id == org.id)
+    )
     return [
         {
             "name": "Application secret key",
@@ -274,6 +280,13 @@ async def secret_inventory(
             "category": "scanning",
             "rotatable": True,
             "count": int(vault_credentials or 0),
+        },
+        {
+            "name": "Ticket connector secrets",
+            "present": bool(ticket_connectors),
+            "category": "ticketing",
+            "rotatable": True,
+            "count": int(ticket_connectors or 0),
         },
     ]
 

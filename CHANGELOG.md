@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 43 core: remediation SLAs and ticket synchronization
+
+- Uniquely prioritized, first-match SLA policies now create immutable deadline
+  calculations with a fixed severity fallback, append-only exceptions and history,
+  breach/completion metrics, and structured remediation guidance.
+- Accepted risk leaves SLA time running unless the selected policy explicitly opts
+  into pausing it. Resumption appends a calculation that extends the deadline by the
+  exact paused duration; existing `due_at` remains a compatibility projection.
+- Ticket configuration uses a common idempotent `test`/`upsert`/`close` contract,
+  purpose-bound one-way secrets, step-up-protected management, and worker-backed
+  synchronization that cannot roll back finding persistence on a remote outage.
+- Ticket payloads contain only selected finding fields and exclude evidence and raw
+  scanner output. Normal closure requires a successful verification; explicit
+  policy closure records an audited reason.
+- The additive migration safely backfills existing deadlines, portability advances
+  to schema v7 without connector ciphertext, and backup/restore, data-map, OpenAPI,
+  isolation, UI, migration, and release-gate coverage are included. Provider
+  adapters follow as separate stacked changes; production readiness remains false.
+
 ### Added — Phase 42: authenticated scanning and software inventory
 
 - Purpose-bound SSH and WinRM vault records now use append-only encrypted secret

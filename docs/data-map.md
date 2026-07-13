@@ -13,6 +13,7 @@ deployment. The machine-readable version is
 | Telemetry | operator-configured (none by default) | aggregate counts only | `telemetry_enabled` (off) |
 | Update checks | none | — | the app never contacts a release server |
 | OIDC / SAML sign-in | operator-configured identity provider | identity protocol messages only | per provider; off by default |
+| Ticket synchronization | operator-configured ticket provider | selected finding fields only; never evidence/raw output | per connector; tested and off by default |
 
 Telemetry, when enabled, **never** contains IP addresses, hostnames, usernames,
 findings, CVEs tied to assets, evidence, credentials, report contents, or a stable
@@ -28,6 +29,7 @@ cross-installation identifier.
 | Structured asset context, normalized tags/groups, membership explanations, and ownership history | database | medium | yes |
 | Findings | database | medium | yes |
 | Risk profiles, immutable score inputs/contributions, remediation units/suggestions, and bounded finding decisions | database | medium | yes |
+| SLA policies, immutable deadline calculations, exceptions, history, and structured guidance | database | medium | yes |
 | Raw scanner output | database | medium | no |
 | Evidence | reports volume | high | no |
 | Reports (files) | reports volume | medium | metadata only |
@@ -54,6 +56,8 @@ cross-installation identifier.
 | Scout credential-encryption private key | Scout state (`0600`) | critical | no |
 | Software inventory, history, and EOL overrides | database | medium | yes |
 | Signed Scout credential envelopes | database (Scout-bound ciphertext) | critical | no |
+| Ticket connector metadata and synchronization history | database | high | metadata only |
+| Ticket connector secrets | database (purpose-bound encrypted) | critical | no |
 | Internal CA + signing keys | keys volume | critical | no |
 | Notification / SMTP secrets | database (encrypted) | high | no |
 

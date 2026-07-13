@@ -171,6 +171,34 @@ PERMISSIONS: tuple[PermissionDefinition, ...] = (
         site_scoped=True,
     ),
     _permission(
+        "sla.read", "View remediation SLAs", "View deadlines and SLA metrics.", site_scoped=True
+    ),
+    _permission(
+        "sla.manage",
+        "Manage remediation SLAs",
+        "Change SLA policies, exceptions, and structured guidance.",
+        site_scoped=True,
+        high_risk=True,
+    ),
+    _permission(
+        "ticketing.read",
+        "View ticket synchronization",
+        "View connector metadata and finding ticket state.",
+        site_scoped=True,
+    ),
+    _permission(
+        "ticketing.manage",
+        "Manage ticket connectors",
+        "Configure, test, enable, rotate, and disable ticket destinations.",
+        high_risk=True,
+    ),
+    _permission(
+        "ticketing.sync",
+        "Synchronize remediation tickets",
+        "Queue idempotent finding ticket updates within assigned sites.",
+        site_scoped=True,
+    ),
+    _permission(
         "pentest.read", "View pentest", "View controlled pentest sessions.", site_scoped=True
     ),
     _permission(
@@ -295,6 +323,8 @@ BUILTIN_ROLE_PERMISSIONS: dict[UserRole, frozenset[str]] = {
             "assets.manage",
             "findings.manage",
             "remediation.manage",
+            "sla.manage",
+            "ticketing.sync",
             "pentest.request",
             "workflows.run",
             "reports.create",

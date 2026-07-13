@@ -17,6 +17,17 @@ step is needed for schema changes unless noted.
 
 ## Unreleased (on `main`)
 
+- **Remediation SLAs and ticket synchronization (Phase 43 core).** The additive
+  upgrade creates ordered SLA policies, immutable finding calculations, exception
+  and event history, structured guidance, purpose-encrypted connector
+  configuration, and synchronization history. Existing findings are backfilled
+  from their current `due_at`; findings without one receive the documented severity
+  fallback anchored to `first_seen_at` (or creation time). No ticket connector is
+  enabled automatically, and a connector must pass an administrator test first.
+  Portability moves to schema v7 and continues accepting v1–v6, but exports only
+  sanitized connector metadata—never ciphertext. Downgrade preserves the latest
+  compatibility `due_at` but removes SLA history, guidance, connector configuration,
+  and sync history; take and verify an encrypted backup first.
 - **Authenticated scanning and software inventory (Phase 42).** The additive
   upgrade adds an opt-out-by-default Scout flag/public X25519 key, nullable asset
   and credential-protocol job projections, purpose-encrypted credential versions,

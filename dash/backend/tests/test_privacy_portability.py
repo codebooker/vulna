@@ -102,7 +102,7 @@ async def test_export_is_versioned_checksummed_and_schema_valid(
     r = await client.get("/api/v1/portability/export", headers=admin_headers)
     assert r.status_code == 200
     bundle = r.json()
-    assert bundle["schema_version"] == "6"
+    assert bundle["schema_version"] == "7"
     # Independently validatable against the published schema and its checksum.
     jsonschema.Draft202012Validator(EXPORT_SCHEMA).validate(bundle)
     assert bundle["checksum"] == export_svc.checksum(bundle)
@@ -136,6 +136,14 @@ async def test_export_is_versioned_checksummed_and_schema_valid(
     assert "remediation_unit_findings" in bundle
     assert "remediation_suggestions" in bundle
     assert "finding_decisions" in bundle
+    assert "sla_policies" in bundle
+    assert "finding_sla_calculations" in bundle
+    assert "sla_exceptions" in bundle
+    assert "sla_history" in bundle
+    assert "remediation_guidance" in bundle
+    assert "ticket_connectors" in bundle
+    assert "ticket_syncs" in bundle
+    assert "ticket_sync_events" in bundle
     assert "software_inventory" in bundle
     assert "software_history" in bundle
     assert "eol_overrides" in bundle

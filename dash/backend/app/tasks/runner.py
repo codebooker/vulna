@@ -100,6 +100,27 @@ async def run_worker_once(settings: Settings, worker_id: str) -> bool:
                 )
                 await session.commit()
             raise
+        except background_tasks.PersistedTaskFailure as exc:
+            # Unlike an ordinary exception, this signal means the handler wrote
+            # append-only failure history that must survive. Fence it against the
+            # current lease before committing it with the retry/dead-letter state.
+            current = await session.scalar(
+                select(BackgroundTask)
+                .where(BackgroundTask.id == task.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            if (
+                current is None
+                or current.status != BackgroundTaskStatus.RUNNING
+                or current.lease_owner != worker_id
+            ):
+                await session.rollback()
+                logger.warning("background task %s lost its lease while recording failure", task.id)
+            else:
+                await background_tasks.fail_task(session, current, exc)
+                await session.commit()
+                logger.warning("background task %s will retry: %s", task.id, exc)
         except Exception as exc:  # noqa: BLE001 - durable retry/dead-letter boundary
             await session.rollback()
             claimed = await session.get(BackgroundTask, task.id)

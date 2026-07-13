@@ -2,8 +2,8 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://vulna.dev/schemas/data-map.json",
   "title": "Vulna Data Map",
-  "description": "Machine-readable map of what data Vulna stores, where, its sensitivity, and whether it can leave the deployment (updated through Phase 42). Not a JSON Schema for validation; a documented data inventory.",
-  "version": "3",
+  "description": "Machine-readable map of what data Vulna stores, where, its sensitivity, and whether it can leave the deployment (updated through Phase 43 core). Not a JSON Schema for validation; a documented data inventory.",
+  "version": "4",
   "leaves_deployment": {
     "intelligence_feeds": {
       "destinations": ["services.nvd.nist.gov", "www.cisa.gov", "epss.cyentia.com"],
@@ -30,6 +30,13 @@
       "toggle": "per_provider",
       "default": "off"
     },
+    "ticketing": {
+      "destinations": ["operator-configured ticket provider"],
+      "direction": "outbound",
+      "contains_org_data": "selected finding fields only; never evidence or raw scanner output",
+      "toggle": "per_connector",
+      "default": "off_until_tested"
+    },
     "telemetry": {
       "destinations": ["operator-configured, none by default"],
       "direction": "outbound",
@@ -55,6 +62,7 @@
     { "category": "structured asset context, normalized tags/groups, membership explanations, and ownership history", "store": "database", "sensitivity": "medium", "in_export": true },
     { "category": "findings", "store": "database", "sensitivity": "medium", "in_export": true },
     { "category": "risk profiles, immutable score inputs/contributions, remediation units/suggestions, and bounded finding decisions", "store": "database", "sensitivity": "medium", "in_export": true },
+    { "category": "SLA policies, immutable deadline calculations, exceptions, history, and structured guidance", "store": "database", "sensitivity": "medium", "in_export": true },
     { "category": "raw scanner output", "store": "database", "sensitivity": "medium", "in_export": false },
     { "category": "evidence", "store": "reports volume", "sensitivity": "high", "in_export": false },
     { "category": "reports (files)", "store": "reports volume", "sensitivity": "medium", "in_export": "metadata_only" },
@@ -81,6 +89,8 @@
     { "category": "Scout credential-encryption private key", "store": "Scout state (0600)", "sensitivity": "critical", "in_export": false },
     { "category": "signed Scout credential envelopes", "store": "database (Scout-bound ciphertext)", "sensitivity": "critical", "in_export": false },
     { "category": "software inventory, history, and EOL overrides", "store": "database", "sensitivity": "medium", "in_export": true },
+    { "category": "ticket connector metadata and synchronization history", "store": "database", "sensitivity": "high", "in_export": "metadata_only" },
+    { "category": "ticket connector secrets", "store": "database (purpose-bound encrypted)", "sensitivity": "critical", "in_export": false },
     { "category": "internal CA + signing keys", "store": "keys volume", "sensitivity": "critical", "in_export": false },
     { "category": "notification/SMTP secrets", "store": "database (encrypted)", "sensitivity": "high", "in_export": false }
   ]

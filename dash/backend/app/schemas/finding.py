@@ -41,6 +41,10 @@ class FindingRead(BaseModel):
     status: FindingStatus
     owner_user_id: uuid.UUID | None
     due_at: datetime | None
+    current_sla_calculation_id: uuid.UUID | None = None
+    sla_started_at: datetime | None = None
+    sla_paused_at: datetime | None = None
+    sla_completed_at: datetime | None = None
     risk_acceptance_id: uuid.UUID | None
     false_positive_reason: str | None
     first_seen_at: datetime | None

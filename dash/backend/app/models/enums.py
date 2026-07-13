@@ -577,6 +577,74 @@ class EolStatus(StrEnum):
     END_OF_LIFE = "end_of_life"
 
 
+class SlaCalculationSource(StrEnum):
+    """Reason an immutable SLA deadline snapshot was created."""
+
+    POLICY = "policy"
+    SEVERITY_FALLBACK = "severity_fallback"
+    EXCEPTION = "exception"
+    RISK_ACCEPTANCE_RESUME = "risk_acceptance_resume"
+
+
+class SlaExceptionStatus(StrEnum):
+    """Approval lifecycle for a requested SLA deadline exception."""
+
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    CANCELLED = "cancelled"
+
+
+class SlaHistoryEvent(StrEnum):
+    """Append-only events used for SLA audit and metric reconstruction."""
+
+    CALCULATED = "calculated"
+    EXCEPTION_REQUESTED = "exception_requested"
+    EXCEPTION_APPROVED = "exception_approved"
+    EXCEPTION_REJECTED = "exception_rejected"
+    PAUSED = "paused"
+    RESUMED = "resumed"
+    BREACHED = "breached"
+    COMPLETED = "completed"
+
+
+class RemediationClassification(StrEnum):
+    """Structured guidance classification presented to remediators."""
+
+    PATCH = "patch"
+    CONFIGURATION = "configuration"
+    UPGRADE = "upgrade"
+    COMPENSATING_CONTROL = "compensating_control"
+    REMOVE = "remove"
+    INVESTIGATE = "investigate"
+
+
+class TicketConnectorType(StrEnum):
+    """Supported ticket destinations; implementations are allowlisted in code."""
+
+    GITHUB = "github"
+    GITLAB = "gitlab"
+    GLPI = "glpi"
+    JIRA = "jira"
+    GENERIC = "generic"
+
+
+class TicketSyncAction(StrEnum):
+    """Idempotent operation requested of a ticket connector."""
+
+    UPSERT = "upsert"
+    CLOSE = "close"
+
+
+class TicketSyncStatus(StrEnum):
+    """Durable state of a finding-to-ticket synchronization."""
+
+    PENDING = "pending"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+
 class RelayStatus(StrEnum):
     """Administrative lifecycle state of a VulnaRelay (Phase 16, opt-in).
 

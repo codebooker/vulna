@@ -71,12 +71,28 @@ from app.models.scim import (
 )
 from app.models.service import Service
 from app.models.site import Site
+from app.models.sla import (
+    FindingSlaCalculation,
+    RemediationGuidance,
+    SlaException,
+    SlaHistory,
+    SlaPolicy,
+)
 from app.models.software import EolOverride, SoftwareInventoryHistory, SoftwareInventoryItem
+from app.models.ticketing import TicketConnector, TicketSync, TicketSyncEvent
 from app.models.user import User
 from app.models.user_lifecycle import UserSiteAssignment
 
-EXPORT_SCHEMA_VERSION = "6"
-SUPPORTED_IMPORT_SCHEMA_VERSIONS = {"1", "2", "3", "4", "5", EXPORT_SCHEMA_VERSION}
+EXPORT_SCHEMA_VERSION = "7"
+SUPPORTED_IMPORT_SCHEMA_VERSIONS = {
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    EXPORT_SCHEMA_VERSION,
+}
 CHECKSUM_FIELD = "checksum"
 
 
@@ -149,6 +165,14 @@ async def build_export(
         "remediation_unit_findings": await _remediation_unit_findings(session, org_id),
         "remediation_suggestions": await _remediation_suggestions(session, org_id),
         "finding_decisions": await _finding_decisions(session, org_id),
+        "sla_policies": await _sla_policies(session, org_id),
+        "finding_sla_calculations": await _finding_sla_calculations(session, org_id),
+        "sla_exceptions": await _sla_exceptions(session, org_id),
+        "sla_history": await _sla_history(session, org_id),
+        "remediation_guidance": await _remediation_guidance(session, org_id),
+        "ticket_connectors": await _ticket_connectors(session, org_id),
+        "ticket_syncs": await _ticket_syncs(session, org_id),
+        "ticket_sync_events": await _ticket_sync_events(session, org_id),
         "reports": await _reports(session, org_id),
         "risk_acceptances": await _risk_acceptances(session, org_id),
         "finding_notes": await _finding_notes(session, org_id),
@@ -763,8 +787,194 @@ async def _findings(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, 
             "current_score_snapshot_id": (
                 str(f.current_score_snapshot_id) if f.current_score_snapshot_id else None
             ),
+            "due_at": _iso(f.due_at),
+            "current_sla_calculation_id": (
+                str(f.current_sla_calculation_id) if f.current_sla_calculation_id else None
+            ),
+            "sla_started_at": _iso(f.sla_started_at),
+            "sla_paused_at": _iso(f.sla_paused_at),
+            "sla_completed_at": _iso(f.sla_completed_at),
         }
         for f in rows
+    ]
+
+
+async def _sla_policies(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, Any]]:
+    rows = (
+        await session.execute(select(SlaPolicy).where(SlaPolicy.organization_id == org_id))
+    ).scalars()
+    return [
+        {
+            "id": str(row.id),
+            "name": row.name,
+            "description": row.description,
+            "priority": row.priority,
+            "enabled": row.enabled,
+            "match": row.match_json,
+            "due_days": row.due_days_json,
+            "pause_on_risk_acceptance": row.pause_on_risk_acceptance,
+        }
+        for row in rows
+    ]
+
+
+async def _finding_sla_calculations(
+    session: AsyncSession, org_id: uuid.UUID
+) -> list[dict[str, Any]]:
+    rows = (
+        await session.execute(
+            select(FindingSlaCalculation).where(
+                FindingSlaCalculation.organization_id == org_id
+            )
+        )
+    ).scalars()
+    return [
+        {
+            "id": str(row.id),
+            "site_id": str(row.site_id),
+            "finding_id": str(row.finding_id),
+            "policy_id": str(row.policy_id) if row.policy_id else None,
+            "previous_calculation_id": (
+                str(row.previous_calculation_id) if row.previous_calculation_id else None
+            ),
+            "source": row.source.value,
+            "started_at": _iso(row.started_at),
+            "due_at": _iso(row.due_at),
+            "calculation": row.calculation_json,
+            "created_at": _iso(row.created_at),
+        }
+        for row in rows
+    ]
+
+
+async def _sla_exceptions(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, Any]]:
+    rows = (
+        await session.execute(select(SlaException).where(SlaException.organization_id == org_id))
+    ).scalars()
+    return [
+        {
+            "id": str(row.id),
+            "site_id": str(row.site_id),
+            "finding_id": str(row.finding_id),
+            "requested_due_at": _iso(row.requested_due_at),
+            "reason": row.reason,
+            "status": row.status.value,
+            "review_notes": row.review_notes,
+            "resulting_calculation_id": (
+                str(row.resulting_calculation_id) if row.resulting_calculation_id else None
+            ),
+            "created_at": _iso(row.created_at),
+        }
+        for row in rows
+    ]
+
+
+async def _sla_history(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, Any]]:
+    rows = (
+        await session.execute(select(SlaHistory).where(SlaHistory.organization_id == org_id))
+    ).scalars()
+    return [
+        {
+            "id": str(row.id),
+            "site_id": str(row.site_id),
+            "finding_id": str(row.finding_id),
+            "event": row.event.value,
+            "metadata": row.metadata_json,
+            "created_at": _iso(row.created_at),
+        }
+        for row in rows
+    ]
+
+
+async def _remediation_guidance(
+    session: AsyncSession, org_id: uuid.UUID
+) -> list[dict[str, Any]]:
+    rows = (
+        await session.execute(
+            select(RemediationGuidance).where(RemediationGuidance.organization_id == org_id)
+        )
+    ).scalars()
+    return [
+        {
+            "id": str(row.id),
+            "site_id": str(row.site_id),
+            "finding_id": str(row.finding_id),
+            "classification": row.classification.value,
+            "summary": row.summary,
+            "steps": row.steps_json,
+            "validation_steps": row.validation_steps_json,
+            "references": row.references_json,
+            "source": row.source,
+        }
+        for row in rows
+    ]
+
+
+async def _ticket_connectors(
+    session: AsyncSession, org_id: uuid.UUID
+) -> list[dict[str, Any]]:
+    rows = (
+        await session.execute(
+            select(TicketConnector).where(TicketConnector.organization_id == org_id)
+        )
+    ).scalars()
+    return [
+        {
+            "id": str(row.id),
+            "name": row.name,
+            "connector_type": row.connector_type.value,
+            "base_url": row.base_url,
+            "project_key": row.project_key,
+            "config": row.config_json,
+            "has_secret": bool(row.encrypted_secret),
+            "enabled": row.enabled,
+            "close_after_verification": row.close_after_verification,
+            "successful_test_at": _iso(row.successful_test_at),
+        }
+        for row in rows
+    ]
+
+
+async def _ticket_syncs(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, Any]]:
+    rows = (
+        await session.execute(select(TicketSync).where(TicketSync.organization_id == org_id))
+    ).scalars()
+    return [
+        {
+            "id": str(row.id),
+            "site_id": str(row.site_id),
+            "connector_id": str(row.connector_id),
+            "finding_id": str(row.finding_id),
+            "status": row.status.value,
+            "last_action": row.last_action.value,
+            "external_ticket_id": row.external_ticket_id,
+            "external_ticket_url": row.external_ticket_url,
+            "last_payload_hash": row.last_payload_hash,
+            "last_synced_at": _iso(row.last_synced_at),
+        }
+        for row in rows
+    ]
+
+
+async def _ticket_sync_events(
+    session: AsyncSession, org_id: uuid.UUID
+) -> list[dict[str, Any]]:
+    rows = (
+        await session.execute(
+            select(TicketSyncEvent).where(TicketSyncEvent.organization_id == org_id)
+        )
+    ).scalars()
+    return [
+        {
+            "id": str(row.id),
+            "site_id": str(row.site_id),
+            "sync_id": str(row.sync_id),
+            "action": row.action.value,
+            "status": row.status.value,
+            "payload_hash": row.payload_hash,
+            "created_at": _iso(row.created_at),
+        }
+        for row in rows
     ]
 
 

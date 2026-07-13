@@ -80,6 +80,13 @@ checks and runs fixed read-only SSH or WinRM collectors without persisting secre
 material. See [Authenticated inventory](authenticated-inventory.md) and
 [ADR 0043](adr/0043-authenticated-inventory-credentials.md).
 
+Remediation deadlines are immutable calculations selected by uniquely prioritized,
+first-match SLA policies, with append-only exception, pause/resume, breach, and
+completion history. External tickets sit behind an idempotent adapter contract:
+the API commits the finding first, then the durable worker sends only selected
+fields and persists the remote outcome independently. See [Remediation SLAs and
+ticket synchronization](sla-ticketing.md) and [ADR 0044](adr/0044-sla-ticket-sync-boundary.md).
+
 ### VulnaScout (`scout/`)
 
 A single statically linked Go binary deployed as a systemd service, container,

@@ -73,7 +73,8 @@ authorized administrators can add expiring, audited manual overrides.
 
 Encrypted database backups contain vault ciphertext, all secret versions,
 assignments, usage, inventory history, EOL data, and Scout public keys. Portability
-schema v6 exports only credential metadata (`has_secret` and version number),
+schema v6 introduced credential-only metadata (`has_secret` and version number), and current
+schema v7 retains that one-way representation,
 assignments, sanitized tests/usage, software inventory/history, and EOL overrides.
 It never exports ciphertext, secret-version rows, Scout private keys, or encrypted
 job envelopes. A working credential vault can move only through a verified,
