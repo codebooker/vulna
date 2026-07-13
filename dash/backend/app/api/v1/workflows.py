@@ -26,11 +26,11 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from app.api.context import RequestContext, get_request_context
 from app.auth.dependencies import CurrentUser, require_roles
+from app.auth.site_scope import get_accessible_site, site_scope_clause
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
 from app.models.enums import UserRole
 from app.models.network import Network
-from app.models.site import Site
 from app.models.user import User
 from app.models.workflow_run import WorkflowRun
 from app.schemas.common import Page
@@ -50,9 +50,17 @@ _require_operator = require_roles(UserRole.ADMINISTRATOR, UserRole.SECURITY_OPER
 _require_approver = require_roles(UserRole.ADMINISTRATOR, UserRole.PENTEST_APPROVER)
 
 
-async def _owned_run(session: AsyncSession, run_id: uuid.UUID, org_id: uuid.UUID) -> WorkflowRun:
-    run = await session.get(WorkflowRun, run_id)
-    if run is None or run.organization_id != org_id:
+async def _owned_run(
+    session: AsyncSession, run_id: uuid.UUID, current_user: User
+) -> WorkflowRun:
+    run = await session.scalar(
+        select(WorkflowRun).where(
+            WorkflowRun.id == run_id,
+            WorkflowRun.organization_id == current_user.organization_id,
+            site_scope_clause(current_user, WorkflowRun.site_id),
+        )
+    )
+    if run is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow run not found")
     return run
 
@@ -69,12 +77,14 @@ async def create_run(
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> WorkflowRunRead:
-    site = await session.get(Site, payload.site_id)
-    if site is None or site.organization_id != operator.organization_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Site not found")
+    await get_accessible_site(session, operator, payload.site_id)
     if payload.network_id is not None:
         net = await session.get(Network, payload.network_id)
-        if net is None or net.organization_id != operator.organization_id:
+        if (
+            net is None
+            or net.organization_id != operator.organization_id
+            or net.site_id != payload.site_id
+        ):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Network not found")
     now = datetime.now(UTC)
     run = WorkflowRun(
@@ -113,7 +123,10 @@ async def list_runs(
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> Page[WorkflowRunRead]:
-    filters = [WorkflowRun.organization_id == current_user.organization_id]
+    filters = [
+        WorkflowRun.organization_id == current_user.organization_id,
+        site_scope_clause(current_user, WorkflowRun.site_id),
+    ]
     total = await session.scalar(select(func.count()).select_from(WorkflowRun).where(*filters))
     result = await session.execute(
         select(WorkflowRun)
@@ -136,7 +149,7 @@ async def get_run(
     current_user: CurrentUser,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> WorkflowRunRead:
-    run = await _owned_run(session, run_id, current_user.organization_id)
+    run = await _owned_run(session, run_id, current_user)
     return WorkflowRunRead.model_validate(run)
 
 
@@ -153,7 +166,7 @@ async def advance_run(
     settings: Annotated[Settings, Depends(get_settings)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> WorkflowRunRead:
-    run = await _owned_run(session, run_id, operator.organization_id)
+    run = await _owned_run(session, run_id, operator)
     # A scanning stage backed by a dispatched job advances on that job's result,
     # not by hand, so the two cannot disagree.
     if run.scan_job_id is not None and engine.scanning_stage_active(run):
@@ -199,7 +212,7 @@ async def decide_run(
 ) -> WorkflowRunRead:
     """Decide the workflow's approval pause. Denial continues the workflow safely
     (validation is skipped; verification and reporting still run)."""
-    run = await _owned_run(session, run_id, approver.organization_id)
+    run = await _owned_run(session, run_id, approver)
     try:
         engine.decide_intrusive(run, approve=payload.approve, now=datetime.now(UTC))
     except engine.WorkflowError as exc:

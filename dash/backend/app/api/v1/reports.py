@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.context import RequestContext, get_request_context
 from app.auth.dependencies import CurrentUser
+from app.auth.site_scope import optional_site_scope_clause, require_site_access
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
 from app.models.enums import ReportFormat, ReportStatus
@@ -39,10 +40,16 @@ _MEDIA_TYPES = {
 
 
 async def _get_owned_report(
-    session: AsyncSession, report_id: uuid.UUID, org_id: uuid.UUID
+    session: AsyncSession, report_id: uuid.UUID, current_user: CurrentUser
 ) -> Report:
-    report = await session.get(Report, report_id)
-    if report is None or report.organization_id != org_id:
+    report = await session.scalar(
+        select(Report).where(
+            Report.id == report_id,
+            Report.organization_id == current_user.organization_id,
+            optional_site_scope_clause(current_user, Report.site_id),
+        )
+    )
+    if report is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
     return report
 
@@ -64,6 +71,9 @@ async def create_reports(
     scan_job = await session.get(ScanJob, payload.scan_job_id)
     if scan_job is None or scan_job.organization_id != current_user.organization_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Scan job not found")
+    await require_site_access(
+        session, current_user, scan_job.site_id, not_found_detail="Scan job not found"
+    )
     if not payload.report_types:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -101,7 +111,10 @@ async def list_reports(
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> Page[ReportRead]:
-    filters = [Report.organization_id == current_user.organization_id]
+    filters = [
+        Report.organization_id == current_user.organization_id,
+        optional_site_scope_clause(current_user, Report.site_id),
+    ]
     if scan_job_id is not None:
         filters.append(Report.scan_job_id == scan_job_id)
     total = await session.scalar(select(func.count()).select_from(Report).where(*filters))
@@ -122,7 +135,7 @@ async def get_report(
     current_user: CurrentUser,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> ReportRead:
-    report = await _get_owned_report(session, report_id, current_user.organization_id)
+    report = await _get_owned_report(session, report_id, current_user)
     return ReportRead.model_validate(report)
 
 
@@ -133,7 +146,7 @@ async def download_report(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> FileResponse:
     """Stream a report's stored file (organization-scoped authorization)."""
-    report = await _get_owned_report(session, report_id, current_user.organization_id)
+    report = await _get_owned_report(session, report_id, current_user)
     if report.status != ReportStatus.COMPLETED or not report.storage_path:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Report is not available for download"

@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.context import RequestContext, get_request_context
 from app.auth.dependencies import CurrentUser, require_roles
+from app.auth.site_scope import accessible_site_ids, require_site_access, site_scope_clause
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
 from app.models.enums import JobStatus, ProbeStatus, UserRole, WebScanProfile
@@ -44,9 +45,17 @@ _require_job_creator = require_roles(
 _CANCELLABLE = {JobStatus.QUEUED, JobStatus.OFFERED, JobStatus.ACCEPTED, JobStatus.RUNNING}
 
 
-async def _get_owned_job(session: AsyncSession, job_id: uuid.UUID, org_id: uuid.UUID) -> ScanJob:
-    job = await session.get(ScanJob, job_id)
-    if job is None or job.organization_id != org_id:
+async def _get_owned_job(
+    session: AsyncSession, job_id: uuid.UUID, current_user: User
+) -> ScanJob:
+    job = await session.scalar(
+        select(ScanJob).where(
+            ScanJob.id == job_id,
+            ScanJob.organization_id == current_user.organization_id,
+            site_scope_clause(current_user, ScanJob.site_id),
+        )
+    )
+    if job is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
     return job
 
@@ -83,6 +92,9 @@ async def create_job(
     probe = await session.get(Probe, payload.probe_id)
     if probe is None or probe.organization_id != operator.organization_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Probe not found")
+    await require_site_access(
+        session, operator, probe.site_id, not_found_detail="Probe not found"
+    )
     if probe.status != ProbeStatus.ENROLLED:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -152,7 +164,10 @@ async def reap_jobs(
     """Expire active jobs past their deadline in the caller's organization and fail
     any workflow stage waiting on them. Also runs opportunistically on heartbeats."""
     reaped = await reaper.reap_stale_jobs(
-        session, settings, organization_id=current_user.organization_id
+        session,
+        settings,
+        organization_id=current_user.organization_id,
+        site_ids=await accessible_site_ids(session, current_user),
     )
     return {"reaped": reaped}
 
@@ -167,7 +182,10 @@ async def list_jobs(
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> Page[JobRead]:
     """List scan jobs in the caller's organization (any authenticated role)."""
-    filters = [ScanJob.organization_id == current_user.organization_id]
+    filters = [
+        ScanJob.organization_id == current_user.organization_id,
+        site_scope_clause(current_user, ScanJob.site_id),
+    ]
     if probe_id is not None:
         filters.append(ScanJob.probe_id == probe_id)
     if job_status is not None:
@@ -191,7 +209,7 @@ async def get_job(
     current_user: CurrentUser,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> JobRead:
-    job = await _get_owned_job(session, job_id, current_user.organization_id)
+    job = await _get_owned_job(session, job_id, current_user)
     return JobRead.model_validate(job)
 
 
@@ -207,7 +225,7 @@ async def cancel_job(
     A job that has not yet been delivered is cancelled immediately; an active
     job is flagged so the probe stops it and confirms via a status report.
     """
-    job = await _get_owned_job(session, job_id, operator.organization_id)
+    job = await _get_owned_job(session, job_id, operator)
     if job.status not in _CANCELLABLE:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

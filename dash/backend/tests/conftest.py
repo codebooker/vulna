@@ -189,6 +189,7 @@ def auth_headers(user: User) -> dict[str, str]:
         user_id=user.id,
         role=user.role.value,
         organization_id=user.organization_id,
+        auth_version=user.auth_version,
     )
     return {"Authorization": f"Bearer {token}"}
 

@@ -109,9 +109,21 @@ async def test_export_is_versioned_checksummed_and_schema_valid(
     assert bundle["checksum"] == export_svc.checksum(bundle)
     assert bundle["organization"]["experience_profile"] == "small_business"
     assert bundle["organization"]["feature_overrides"] == {}
+    assert bundle["users"]
+    assert bundle["users"][0]["account_status"] == "active"
+    assert "authentication_source" in bundle["users"][0]
+    assert "user_site_assignments" in bundle
     # No secret material leaks into the export.
     text = json.dumps(bundle).lower()
-    for banned in ("private key", "begin rsa", "password", "encrypted_secret", "signing_key"):
+    for banned in (
+        "private key",
+        "begin rsa",
+        "password",
+        "encrypted_secret",
+        "signing_key",
+        "token_hash",
+        "recovery_codes",
+    ):
         assert banned not in text
 
 

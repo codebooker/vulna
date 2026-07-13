@@ -9,6 +9,8 @@
     "schema_version",
     "exported_at",
     "organization",
+    "users",
+    "user_site_assignments",
     "sites",
     "network_scopes",
     "scouts",
@@ -39,6 +41,36 @@
         "feature_overrides": {
           "type": "object",
           "additionalProperties": { "type": "boolean" }
+        }
+      }
+    },
+    "users": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "email", "role", "account_status", "authentication_source", "site_access_mode"],
+        "properties": {
+          "id": { "type": "string" },
+          "email": { "type": "string" },
+          "full_name": { "type": ["string", "null"] },
+          "role": { "type": "string" },
+          "account_status": { "type": "string" },
+          "authentication_source": { "type": "string" },
+          "site_access_mode": { "type": "string" },
+          "last_login_at": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "user_site_assignments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["user_id", "site_id"],
+        "properties": {
+          "user_id": { "type": "string" },
+          "site_id": { "type": "string" }
         }
       }
     },

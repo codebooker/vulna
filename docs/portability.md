@@ -7,9 +7,11 @@ and moving Vulna to another machine.
 
 `GET /api/v1/portability/export` (administrator) produces a **versioned,
 checksummed** JSON bundle of your organization's non-secret data: organization,
-sites, network scopes, Scouts (metadata only), assets, services, findings, report
-metadata, and remediation history. It contains **no** keys, tokens, certificates,
-passwords, or report file bytes.
+sites, network scopes, Scouts (metadata only), users (non-secret lifecycle and
+access metadata), user-site assignments, assets, services, findings, report
+metadata, and remediation history. It contains **no** password hashes, invitation
+or reset hashes, recovery codes, keys, tokens, certificates, lifecycle event
+details, or report file bytes.
 
 The bundle can be validated **independently**:
 

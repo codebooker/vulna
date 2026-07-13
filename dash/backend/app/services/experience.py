@@ -60,7 +60,7 @@ CAPABILITIES: tuple[dict[str, Any], ...] = (
     {
         "key": "identity_lifecycle",
         "name": "User lifecycle administration",
-        "status": "planned",
+        "status": "available",
         "production_ready": False,
     },
     {

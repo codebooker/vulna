@@ -66,6 +66,8 @@ class Settings(BaseSettings):
     secret_key: str | None = None
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 720  # 12 hours
+    invitation_token_ttl_hours: int = 72
+    password_reset_token_ttl_minutes: int = 60
 
     # Master key for encrypting sensitive evidence (raw scanner output) at rest.
     # When set (VULNA_MASTER_KEY), stored artifacts are encrypted; when unset

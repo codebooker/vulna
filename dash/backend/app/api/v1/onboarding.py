@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.context import RequestContext, get_request_context
 from app.auth.dependencies import CurrentUser, require_admin
+from app.auth.site_scope import site_scope_clause
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
 from app.models.enums import ProbeStatus
@@ -222,6 +223,7 @@ async def network_candidates(
     result = await session.execute(
         select(Probe).where(
             Probe.organization_id == current_user.organization_id,
+            site_scope_clause(current_user, Probe.site_id),
             Probe.name == settings.local_scout_name,
         )
     )
@@ -230,6 +232,7 @@ async def network_candidates(
         result = await session.execute(
             select(Probe).where(
                 Probe.organization_id == current_user.organization_id,
+                site_scope_clause(current_user, Probe.site_id),
                 Probe.status == ProbeStatus.ENROLLED,
             )
         )

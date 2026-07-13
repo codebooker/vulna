@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.context import RequestContext, get_request_context
 from app.auth.dependencies import CurrentUser, require_admin
+from app.auth.site_scope import accessible_site_ids
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
 from app.models.organization import Organization
@@ -98,7 +99,12 @@ async def telemetry_preview(
 ) -> dict[str, Any]:
     """Show the exact aggregate, anonymous payload telemetry would send, so opt-in
     is an informed choice. Telemetry is off unless explicitly enabled."""
-    return await privacy.telemetry_preview(session, settings, current_user.organization_id)
+    return await privacy.telemetry_preview(
+        session,
+        settings,
+        current_user.organization_id,
+        site_ids=await accessible_site_ids(session, current_user),
+    )
 
 
 @router.get("/analytics", summary="Local usage analytics (never transmitted)")
@@ -106,4 +112,8 @@ async def analytics(
     current_user: CurrentUser,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict[str, Any]:
-    return await privacy.local_analytics(session, current_user.organization_id)
+    return await privacy.local_analytics(
+        session,
+        current_user.organization_id,
+        site_ids=await accessible_site_ids(session, current_user),
+    )

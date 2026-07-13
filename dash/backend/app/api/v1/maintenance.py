@@ -16,17 +16,19 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.context import RequestContext, get_request_context
 from app.auth.dependencies import CurrentUser, require_admin
 from app.auth.password import verify_password
+from app.auth.site_scope import optional_site_scope_clause, site_scope_clause
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
 from app.models.report import Report
 from app.models.retention_hold import HOLD_REPORT, HOLD_SCAN_JOB, RetentionHold
 from app.models.scan_artifact import ScanArtifact
+from app.models.scan_job import ScanJob
 from app.models.user import User
 from app.services import maintenance as maint
 from app.services import retention
@@ -204,7 +206,27 @@ async def list_holds(
     rows = (
         await session.execute(
             select(RetentionHold).where(
-                RetentionHold.organization_id == current_user.organization_id
+                RetentionHold.organization_id == current_user.organization_id,
+                or_(
+                    and_(
+                        RetentionHold.target_type == HOLD_REPORT,
+                        RetentionHold.target_id.in_(
+                            select(Report.id).where(
+                                Report.organization_id == current_user.organization_id,
+                                optional_site_scope_clause(current_user, Report.site_id),
+                            )
+                        ),
+                    ),
+                    and_(
+                        RetentionHold.target_type == HOLD_SCAN_JOB,
+                        RetentionHold.target_id.in_(
+                            select(ScanJob.id).where(
+                                ScanJob.organization_id == current_user.organization_id,
+                                site_scope_clause(current_user, ScanJob.site_id),
+                            )
+                        ),
+                    ),
+                ),
             )
         )
     ).scalars().all()

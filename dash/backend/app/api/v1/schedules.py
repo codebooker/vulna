@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.context import RequestContext, get_request_context
 from app.auth.dependencies import CurrentUser, require_roles
+from app.auth.site_scope import site_scope_clause
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
 from app.models.enums import JobMode, UserRole
@@ -32,9 +33,19 @@ router = APIRouter(prefix="/schedules", tags=["schedules"])
 _require_operator = require_roles(UserRole.ADMINISTRATOR, UserRole.SECURITY_OPERATOR)
 
 
-async def _owned(session: AsyncSession, schedule_id: uuid.UUID, org_id: uuid.UUID) -> ScanSchedule:
-    sched = await session.get(ScanSchedule, schedule_id)
-    if sched is None or sched.organization_id != org_id:
+async def _owned(
+    session: AsyncSession, schedule_id: uuid.UUID, current_user: User
+) -> ScanSchedule:
+    sched = await session.scalar(
+        select(ScanSchedule)
+        .join(Network, Network.id == ScanSchedule.network_id)
+        .where(
+            ScanSchedule.id == schedule_id,
+            ScanSchedule.organization_id == current_user.organization_id,
+            site_scope_clause(current_user, Network.site_id),
+        )
+    )
+    if sched is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found")
     return sched
 
@@ -47,8 +58,14 @@ async def create_schedule(
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> ScanScheduleRead:
-    net = await session.get(Network, payload.network_id)
-    if net is None or net.organization_id != operator.organization_id:
+    net = await session.scalar(
+        select(Network).where(
+            Network.id == payload.network_id,
+            Network.organization_id == operator.organization_id,
+            site_scope_clause(operator, Network.site_id),
+        )
+    )
+    if net is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Network not found")
     now = datetime.now(UTC)
     first = payload.first_run_at or (now + timedelta(minutes=payload.interval_minutes))
@@ -84,7 +101,11 @@ async def list_schedules(
     rows = (
         await session.execute(
             select(ScanSchedule)
-            .where(ScanSchedule.organization_id == current_user.organization_id)
+            .join(Network, Network.id == ScanSchedule.network_id)
+            .where(
+                ScanSchedule.organization_id == current_user.organization_id,
+                site_scope_clause(current_user, Network.site_id),
+            )
             .order_by(ScanSchedule.next_run_at)
         )
     ).scalars().all()
@@ -98,7 +119,7 @@ async def update_schedule(
     operator: Annotated[User, Depends(_require_operator)],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> ScanScheduleRead:
-    sched = await _owned(session, schedule_id, operator.organization_id)
+    sched = await _owned(session, schedule_id, operator)
     if payload.name is not None:
         sched.name = payload.name
     if payload.interval_minutes is not None:
@@ -117,7 +138,7 @@ async def delete_schedule(
     operator: Annotated[User, Depends(_require_operator)],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> None:
-    sched = await _owned(session, schedule_id, operator.organization_id)
+    sched = await _owned(session, schedule_id, operator)
     await session.delete(sched)
 
 
@@ -128,7 +149,7 @@ async def run_now(
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> ScanScheduleRead:
-    sched = await _owned(session, schedule_id, operator.organization_id)
+    sched = await _owned(session, schedule_id, operator)
     job = await scheduler.fire_schedule(session, settings, sched)
     if job is None:
         raise HTTPException(

@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.tokens import TokenError, decode_access_token
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
-from app.models.enums import UserRole
+from app.models.enums import AccountStatus, UserRole
 from app.models.user import User
 
 bearer_scheme = HTTPBearer(auto_error=False, description="JWT access token")
@@ -51,9 +51,19 @@ async def get_current_user(
         user_id = uuid.UUID(subject)
     except (ValueError, TypeError) as exc:
         raise _CREDENTIALS_EXCEPTION from exc
+    try:
+        token_auth_version = int(claims.get("ver", 1))
+    except (TypeError, ValueError) as exc:
+        raise _CREDENTIALS_EXCEPTION from exc
 
     user = await session.get(User, user_id)
-    if user is None or not user.is_active:
+    if (
+        user is None
+        or not user.is_active
+        or user.account_status != AccountStatus.ACTIVE
+        or str(claims.get("org")) != str(user.organization_id)
+        or token_auth_version != user.auth_version
+    ):
         raise _CREDENTIALS_EXCEPTION
     return user
 

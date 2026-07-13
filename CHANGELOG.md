@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 34: user administration and lifecycle
+
+- Administrators now invite users with hashed, expiring, single-use links instead
+  of assigning permanent passwords. When SMTP is absent, the link is shown once
+  for copying. Active local users use the same one-time pattern for password reset.
+- Accounts have authoritative invited, active, suspended, locked, and deactivated
+  states plus local/JIT/SCIM source metadata. Compatibility `is_active` and `role`
+  fields remain available; deletion is a soft deactivation that preserves history.
+- Site assignments are enforced immediately by shared organization/site query
+  guards across inventory, scans, reports, findings, dashboards, workflows,
+  maintenance, privacy analytics, relays, and pentest surfaces.
+- The Users page includes role and site assignment controls, status actions, MFA
+  readiness, login history, lifecycle history, and one-time invitation/reset links.
+- Role, site, status, and credential changes revoke Phase 34 access credentials;
+  unsafe self-deactivation and removal of the last active administrator are blocked.
+- Additive migration, prior-head/fresh-install tests, OpenAPI and release-gate
+  coverage, non-secret portability metadata, and backup/restore documentation.
+
 ### Added — Phase 33: adaptive installation and experience profiles
 
 - Installer answer schema v2 adds `deployment_profile`; schema v1 remains
@@ -20,8 +38,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with a collapsed Advanced section, all implemented Enterprise routes, or Custom
   visibility. Presentation never substitutes for API authorization and hidden
   routes remain directly addressable when authorized.
-- General Settings provides an audited preview/confirmation flow; a read-only
-  administrator Users inventory establishes the Phase 34 surface.
+- General Settings provides an audited preview/confirmation flow; the administrator
+  Users inventory is now upgraded by Phase 34 lifecycle controls.
 - New installations include an advisory profile-planning onboarding step.
   Answers stay in onboarding state, unavailable recommendations are labelled
   `planned`, and no high-impact policy is automatically applied.

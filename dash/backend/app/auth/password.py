@@ -20,20 +20,24 @@ def hash_password(plaintext: str) -> str:
     return _hasher.hash(plaintext)
 
 
-def verify_password(plaintext: str, hashed: str) -> bool:
+def verify_password(plaintext: str, hashed: str | None) -> bool:
     """Return whether ``plaintext`` matches the stored Argon2 ``hashed`` value.
 
     Returns ``False`` (rather than raising) on any mismatch or malformed hash so
     callers can treat verification as a simple boolean check.
     """
+    if not hashed:
+        return False
     try:
         return _hasher.verify(hashed, plaintext)
     except (VerifyMismatchError, InvalidHashError, ValueError):
         return False
 
 
-def needs_rehash(hashed: str) -> bool:
+def needs_rehash(hashed: str | None) -> bool:
     """Return whether ``hashed`` should be re-computed with current parameters."""
+    if not hashed:
+        return True
     try:
         return _hasher.check_needs_rehash(hashed)
     except (InvalidHashError, ValueError):

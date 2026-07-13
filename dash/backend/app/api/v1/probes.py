@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.context import RequestContext, get_request_context
 from app.api.probe_auth import CurrentProbe
 from app.auth.dependencies import CurrentUser, require_admin
+from app.auth.site_scope import get_accessible_site, site_scope_clause
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
 from app.models.enrollment_token import EnrollmentToken
@@ -35,7 +36,6 @@ from app.models.enums import ActorType, JobMode, JobStatus, ProbeStatus
 from app.models.probe import Probe
 from app.models.probe_result_upload import ProbeResultUpload
 from app.models.scan_job import ScanJob
-from app.models.site import Site
 from app.models.user import User
 from app.schemas.common import Page
 from app.schemas.enrollment import (
@@ -105,9 +105,7 @@ async def create_enrollment_token(
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> EnrollmentTokenCreated:
     """Mint a single-use enrollment token for a site (Administrator only)."""
-    site = await session.get(Site, payload.site_id)
-    if site is None or site.organization_id != admin.organization_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Site not found")
+    await get_accessible_site(session, admin, payload.site_id)
 
     generated = generate_token()
     expires_at = datetime.now(UTC) + timedelta(minutes=settings.enrollment_token_ttl_minutes)
@@ -164,9 +162,7 @@ async def create_enrollment_command(
     commands. The token is short-lived, hashed centrally, and passed via the
     environment (not argv) so it does not linger in process listings. Every command
     routes through the signature-verifying bootstrap."""
-    site = await session.get(Site, payload.site_id)
-    if site is None or site.organization_id != admin.organization_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Site not found")
+    await get_accessible_site(session, admin, payload.site_id)
 
     generated = generate_token()
     expires_at = datetime.now(UTC) + timedelta(minutes=settings.enrollment_token_ttl_minutes)
@@ -337,9 +333,17 @@ async def enroll_probe(
 # ---------------------------------------------------------------------------
 
 
-async def _get_owned_probe(session: AsyncSession, probe_id: uuid.UUID, org_id: uuid.UUID) -> Probe:
-    probe = await session.get(Probe, probe_id)
-    if probe is None or probe.organization_id != org_id:
+async def _get_owned_probe(
+    session: AsyncSession, probe_id: uuid.UUID, current_user: User
+) -> Probe:
+    probe = await session.scalar(
+        select(Probe).where(
+            Probe.id == probe_id,
+            Probe.organization_id == current_user.organization_id,
+            site_scope_clause(current_user, Probe.site_id),
+        )
+    )
+    if probe is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Probe not found")
     return probe
 
@@ -354,7 +358,10 @@ async def list_probes(
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> Page[ProbeRead]:
     """List probes in the caller's organization (any authenticated role)."""
-    filters = [Probe.organization_id == current_user.organization_id]
+    filters = [
+        Probe.organization_id == current_user.organization_id,
+        site_scope_clause(current_user, Probe.site_id),
+    ]
     if site_id is not None:
         filters.append(Probe.site_id == site_id)
     total = await session.scalar(select(func.count()).select_from(Probe).where(*filters))
@@ -380,7 +387,7 @@ async def get_probe(
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> ProbeRead:
-    probe = await _get_owned_probe(session, probe_id, current_user.organization_id)
+    probe = await _get_owned_probe(session, probe_id, current_user)
     return serialize_probe(probe, offline_after_seconds=settings.probe_offline_after_seconds)
 
 
@@ -394,7 +401,7 @@ async def update_probe(
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> ProbeRead:
     """Update an appliance's editable fields (name, description). Administrator only."""
-    probe = await _get_owned_probe(session, probe_id, admin.organization_id)
+    probe = await _get_owned_probe(session, probe_id, admin)
     changed: dict[str, str] = {}
     if payload.name is not None and payload.name != probe.name:
         changed["name"] = payload.name
@@ -458,7 +465,7 @@ async def approve_probe(
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> ProbeRead:
     """Approve a pending probe, moving it to the ``enrolled`` (active) state."""
-    probe = await _get_owned_probe(session, probe_id, admin.organization_id)
+    probe = await _get_owned_probe(session, probe_id, admin)
     if probe.status not in (ProbeStatus.PENDING_ENROLLMENT, ProbeStatus.DISABLED):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -485,7 +492,7 @@ async def revoke_probe(
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> ProbeRead:
     """Revoke a probe's certificate; it can no longer heartbeat or poll jobs."""
-    probe = await _get_owned_probe(session, probe_id, admin.organization_id)
+    probe = await _get_owned_probe(session, probe_id, admin)
     return await _lifecycle_transition(
         probe=probe,
         new_status=ProbeStatus.REVOKED,
@@ -514,7 +521,7 @@ async def set_pentest_enabled(
     scout's signed policy permits the controlled_pentest mode, so a disabled scout
     fails closed on any pentest job (even from a compromised orchestrator). Bumps
     no scope, but the policy hash changes so the scout re-syncs."""
-    probe = await _get_owned_probe(session, probe_id, admin.organization_id)
+    probe = await _get_owned_probe(session, probe_id, admin)
     probe.pentest_enabled = payload.enabled
     record_audit(
         session,
@@ -536,7 +543,7 @@ async def disable_probe(
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> ProbeRead:
     """Temporarily disable a probe (reversible via approve)."""
-    probe = await _get_owned_probe(session, probe_id, admin.organization_id)
+    probe = await _get_owned_probe(session, probe_id, admin)
     return await _lifecycle_transition(
         probe=probe,
         new_status=ProbeStatus.DISABLED,

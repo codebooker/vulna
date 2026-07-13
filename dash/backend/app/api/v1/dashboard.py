@@ -9,6 +9,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import CurrentUser
+from app.auth.site_scope import (
+    accessible_site_ids,
+    optional_site_scope_clause,
+    site_scope_clause,
+)
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
 from app.models.asset import Asset
@@ -29,7 +34,12 @@ async def summary(
 ) -> dict[str, Any]:
     """Return what needs attention, what changed, what wasn't assessed, health, and
     the next recommended action for the current organization."""
-    return await build_summary(session, settings, current_user.organization_id)
+    return await build_summary(
+        session,
+        settings,
+        current_user.organization_id,
+        site_ids=await accessible_site_ids(session, current_user),
+    )
 
 
 search_router = APIRouter(prefix="/search", tags=["search"])
@@ -50,26 +60,43 @@ async def global_search(
     assets = (
         await session.execute(
             select(Asset)
-            .where(Asset.organization_id == org, Asset.canonical_name.ilike(like))
+            .where(
+                Asset.organization_id == org,
+                site_scope_clause(current_user, Asset.site_id),
+                Asset.canonical_name.ilike(like),
+            )
             .limit(limit)
         )
     ).scalars().all()
     findings = (
         await session.execute(
             select(Finding)
-            .where(Finding.organization_id == org, Finding.title.ilike(like))
+            .where(
+                Finding.organization_id == org,
+                site_scope_clause(current_user, Finding.site_id),
+                Finding.title.ilike(like),
+            )
             .limit(limit)
         )
     ).scalars().all()
     sites = (
         await session.execute(
-            select(Site).where(Site.organization_id == org, Site.name.ilike(like)).limit(limit)
+            select(Site)
+            .where(
+                Site.organization_id == org,
+                site_scope_clause(current_user, Site.id),
+                Site.name.ilike(like),
+            )
+            .limit(limit)
         )
     ).scalars().all()
     scans = (
         await session.execute(
             select(ScanJob)
-            .where(ScanJob.organization_id == org)
+            .where(
+                ScanJob.organization_id == org,
+                site_scope_clause(current_user, ScanJob.site_id),
+            )
             .order_by(ScanJob.created_at.desc())
             .limit(limit)
         )
@@ -77,7 +104,10 @@ async def global_search(
     reports = (
         await session.execute(
             select(Report)
-            .where(Report.organization_id == org)
+            .where(
+                Report.organization_id == org,
+                optional_site_scope_clause(current_user, Report.site_id),
+            )
             .order_by(Report.created_at.desc())
             .limit(limit)
         )

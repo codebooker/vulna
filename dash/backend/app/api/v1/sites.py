@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.context import RequestContext, get_request_context
 from app.auth.dependencies import CurrentUser, require_admin
+from app.auth.site_scope import get_accessible_site, site_scope_clause
 from app.db.session import get_session
 from app.models.site import Site
 from app.models.user import User
@@ -44,12 +45,14 @@ async def list_sites(
 ) -> Page[SiteRead]:
     """List sites in the caller's organization (any authenticated role)."""
     org_id = current_user.organization_id
-    total = await session.scalar(
-        select(func.count()).select_from(Site).where(Site.organization_id == org_id)
-    )
+    filters = [
+        Site.organization_id == org_id,
+        site_scope_clause(current_user, Site.id),
+    ]
+    total = await session.scalar(select(func.count()).select_from(Site).where(*filters))
     result = await session.execute(
         select(Site)
-        .where(Site.organization_id == org_id)
+        .where(*filters)
         .order_by(Site.created_at.asc())
         .limit(limit)
         .offset(offset)
@@ -69,7 +72,7 @@ async def get_site(
     current_user: CurrentUser,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> SiteRead:
-    site = await _get_owned_site(session, site_id, current_user.organization_id)
+    site = await get_accessible_site(session, current_user, site_id)
     return SiteRead.model_validate(site)
 
 

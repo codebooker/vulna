@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import CurrentUser
+from app.auth.site_scope import site_scope_clause
 from app.db.session import get_session
 from app.models.asset import Asset
 from app.models.service import Service
@@ -19,9 +20,17 @@ from app.schemas.common import Page
 router = APIRouter(prefix="/assets", tags=["assets"])
 
 
-async def _get_owned_asset(session: AsyncSession, asset_id: uuid.UUID, org_id: uuid.UUID) -> Asset:
-    asset = await session.get(Asset, asset_id)
-    if asset is None or asset.organization_id != org_id:
+async def _get_owned_asset(
+    session: AsyncSession, asset_id: uuid.UUID, current_user: CurrentUser
+) -> Asset:
+    asset = await session.scalar(
+        select(Asset).where(
+            Asset.id == asset_id,
+            Asset.organization_id == current_user.organization_id,
+            site_scope_clause(current_user, Asset.site_id),
+        )
+    )
+    if asset is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found")
     return asset
 
@@ -34,7 +43,10 @@ async def list_assets(
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> Page[AssetRead]:
-    filters = [Asset.organization_id == current_user.organization_id]
+    filters = [
+        Asset.organization_id == current_user.organization_id,
+        site_scope_clause(current_user, Asset.site_id),
+    ]
     if site_id is not None:
         filters.append(Asset.site_id == site_id)
     total = await session.scalar(select(func.count()).select_from(Asset).where(*filters))
@@ -56,7 +68,7 @@ async def get_asset(
     current_user: CurrentUser,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> AssetDetail:
-    asset = await _get_owned_asset(session, asset_id, current_user.organization_id)
+    asset = await _get_owned_asset(session, asset_id, current_user)
     services = (
         await session.execute(
             select(Service).where(Service.asset_id == asset.id).order_by(Service.port.asc())
@@ -81,7 +93,7 @@ async def list_asset_services(
     limit: Annotated[int, Query(ge=1, le=500)] = 100,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> Page[ServiceRead]:
-    await _get_owned_asset(session, asset_id, current_user.organization_id)
+    await _get_owned_asset(session, asset_id, current_user)
     total = await session.scalar(
         select(func.count()).select_from(Service).where(Service.asset_id == asset_id)
     )

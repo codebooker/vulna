@@ -8,9 +8,19 @@ from app.auth.dependencies import (
     require_roles,
 )
 from app.auth.password import hash_password, needs_rehash, verify_password
+from app.auth.site_scope import (
+    accessible_site_ids,
+    can_access_site,
+    get_accessible_site,
+    has_all_site_access,
+    optional_site_scope_clause,
+    require_site_access,
+    site_scope_clause,
+)
 from app.auth.tokens import TokenError, create_access_token, decode_access_token
 
 __all__ = [
+    "accessible_site_ids",
     "CurrentUser",
     "TokenError",
     "create_access_token",
@@ -21,5 +31,11 @@ __all__ = [
     "needs_rehash",
     "require_admin",
     "require_roles",
+    "can_access_site",
+    "get_accessible_site",
+    "has_all_site_access",
+    "optional_site_scope_clause",
+    "require_site_access",
+    "site_scope_clause",
     "verify_password",
 ]

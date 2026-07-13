@@ -14,6 +14,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import CurrentUser
+from app.auth.site_scope import site_scope_clause
 from app.db.session import get_session
 from app.models.change_event import ChangeEvent
 from app.models.enums import ChangeEventType
@@ -35,7 +36,10 @@ async def list_changes(
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> Page[ChangeEventRead]:
     """List change events for the caller's organization, newest first."""
-    filters = [ChangeEvent.organization_id == current_user.organization_id]
+    filters = [
+        ChangeEvent.organization_id == current_user.organization_id,
+        site_scope_clause(current_user, ChangeEvent.site_id),
+    ]
     if site_id is not None:
         filters.append(ChangeEvent.site_id == site_id)
     if asset_id is not None:

@@ -17,6 +17,14 @@ step is needed for schema changes unless noted.
 
 ## Unreleased (on `main`)
 
+- **User lifecycle (Phase 34).** Existing users are backfilled to active/local
+  with all-site access, so upgrades preserve their effective access. Administrators
+  now invite users instead of choosing passwords; existing password hashes remain
+  valid. The migration adds lifecycle, invitation/reset, and site-assignment
+  tables. Downgrade is supported only when no passwordless invited account exists,
+  because the prior schema requires every user to have a password hash. Existing
+  access tokens remain valid unless the affected account's role, status, password,
+  or site access changes. No operator action is required.
 - **Experience profiles (Phase 33).** Existing organizations are backfilled to
   `small_business`. This changes navigation organization only; routes, policies,
   permissions, schedules, security controls, and stored configuration continue

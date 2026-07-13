@@ -188,22 +188,36 @@ async def secret_inventory(
 # --------------------------------------------------------------------------- #
 
 
-async def _aggregate_counts(session: AsyncSession, org_id: uuid.UUID) -> dict[str, int]:
+async def _aggregate_counts(
+    session: AsyncSession,
+    org_id: uuid.UUID,
+    *,
+    site_ids: set[uuid.UUID] | None = None,
+) -> dict[str, int]:
+    site_filters = [Site.organization_id == org_id]
+    asset_filters = [Asset.organization_id == org_id]
+    scan_filters = [ScanJob.organization_id == org_id]
+    finding_filters = [Finding.organization_id == org_id]
+    if site_ids is not None:
+        site_filters.append(Site.id.in_(site_ids))
+        asset_filters.append(Asset.site_id.in_(site_ids))
+        scan_filters.append(ScanJob.site_id.in_(site_ids))
+        finding_filters.append(Finding.site_id.in_(site_ids))
     sites = await session.scalar(
-        select(func.count()).select_from(Site).where(Site.organization_id == org_id)
+        select(func.count()).select_from(Site).where(*site_filters)
     )
     assets = await session.scalar(
-        select(func.count()).select_from(Asset).where(Asset.organization_id == org_id)
+        select(func.count()).select_from(Asset).where(*asset_filters)
     )
     scans = await session.scalar(
-        select(func.count()).select_from(ScanJob).where(ScanJob.organization_id == org_id)
+        select(func.count()).select_from(ScanJob).where(*scan_filters)
     )
     findings = await session.scalar(
-        select(func.count()).select_from(Finding).where(Finding.organization_id == org_id)
+        select(func.count()).select_from(Finding).where(*finding_filters)
     )
     criticals = await session.scalar(
         select(func.count()).select_from(Finding).where(
-            Finding.organization_id == org_id, Finding.severity == Severity.CRITICAL
+            *finding_filters, Finding.severity == Severity.CRITICAL
         )
     )
     return {
@@ -216,7 +230,11 @@ async def _aggregate_counts(session: AsyncSession, org_id: uuid.UUID) -> dict[st
 
 
 async def telemetry_preview(
-    session: AsyncSession, settings: Settings, org_id: uuid.UUID
+    session: AsyncSession,
+    settings: Settings,
+    org_id: uuid.UUID,
+    *,
+    site_ids: set[uuid.UUID] | None = None,
 ) -> dict[str, Any]:
     """The exact anonymous payload telemetry *would* send, for a field-level review.
 
@@ -225,7 +243,7 @@ async def telemetry_preview(
     assets, evidence, credentials, report contents, or a stable cross-installation
     identifier.
     """
-    counts = await _aggregate_counts(session, org_id)
+    counts = await _aggregate_counts(session, org_id, site_ids=site_ids)
     return {
         "schema_version": TELEMETRY_SCHEMA_VERSION,
         "vulna_version": settings.version,
@@ -237,6 +255,14 @@ async def telemetry_preview(
     }
 
 
-async def local_analytics(session: AsyncSession, org_id: uuid.UUID) -> dict[str, Any]:
+async def local_analytics(
+    session: AsyncSession,
+    org_id: uuid.UUID,
+    *,
+    site_ids: set[uuid.UUID] | None = None,
+) -> dict[str, Any]:
     """Aggregate usage counts computed locally and never transmitted."""
-    return {"transmitted": False, "counts": await _aggregate_counts(session, org_id)}
+    return {
+        "transmitted": False,
+        "counts": await _aggregate_counts(session, org_id, site_ids=site_ids),
+    }

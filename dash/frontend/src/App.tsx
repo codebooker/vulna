@@ -5,6 +5,7 @@ import { Sidebar, type NavSectionDef } from './components/layout/sidebar';
 import { Topbar } from './components/layout/topbar';
 import { NavContext, hashFor, parseHash, type RouteParams } from './lib/nav';
 import { ALL_ROUTES, ROUTE_CATALOGUE } from './lib/route-catalogue';
+import { AccountSetupScreen } from './pages/AccountSetupPage';
 import { LoginScreen } from './pages/LoginPage';
 import type { Role } from './types/auth';
 import type { Experience } from './types/experience';
@@ -101,6 +102,14 @@ export function App() {
       return !c;
     });
   }, []);
+
+  const publicRoute = parseHash(window.location.hash);
+  if (publicRoute.id === 'accept-invitation') {
+    return <AccountSetupScreen mode="invitation" token={publicRoute.params.token ?? null} />;
+  }
+  if (publicRoute.id === 'reset-password') {
+    return <AccountSetupScreen mode="password-reset" token={publicRoute.params.token ?? null} />;
+  }
 
   if (initializing) {
     return (

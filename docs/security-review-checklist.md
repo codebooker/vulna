@@ -7,9 +7,17 @@ directly. See also [`threat-model.md`](threat-model.md) and
 
 ## Authentication & authorization
 - [ ] Passwords hashed with Argon2; no plaintext or reversible storage (`app/auth`).
+- [ ] Invitation and reset tokens are random, single-use, expiring, stored only as
+  HMAC hashes, and separated with distinct HKDF purposes (`app/services/account_tokens.py`).
 - [ ] JWTs signed (HS256) with a required secret; no default secret ships.
 - [ ] RBAC enforced on every mutating endpoint; role checks are explicit and tested (`app/auth/dependencies.py`, `tests/test_rbac.py`).
 - [ ] Organization scoping on every resource read/write (cross-org access returns 404).
+- [ ] Account status and authentication version are checked on every authenticated
+  request; status/password/role/site changes immediately invalidate Phase 34 access.
+- [ ] Assigned-site query filters and detail checks cover every site-bound API;
+  frontend visibility is not treated as authorization (`app/auth/site_scope.py`).
+- [ ] Self-deactivation/self-demotion and loss of the last active administrator are
+  refused; deactivation preserves historical attribution.
 
 ## Probe trust boundary (mTLS)
 - [ ] Caddy terminates mTLS with `client_auth mode require_and_verify` and a trust pool of the internal CA; `mode request` is not used (`deploy/Caddyfile`, ADR 0003 live validation).

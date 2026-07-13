@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.context import RequestContext, get_request_context
 from app.auth.dependencies import CurrentUser, require_admin, require_roles
+from app.auth.site_scope import site_scope_clause
 from app.db.session import get_session
 from app.models.enums import RiskAcceptanceStatus, UserRole
 from app.models.finding import Finding
@@ -40,16 +41,23 @@ async def list_risk_acceptances(
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> Page[RiskAcceptanceRead]:
-    filters = [RiskAcceptance.organization_id == current_user.organization_id]
+    filters = [
+        RiskAcceptance.organization_id == current_user.organization_id,
+        site_scope_clause(current_user, Finding.site_id),
+    ]
     if finding_id is not None:
         filters.append(RiskAcceptance.finding_id == finding_id)
     if ra_status is not None:
         filters.append(RiskAcceptance.status == ra_status)
     total = await session.scalar(
-        select(func.count()).select_from(RiskAcceptance).where(*filters)
+        select(func.count())
+        .select_from(RiskAcceptance)
+        .join(Finding, Finding.id == RiskAcceptance.finding_id)
+        .where(*filters)
     )
     result = await session.execute(
         select(RiskAcceptance)
+        .join(Finding, Finding.id == RiskAcceptance.finding_id)
         .where(*filters)
         .order_by(RiskAcceptance.created_at.desc())
         .limit(limit)
@@ -76,8 +84,16 @@ async def decide(
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> RiskAcceptanceRead:
     """Activate (approve) or decline (reject) a pending risk acceptance."""
-    ra = await session.get(RiskAcceptance, acceptance_id)
-    if ra is None or ra.organization_id != approver.organization_id:
+    ra = await session.scalar(
+        select(RiskAcceptance)
+        .join(Finding, Finding.id == RiskAcceptance.finding_id)
+        .where(
+            RiskAcceptance.id == acceptance_id,
+            RiskAcceptance.organization_id == approver.organization_id,
+            site_scope_clause(approver, Finding.site_id),
+        )
+    )
+    if ra is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Risk acceptance not found"
         )

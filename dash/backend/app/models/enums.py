@@ -29,6 +29,31 @@ class UserRole(StrEnum):
     VIEWER = "viewer"
 
 
+class AccountStatus(StrEnum):
+    """Authoritative lifecycle state of an interactive user account."""
+
+    INVITED = "invited"
+    ACTIVE = "active"
+    SUSPENDED = "suspended"
+    DEACTIVATED = "deactivated"
+    LOCKED = "locked"
+
+
+class AuthenticationSource(StrEnum):
+    """System that owns an account's authentication lifecycle."""
+
+    LOCAL = "local"
+    JIT = "jit"
+    SCIM = "scim"
+
+
+class SiteAccessMode(StrEnum):
+    """Compatibility scope used until Phase 39 migrates it to grants."""
+
+    ALL = "all"
+    ASSIGNED = "assigned"
+
+
 class ActorType(StrEnum):
     """Origin of an audited action."""
 

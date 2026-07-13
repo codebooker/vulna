@@ -10,9 +10,11 @@ from app.models.change_event import ChangeEvent
 from app.models.cve import CveRecord, ThreatIntelEnrichment
 from app.models.enrollment_token import EnrollmentToken
 from app.models.enums import (
+    AccountStatus,
     ActorType,
     AssetStatus,
     AssetType,
+    AuthenticationSource,
     ChangeEventType,
     FeedSource,
     FeedStatus,
@@ -32,6 +34,7 @@ from app.models.enums import (
     ServiceState,
     ServiceTransport,
     Severity,
+    SiteAccessMode,
     UserRole,
     ValidationStatus,
     WebScanProfile,
@@ -60,14 +63,22 @@ from app.models.scan_schedule import ScanSchedule
 from app.models.service import Service
 from app.models.site import Site
 from app.models.user import User
+from app.models.user_lifecycle import (
+    PasswordResetToken,
+    UserInvitation,
+    UserLifecycleEvent,
+    UserSiteAssignment,
+)
 from app.models.workflow_run import WorkflowRun
 
 __all__ = [
+    "AccountStatus",
     "ActorType",
     "Asset",
     "AssetIdentifier",
     "AssetStatus",
     "AssetType",
+    "AuthenticationSource",
     "AuditEvent",
     "ChangeEvent",
     "ChangeEventType",
@@ -93,6 +104,7 @@ __all__ = [
     "Organization",
     "PentestSession",
     "PentestSessionStatus",
+    "PasswordResetToken",
     "Probe",
     "ProbeResultUpload",
     "ProbeStatus",
@@ -114,9 +126,13 @@ __all__ = [
     "ServiceTransport",
     "Severity",
     "Site",
+    "SiteAccessMode",
     "ThreatIntelEnrichment",
     "User",
+    "UserInvitation",
+    "UserLifecycleEvent",
     "UserRole",
+    "UserSiteAssignment",
     "ValidationStatus",
     "WebScanProfile",
     "WorkflowRun",

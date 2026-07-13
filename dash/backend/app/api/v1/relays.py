@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.context import RequestContext, get_request_context
 from app.api.relay_auth import CurrentRelay
 from app.auth.dependencies import CurrentUser, require_admin
+from app.auth.site_scope import get_accessible_site, optional_site_scope_clause
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
 from app.models.enums import ActorType, ProbeStatus, RelayStatus
@@ -33,7 +34,6 @@ from app.models.network_scope import NetworkScope
 from app.models.organization import Organization
 from app.models.probe import Probe
 from app.models.relay import Relay
-from app.models.site import Site
 from app.models.user import User
 from app.services import networks
 from app.services import relay as relay_svc
@@ -143,7 +143,10 @@ async def list_relays(
 ) -> dict[str, Any]:
     rows = (
         await session.execute(
-            select(Relay).where(Relay.organization_id == current_user.organization_id)
+            select(Relay).where(
+                Relay.organization_id == current_user.organization_id,
+                optional_site_scope_clause(current_user, Relay.site_id),
+            )
         )
     ).scalars().all()
     return {"relays": [_serialize(r) for r in rows]}
@@ -164,9 +167,7 @@ async def enrollment_command(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="A relay must be assigned to a site.",
         )
-    site = await session.get(Site, payload.site_id)
-    if site is None or site.organization_id != admin.organization_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Site not found")
+    await get_accessible_site(session, admin, payload.site_id)
     generated = generate_token()
     relay = Relay(
         organization_id=admin.organization_id,

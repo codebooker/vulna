@@ -1,4 +1,17 @@
-import type { CurrentUser, TokenResponse, UserSummary } from '../types/auth';
+import type {
+  AccountStatus,
+  CurrentUser,
+  InvitationIssued,
+  InviteUserPayload,
+  InvitedUser,
+  LifecycleEvent,
+  LoginHistoryEvent,
+  PasswordResetIssued,
+  Role,
+  SiteAccessMode,
+  TokenResponse,
+  UserSummary,
+} from '../types/auth';
 import type { Experience, ExperienceChange, ExperiencePreview } from '../types/experience';
 import type {
   Asset,
@@ -139,6 +152,79 @@ export const api = {
   },
   listUsers(token: string): Promise<Page<UserSummary>> {
     return request<Page<UserSummary>>('/api/v1/users', { token });
+  },
+  inviteUser(token: string, payload: InviteUserPayload): Promise<InvitedUser> {
+    return request<InvitedUser>('/api/v1/users', { method: 'POST', token, body: payload });
+  },
+  updateUser(
+    token: string,
+    userId: string,
+    payload: { full_name?: string | null; role?: Role },
+  ): Promise<UserSummary> {
+    return request<UserSummary>(`/api/v1/users/${userId}`, {
+      method: 'PATCH',
+      token,
+      body: payload,
+    });
+  },
+  updateUserStatus(
+    token: string,
+    userId: string,
+    status: AccountStatus,
+    reason: string,
+  ): Promise<UserSummary> {
+    return request<UserSummary>(`/api/v1/users/${userId}/status`, {
+      method: 'PUT',
+      token,
+      body: { status, reason },
+    });
+  },
+  updateUserSiteAccess(
+    token: string,
+    userId: string,
+    mode: SiteAccessMode,
+    siteIds: string[],
+    reason?: string,
+  ): Promise<UserSummary> {
+    return request<UserSummary>(`/api/v1/users/${userId}/site-access`, {
+      method: 'PUT',
+      token,
+      body: { mode, site_ids: siteIds, reason },
+    });
+  },
+  issueInvitation(token: string, userId: string): Promise<InvitationIssued> {
+    return request<InvitationIssued>(`/api/v1/users/${userId}/invitation`, {
+      method: 'POST',
+      token,
+    });
+  },
+  issuePasswordReset(token: string, userId: string): Promise<PasswordResetIssued> {
+    return request<PasswordResetIssued>(`/api/v1/users/${userId}/password-reset`, {
+      method: 'POST',
+      token,
+    });
+  },
+  userLifecycle(token: string, userId: string): Promise<Page<LifecycleEvent>> {
+    return request<Page<LifecycleEvent>>(`/api/v1/users/${userId}/lifecycle`, { token });
+  },
+  userLoginHistory(token: string, userId: string): Promise<Page<LoginHistoryEvent>> {
+    return request<Page<LoginHistoryEvent>>(`/api/v1/users/${userId}/login-history`, { token });
+  },
+  acceptInvitation(
+    secret: string,
+    password: string,
+    fullName?: string,
+  ): Promise<{ status: string }> {
+    return request<{ status: string }>('/api/v1/auth/invitations/accept', {
+      method: 'POST',
+      body: { token: secret, password, full_name: fullName || null },
+    });
+  },
+  completePasswordReset(secret: string, password: string): Promise<{ status: string }> {
+    return request<{ status: string }>('/api/v1/auth/password-resets/complete', {
+      method: 'POST',
+      body: { token: secret, password },
+    });
   },
   listSites(token: string): Promise<Page<Site>> {
     return request<Page<Site>>('/api/v1/sites', { token });

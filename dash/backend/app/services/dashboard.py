@@ -46,15 +46,32 @@ STALE_ASSET_DAYS = 14
 
 
 async def build_summary(
-    session: AsyncSession, settings: Settings, org_id: uuid.UUID, now: datetime | None = None
+    session: AsyncSession,
+    settings: Settings,
+    org_id: uuid.UUID,
+    now: datetime | None = None,
+    *,
+    site_ids: set[uuid.UUID] | None = None,
 ) -> dict[str, Any]:
     now = now or datetime.now(UTC)
+
+    finding_filters = [Finding.organization_id == org_id]
+    change_filters = [ChangeEvent.organization_id == org_id]
+    asset_filters = [Asset.organization_id == org_id]
+    scope_filters = [NetworkScope.organization_id == org_id]
+    scan_filters = [ScanJob.organization_id == org_id]
+    if site_ids is not None:
+        finding_filters.append(Finding.site_id.in_(site_ids))
+        change_filters.append(ChangeEvent.site_id.in_(site_ids))
+        asset_filters.append(Asset.site_id.in_(site_ids))
+        scope_filters.append(NetworkScope.site_id.in_(site_ids))
+        scan_filters.append(ScanJob.site_id.in_(site_ids))
 
     # --- Needs attention: classify unresolved findings by everyday priority ---
     unresolved = (
         await session.execute(
             select(Finding).where(
-                Finding.organization_id == org_id,
+                *finding_filters,
                 Finding.status.notin_(CLOSED_STATUSES),
             )
         )
@@ -91,7 +108,7 @@ async def build_summary(
     changes = (
         await session.execute(
             select(ChangeEvent)
-            .where(ChangeEvent.organization_id == org_id, ChangeEvent.created_at >= window_start)
+            .where(*change_filters, ChangeEvent.created_at >= window_start)
             .order_by(ChangeEvent.created_at.desc())
         )
     ).scalars().all()
@@ -112,7 +129,7 @@ async def build_summary(
         select(func.count())
         .select_from(Asset)
         .where(
-            Asset.organization_id == org_id,
+            *asset_filters,
             or_(Asset.last_seen_at.is_(None), Asset.last_seen_at < stale_cutoff),
         )
     )
@@ -120,12 +137,12 @@ async def build_summary(
     approved_scopes = await session.scalar(
         select(func.count())
         .select_from(NetworkScope)
-        .where(NetworkScope.organization_id == org_id, NetworkScope.approved_at.is_not(None))
+        .where(*scope_filters, NetworkScope.approved_at.is_not(None))
     )
     completed_scans = await session.scalar(
         select(func.count())
         .select_from(ScanJob)
-        .where(ScanJob.organization_id == org_id, ScanJob.status == JobStatus.COMPLETED)
+        .where(*scan_filters, ScanJob.status == JobStatus.COMPLETED)
     )
 
     health: ComponentHealth = await component_health(session, settings, now)

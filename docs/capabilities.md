@@ -1,7 +1,7 @@
 # Capability status
 
 This matrix is intentionally conservative. “Available” means implemented in the
-current codebase. “Planned” means it is part of Phases 34–44 and must not be
+current codebase. “Planned” means it is part of Phases 35–44 and must not be
 presented as usable. **Production-ready remains false until final release
 qualification passes**, regardless of profile visibility.
 
@@ -10,7 +10,7 @@ qualification passes**, regardless of profile visibility.
 | Core assessment workflow | Available | No |
 | Reports and exports | Available | No |
 | Notifications | Available | No |
-| User lifecycle administration | Planned (Phase 34) | No |
+| User lifecycle administration | Available (Phase 34) | No |
 | Revocable sessions | Planned (Phase 35) | No |
 | MFA and WebAuthn | Planned (Phase 36) | No |
 | OIDC and SAML SSO | Planned (Phase 37) | No |

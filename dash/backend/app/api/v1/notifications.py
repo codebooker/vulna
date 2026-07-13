@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.context import RequestContext, get_request_context
 from app.auth.dependencies import CurrentUser, require_admin
+from app.auth.site_scope import optional_site_scope_clause
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
 from app.models.notification import NotificationChannel, NotificationDelivery
@@ -214,7 +215,10 @@ async def deliveries(
     rows = (
         await session.execute(
             select(NotificationDelivery)
-            .where(NotificationDelivery.organization_id == current_user.organization_id)
+            .where(
+                NotificationDelivery.organization_id == current_user.organization_id,
+                optional_site_scope_clause(current_user, NotificationDelivery.site_id),
+            )
             .order_by(desc(NotificationDelivery.created_at))
             .limit(min(limit, 200))
         )
@@ -229,6 +233,7 @@ async def deliveries(
                 "attempts": d.attempts,
                 "last_error": d.last_error,
                 "title": d.title,
+                "site_id": str(d.site_id) if d.site_id else None,
                 "created_at": d.created_at.isoformat(),
                 "sent_at": d.sent_at.isoformat() if d.sent_at else None,
             }

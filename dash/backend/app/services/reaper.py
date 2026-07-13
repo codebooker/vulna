@@ -37,6 +37,7 @@ async def reap_stale_jobs(
     settings: Settings,
     *,
     organization_id: uuid.UUID | None = None,
+    site_ids: set[uuid.UUID] | None = None,
     now: datetime | None = None,
 ) -> int:
     """Expire active jobs past their deadline and fail any linked workflow stage.
@@ -47,6 +48,8 @@ async def reap_stale_jobs(
     stmt = select(ScanJob).where(ScanJob.status.in_(_ACTIVE))
     if organization_id is not None:
         stmt = stmt.where(ScanJob.organization_id == organization_id)
+    if site_ids is not None:
+        stmt = stmt.where(ScanJob.site_id.in_(site_ids))
 
     reaped = 0
     for job in (await session.execute(stmt)).scalars():

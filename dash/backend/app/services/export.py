@@ -35,6 +35,8 @@ from app.models.report import Report
 from app.models.risk_acceptance import RiskAcceptance
 from app.models.service import Service
 from app.models.site import Site
+from app.models.user import User
+from app.models.user_lifecycle import UserSiteAssignment
 
 EXPORT_SCHEMA_VERSION = "1"
 CHECKSUM_FIELD = "checksum"
@@ -72,6 +74,8 @@ async def build_export(
             "experience_profile": org.experience_profile.value,
             "feature_overrides": org.feature_overrides_json,
         },
+        "users": await _users(session, org_id),
+        "user_site_assignments": await _user_site_assignments(session, org_id),
         "sites": await _sites(session, org_id),
         "network_scopes": await _scopes(session, org_id),
         "scouts": await _scouts(session, org_id),
@@ -84,6 +88,39 @@ async def build_export(
     }
     bundle[CHECKSUM_FIELD] = checksum(bundle)
     return bundle
+
+
+async def _users(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, Any]]:
+    """Lifecycle metadata only; authentication material is categorically excluded."""
+    rows = (await session.execute(select(User).where(User.organization_id == org_id))).scalars()
+    return [
+        {
+            "id": str(user.id),
+            "email": user.email,
+            "full_name": user.full_name,
+            "role": user.role.value,
+            "account_status": user.account_status.value,
+            "authentication_source": user.authentication_source.value,
+            "site_access_mode": user.site_access_mode.value,
+            "last_login_at": _iso(user.last_login_at),
+        }
+        for user in rows
+    ]
+
+
+async def _user_site_assignments(
+    session: AsyncSession, org_id: uuid.UUID
+) -> list[dict[str, Any]]:
+    rows = (
+        await session.execute(
+            select(UserSiteAssignment).where(
+                UserSiteAssignment.organization_id == org_id
+            )
+        )
+    ).scalars()
+    return [
+        {"user_id": str(row.user_id), "site_id": str(row.site_id)} for row in rows
+    ]
 
 
 async def _sites(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, Any]]:
@@ -254,9 +291,16 @@ def validate_import(payload: dict[str, Any], *, expected_org_id: uuid.UUID) -> d
         if a.get("site_id") not in site_ids:
             warnings.append(f"Asset {a.get('id')} references a site not in the bundle.")
 
+    user_ids = {u.get("id") for u in payload.get("users", [])}
+    for assignment in payload.get("user_site_assignments", []):
+        if assignment.get("user_id") not in user_ids:
+            warnings.append("A user-site assignment references an unknown user.")
+        if assignment.get("site_id") not in site_ids:
+            warnings.append("A user-site assignment references an unknown site.")
+
     counts = {
         key: len(payload.get(key, []))
-        for key in ("sites", "assets", "services", "findings", "reports")
+        for key in ("users", "sites", "assets", "services", "findings", "reports")
     }
     return {
         "valid": not errors,

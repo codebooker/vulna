@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.context import RequestContext, get_request_context
 from app.auth.dependencies import CurrentUser, require_admin
+from app.auth.site_scope import get_accessible_site, site_scope_clause
 from app.db.session import get_session
 from app.models.network_scope import NetworkScope
 from app.models.site import Site
@@ -38,10 +39,16 @@ router = APIRouter(prefix="/scopes", tags=["scopes"])
 
 
 async def _get_owned_scope(
-    session: AsyncSession, scope_id: uuid.UUID, org_id: uuid.UUID
+    session: AsyncSession, scope_id: uuid.UUID, current_user: User
 ) -> NetworkScope:
-    scope = await session.get(NetworkScope, scope_id)
-    if scope is None or scope.organization_id != org_id:
+    scope = await session.scalar(
+        select(NetworkScope).where(
+            NetworkScope.id == scope_id,
+            NetworkScope.organization_id == current_user.organization_id,
+            site_scope_clause(current_user, NetworkScope.site_id),
+        )
+    )
+    if scope is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Scope not found")
     return scope
 
@@ -86,7 +93,10 @@ async def list_scopes(
 ) -> Page[NetworkScopeRead]:
     """List network scopes in the caller's organization (any authenticated role)."""
     org_id = current_user.organization_id
-    filters = [NetworkScope.organization_id == org_id]
+    filters = [
+        NetworkScope.organization_id == org_id,
+        site_scope_clause(current_user, NetworkScope.site_id),
+    ]
     if site_id is not None:
         filters.append(NetworkScope.site_id == site_id)
 
@@ -115,7 +125,7 @@ async def get_scope(
     current_user: CurrentUser,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> NetworkScopeRead:
-    scope = await _get_owned_scope(session, scope_id, current_user.organization_id)
+    scope = await _get_owned_scope(session, scope_id, current_user)
     return NetworkScopeRead.model_validate(scope)
 
 
@@ -133,7 +143,7 @@ async def create_scope(
 ) -> NetworkScopeRead:
     """Create an approved network scope (Administrator only)."""
     org_id = admin.organization_id
-    await _require_owned_site(session, payload.site_id, org_id)
+    await get_accessible_site(session, admin, payload.site_id)
 
     canonical = _validate_or_400(payload.cidr, allow_public=payload.allow_public_addresses)
 
@@ -196,7 +206,7 @@ async def update_scope(
 ) -> NetworkScopeRead:
     """Update a network scope (Administrator only)."""
     org_id = admin.organization_id
-    scope = await _get_owned_scope(session, scope_id, org_id)
+    scope = await _get_owned_scope(session, scope_id, admin)
     changes = payload.model_dump(exclude_unset=True)
 
     # Re-validate the CIDR whenever the range or the public-address flag changes.
@@ -250,7 +260,7 @@ async def approve_scope(
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> NetworkScopeRead:
     """Record administrator approval of a scope (Administrator only)."""
-    scope = await _get_owned_scope(session, scope_id, admin.organization_id)
+    scope = await _get_owned_scope(session, scope_id, admin)
     scope.approved_by = admin.id
     scope.approved_at = datetime.now(UTC)
     scope.policy_version += 1
@@ -284,7 +294,7 @@ async def delete_scope(
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> None:
     """Delete a network scope (Administrator only)."""
-    scope = await _get_owned_scope(session, scope_id, admin.organization_id)
+    scope = await _get_owned_scope(session, scope_id, admin)
     record_audit(
         session,
         action="scope.deleted",
