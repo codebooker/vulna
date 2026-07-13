@@ -29,7 +29,6 @@ class JobCreate(BaseModel):
     expires_at: datetime | None = None
     web_scan: WebScanRequest | None = None
     asset_id: uuid.UUID | None = None
-    network_id: uuid.UUID | None = None
     authenticated_protocols: list[CredentialProtocol] = Field(default_factory=list, max_length=2)
     preset_key: str | None = Field(default=None, max_length=128)
 
