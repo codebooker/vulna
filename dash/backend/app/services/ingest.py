@@ -41,6 +41,7 @@ class IngestSummary:
     assets_updated: int = 0
     services_upserted: int = 0
     change_events: int = 0
+    hosts_skipped_empty: int = 0
 
 
 def store_scan_artifact(
@@ -256,6 +257,15 @@ async def _ingest_host(
         asset = await _find_asset_by_identifier(
             session, job.organization_id, job.site_id, IdentifierType.MAC_ADDRESS, host.mac
         )
+
+    # Don't materialize phantom assets for empty address space. Under -Pn every
+    # scanned IP is reported "up" even when nothing is there, so only create a new
+    # asset when the host shows evidence of a real device: a live service (open
+    # port) or a MAC observed on the local segment. Already-known assets are still
+    # updated below, so a device that went quiet isn't dropped.
+    if asset is None and not host.services and host.mac is None:
+        summary.hosts_skipped_empty += 1
+        return
 
     if asset is None:
         canonical = (
