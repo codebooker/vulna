@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.dependencies import CurrentUser
+from app.auth.dependencies import CurrentUser, require_permission
 from app.auth.site_scope import site_scope_clause
 from app.db.session import get_session
 from app.models.change_event import ChangeEvent
@@ -21,7 +21,11 @@ from app.models.enums import ChangeEventType
 from app.schemas.change_event import ChangeEventRead
 from app.schemas.common import Page
 
-router = APIRouter(prefix="/changes", tags=["changes"])
+router = APIRouter(
+    prefix="/changes",
+    tags=["changes"],
+    dependencies=[Depends(require_permission("assets.read"))],
+)
 
 
 @router.get("", response_model=Page[ChangeEventRead], summary="List change events")
@@ -38,7 +42,7 @@ async def list_changes(
     """List change events for the caller's organization, newest first."""
     filters = [
         ChangeEvent.organization_id == current_user.organization_id,
-        site_scope_clause(current_user, ChangeEvent.site_id),
+        site_scope_clause(current_user, ChangeEvent.site_id, permission_key="assets.read"),
     ]
     if site_id is not None:
         filters.append(ChangeEvent.site_id == site_id)

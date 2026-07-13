@@ -26,6 +26,7 @@
 6. VulnaScout ↔ assessed targets (policy-enforced scope).
 7. Browser / VulnaDash ↔ operator-configured OIDC or SAML identity provider.
 8. Directory provisioning client ↔ `/scim/v2` (organization bearer token).
+9. Personal/service automation client ↔ `/api/v1` (expiring API token).
 
 ## Threats and controls (STRIDE summary)
 
@@ -75,6 +76,15 @@
   revoke sessions immediately.
 - SCIM filter/PATCH abuse → bounded input, non-executable parser AST, allowlisted
   attributes/operators/paths, page caps, no nested groups, and sanitized logs.
+- Scoped-grant confusion or horizontal privilege escalation → code-defined
+  permissions, organization-owned roles/principals/scopes, and correlated query
+  predicates requiring the permission and site to originate from the same grant.
+- API-token theft → high-entropy one-time values, hashes at rest, mandatory expiry,
+  optional IP CIDRs, immediate rotation/revocation, principal authorization-version
+  binding, generic authentication failure, and no interactive step-up capability.
+- Service-account impersonation or attribution loss → no password/SSO/SCIM login,
+  explicit service-principal audit actor type, organization isolation, and nullable
+  legacy user foreign keys rather than forged user attribution.
 
 ## Required controls (baseline)
 

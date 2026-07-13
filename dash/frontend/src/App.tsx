@@ -7,7 +7,6 @@ import { NavContext, hashFor, parseHash, type RouteParams } from './lib/nav';
 import { ALL_ROUTES, ROUTE_CATALOGUE } from './lib/route-catalogue';
 import { AccountSetupScreen } from './pages/AccountSetupPage';
 import { LoginScreen } from './pages/LoginPage';
-import type { Role } from './types/auth';
 import type { Experience } from './types/experience';
 import type { OnboardingState } from './types/onboarding';
 
@@ -129,13 +128,18 @@ export function App() {
     ROUTE_CATALOGUE[0];
   const active = ALL_ROUTES.find((item) => item.id === route.id) ?? ALL_ROUTES[0];
   const ActivePage = active.Component;
-  const roleAllows = (roles?: Role[]) => !roles || roles.includes(user.role);
+  const routeAllows = (item: (typeof ALL_ROUTES)[number]) => {
+    if (user.permissions) {
+      return !item.permission || user.permissions.includes(item.permission);
+    }
+    return !item.roles || item.roles.includes(user.role);
+  };
   const isSmallBusiness = experience?.experience_profile === 'small_business';
   const regularSections: NavSectionDef[] = ROUTE_CATALOGUE.map((catalogueSection) => ({
     id: catalogueSection.id,
     label: catalogueSection.label,
     items: catalogueSection.items
-      .filter((item) => roleAllows(item.roles))
+      .filter(routeAllows)
       .filter((item) => item.id !== 'getting-started' || incomplete)
       .filter((item) => {
         if (item.id === 'getting-started' || !experience) return true;
@@ -145,7 +149,7 @@ export function App() {
   })).filter((catalogueSection) => catalogueSection.items.length > 0);
 
   const advancedItems = isSmallBusiness
-    ? ALL_ROUTES.filter((item) => roleAllows(item.roles))
+    ? ALL_ROUTES.filter(routeAllows)
         .filter((item) => item.id !== 'getting-started')
         .filter((item) => experience?.route_visibility[item.visibilityKey] === false)
         .map(({ id, label, icon }) => ({ id, label, icon }))
@@ -168,7 +172,7 @@ export function App() {
           onToggleCollapsed={toggleCollapsed}
           mobileOpen={mobileNavOpen}
           onCloseMobile={() => setMobileNavOpen(false)}
-          userEmail={user.email}
+          userEmail={user.email ?? user.full_name ?? 'Service account'}
           userRole={user.role}
           onLogout={logout}
         />

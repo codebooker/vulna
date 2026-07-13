@@ -16,21 +16,25 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.context import RequestContext, get_request_context
-from app.auth.dependencies import CurrentUser, require_roles
+from app.auth.dependencies import CurrentUser, require_permission
 from app.auth.site_scope import site_scope_clause
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
-from app.models.enums import JobMode, UserRole
+from app.models.enums import JobMode
 from app.models.network import Network
 from app.models.scan_schedule import ScanSchedule
 from app.models.user import User
 from app.schemas.schedule import ScanScheduleCreate, ScanScheduleRead, ScanScheduleUpdate
-from app.services import scheduler
+from app.services import authorization, scheduler
 from app.services.audit import record_audit
 
-router = APIRouter(prefix="/schedules", tags=["schedules"])
+router = APIRouter(
+    prefix="/schedules",
+    tags=["schedules"],
+    dependencies=[Depends(require_permission("schedules.read"))],
+)
 
-_require_operator = require_roles(UserRole.ADMINISTRATOR, UserRole.SECURITY_OPERATOR)
+_require_operator = require_permission("schedules.manage")
 
 
 async def _owned(
@@ -42,7 +46,7 @@ async def _owned(
         .where(
             ScanSchedule.id == schedule_id,
             ScanSchedule.organization_id == current_user.organization_id,
-            site_scope_clause(current_user, Network.site_id),
+            site_scope_clause(current_user, Network.site_id, permission_key="schedules.manage"),
         )
     )
     if sched is None:
@@ -62,7 +66,7 @@ async def create_schedule(
         select(Network).where(
             Network.id == payload.network_id,
             Network.organization_id == operator.organization_id,
-            site_scope_clause(operator, Network.site_id),
+            site_scope_clause(operator, Network.site_id, permission_key="schedules.manage"),
         )
     )
     if net is None:
@@ -77,7 +81,7 @@ async def create_schedule(
         interval_minutes=payload.interval_minutes,
         enabled=payload.enabled,
         next_run_at=first,
-        created_by=operator.id,
+        created_by=authorization.user_actor_id(operator),
     )
     session.add(sched)
     record_audit(
@@ -104,7 +108,7 @@ async def list_schedules(
             .join(Network, Network.id == ScanSchedule.network_id)
             .where(
                 ScanSchedule.organization_id == current_user.organization_id,
-                site_scope_clause(current_user, Network.site_id),
+                site_scope_clause(current_user, Network.site_id, permission_key="schedules.read"),
             )
             .order_by(ScanSchedule.next_run_at)
         )

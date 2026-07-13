@@ -12,7 +12,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.context import RequestContext, get_request_context
-from app.auth.dependencies import get_user_by_email, require_admin
+from app.auth.dependencies import get_user_by_email, require_permission
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
 from app.models.audit import AuditEvent
@@ -45,7 +45,7 @@ from app.schemas.user import (
     UserStatusUpdate,
     UserUpdate,
 )
-from app.services import mfa, sso
+from app.services import authorization, mfa, sso
 from app.services.account_tokens import AccountTokenPurpose, generate_account_token
 from app.services.audit import record_audit
 from app.services.sessions import (
@@ -241,7 +241,7 @@ async def _transition_status(
 
 @router.get("", response_model=Page[UserRead], summary="List users")
 async def list_users(
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("users.read"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
@@ -312,7 +312,7 @@ async def list_users(
 @router.get("/{user_id}", response_model=UserRead, summary="Get a user")
 async def get_user(
     user_id: uuid.UUID,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("users.read"))],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> UserRead:
     return await _read_one(
@@ -329,7 +329,7 @@ async def get_user(
 async def create_user(
     payload: UserCreate,
     request: Request,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("users.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
     context: Annotated[RequestContext, Depends(get_request_context)],
@@ -373,6 +373,10 @@ async def create_user(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
+
+    await authorization.sync_user_compatibility_grants(
+        session, user, created_by_user_id=authorization.user_actor_id(admin)
+    )
 
     secret: str | None = None
     invitation: UserInvitation | None = None
@@ -422,7 +426,7 @@ async def create_user(
 async def update_user(
     user_id: uuid.UUID,
     payload: UserUpdate,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("users.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> UserRead:
@@ -462,6 +466,9 @@ async def update_user(
                 ) from exc
         previous_role = user.role
         user.role = changes.pop("role")
+        await authorization.sync_user_compatibility_grants(
+            session, user, created_by_user_id=authorization.user_actor_id(admin)
+        )
         user.auth_version += 1
         await revoke_user_sessions(session, user.id, reason="role changed")
         lifecycle_event(
@@ -504,7 +511,7 @@ async def update_user(
 async def set_status(
     user_id: uuid.UUID,
     payload: UserStatusUpdate,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("users.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> UserRead:
@@ -540,7 +547,7 @@ async def set_status(
 async def set_site_access(
     user_id: uuid.UUID,
     payload: UserSiteAccessUpdate,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("users.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> UserRead:
@@ -554,6 +561,9 @@ async def set_site_access(
         ) from exc
     old_mode = user.site_access_mode
     user.site_access_mode = payload.mode
+    await authorization.sync_user_compatibility_grants(
+        session, user, created_by_user_id=authorization.user_actor_id(admin)
+    )
     user.auth_version += 1
     await revoke_user_sessions(session, user.id, reason="site access changed")
     lifecycle_event(
@@ -594,7 +604,7 @@ async def set_site_access(
 async def issue_invitation(
     user_id: uuid.UUID,
     request: Request,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("users.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
     context: Annotated[RequestContext, Depends(get_request_context)],
@@ -672,7 +682,7 @@ async def issue_invitation(
 async def issue_password_reset(
     user_id: uuid.UUID,
     request: Request,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("users.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
     context: Annotated[RequestContext, Depends(get_request_context)],
@@ -740,7 +750,7 @@ async def issue_password_reset(
 )
 async def list_user_sessions(
     user_id: uuid.UUID,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("sessions.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> list[SessionRead]:
     user = await _get_owned_user(session, user_id, admin.organization_id)
@@ -771,7 +781,7 @@ async def list_user_sessions(
 async def revoke_user_session(
     user_id: uuid.UUID,
     session_id: uuid.UUID,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("sessions.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
     reason: Annotated[str, Query(min_length=1, max_length=255)] = "administrator revoked session",
@@ -807,7 +817,7 @@ async def revoke_user_session(
 )
 async def lifecycle_history(
     user_id: uuid.UUID,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("users.read"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
@@ -848,7 +858,7 @@ async def lifecycle_history(
 )
 async def login_history(
     user_id: uuid.UUID,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("users.read"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     limit: Annotated[int, Query(ge=1, le=200)] = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
@@ -913,7 +923,7 @@ async def login_history(
 )
 async def delete_user(
     user_id: uuid.UUID,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("users.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> None:

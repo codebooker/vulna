@@ -17,7 +17,7 @@ from app.db.session import get_session
 from app.models.enums import AccountStatus, AuthenticationSource, SiteAccessMode, UserRole
 from app.models.scim import ScimGroup, ScimGroupMember, ScimGroupSiteMapping
 from app.models.user import User
-from app.services import scim
+from app.services import authorization, scim
 from app.services.sessions import revoke_user_sessions
 from app.services.user_lifecycle import (
     active_admin_count,
@@ -412,6 +412,7 @@ async def create_user(
     user.set_account_status(AccountStatus.ACTIVE if active else AccountStatus.DEACTIVATED, now=now)
     session.add(user)
     await session.flush()
+    await authorization.sync_user_compatibility_grants(session, user)
     lifecycle_event(
         session,
         user=user,

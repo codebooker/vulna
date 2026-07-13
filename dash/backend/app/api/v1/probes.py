@@ -27,7 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.context import RequestContext, get_request_context
 from app.api.probe_auth import CurrentProbe
-from app.auth.dependencies import CurrentUser, StepUpIdentity, require_admin
+from app.auth.dependencies import StepUpIdentity, require_permission
 from app.auth.site_scope import get_accessible_site, site_scope_clause
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
@@ -99,14 +99,16 @@ _CERT_EXPIRING_SOON = timedelta(days=14)
 )
 async def create_enrollment_token(
     payload: EnrollmentTokenCreate,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("scouts.manage"))],
     _step_up: StepUpIdentity,
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> EnrollmentTokenCreated:
     """Mint a single-use enrollment token for a site (Administrator only)."""
-    await get_accessible_site(session, admin, payload.site_id)
+    await get_accessible_site(
+        session, admin, payload.site_id, permission_key="scouts.manage"
+    )
 
     generated = generate_token()
     expires_at = datetime.now(UTC) + timedelta(minutes=settings.enrollment_token_ttl_minutes)
@@ -154,7 +156,7 @@ async def create_enrollment_token(
 async def create_enrollment_command(
     payload: EnrollmentCommandRequest,
     request: Request,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("scouts.manage"))],
     _step_up: StepUpIdentity,
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
@@ -164,7 +166,9 @@ async def create_enrollment_command(
     commands. The token is short-lived, hashed centrally, and passed via the
     environment (not argv) so it does not linger in process listings. Every command
     routes through the signature-verifying bootstrap."""
-    await get_accessible_site(session, admin, payload.site_id)
+    await get_accessible_site(
+        session, admin, payload.site_id, permission_key="scouts.manage"
+    )
 
     generated = generate_token()
     expires_at = datetime.now(UTC) + timedelta(minutes=settings.enrollment_token_ttl_minutes)
@@ -336,13 +340,17 @@ async def enroll_probe(
 
 
 async def _get_owned_probe(
-    session: AsyncSession, probe_id: uuid.UUID, current_user: User
+    session: AsyncSession,
+    probe_id: uuid.UUID,
+    current_user: User,
+    *,
+    permission_key: str,
 ) -> Probe:
     probe = await session.scalar(
         select(Probe).where(
             Probe.id == probe_id,
             Probe.organization_id == current_user.organization_id,
-            site_scope_clause(current_user, Probe.site_id),
+            site_scope_clause(current_user, Probe.site_id, permission_key=permission_key),
         )
     )
     if probe is None:
@@ -352,17 +360,17 @@ async def _get_owned_probe(
 
 @router.get("", response_model=Page[ProbeRead], summary="List probes")
 async def list_probes(
-    current_user: CurrentUser,
+    current_user: Annotated[User, Depends(require_permission("scouts.read"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
     site_id: Annotated[uuid.UUID | None, Query(description="Filter by site")] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> Page[ProbeRead]:
-    """List probes in the caller's organization (any authenticated role)."""
+    """List probes in the caller's authorized organization/site scopes."""
     filters = [
         Probe.organization_id == current_user.organization_id,
-        site_scope_clause(current_user, Probe.site_id),
+        site_scope_clause(current_user, Probe.site_id, permission_key="scouts.read"),
     ]
     if site_id is not None:
         filters.append(Probe.site_id == site_id)
@@ -385,11 +393,13 @@ async def list_probes(
 @router.get("/{probe_id}", response_model=ProbeRead, summary="Get a probe")
 async def get_probe(
     probe_id: uuid.UUID,
-    current_user: CurrentUser,
+    current_user: Annotated[User, Depends(require_permission("scouts.read"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> ProbeRead:
-    probe = await _get_owned_probe(session, probe_id, current_user)
+    probe = await _get_owned_probe(
+        session, probe_id, current_user, permission_key="scouts.read"
+    )
     return serialize_probe(probe, offline_after_seconds=settings.probe_offline_after_seconds)
 
 
@@ -397,13 +407,15 @@ async def get_probe(
 async def update_probe(
     probe_id: uuid.UUID,
     payload: ProbeUpdate,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("scouts.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> ProbeRead:
     """Update an appliance's editable fields (name, description). Administrator only."""
-    probe = await _get_owned_probe(session, probe_id, admin)
+    probe = await _get_owned_probe(
+        session, probe_id, admin, permission_key="scouts.manage"
+    )
     changed: dict[str, str] = {}
     if payload.name is not None and payload.name != probe.name:
         changed["name"] = payload.name
@@ -461,14 +473,16 @@ async def _lifecycle_transition(
 @router.post("/{probe_id}/approve", response_model=ProbeRead, summary="Approve a probe")
 async def approve_probe(
     probe_id: uuid.UUID,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("scouts.manage"))],
     _step_up: StepUpIdentity,
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> ProbeRead:
     """Approve a pending probe, moving it to the ``enrolled`` (active) state."""
-    probe = await _get_owned_probe(session, probe_id, admin)
+    probe = await _get_owned_probe(
+        session, probe_id, admin, permission_key="scouts.manage"
+    )
     if probe.status not in (ProbeStatus.PENDING_ENROLLMENT, ProbeStatus.DISABLED):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -489,14 +503,16 @@ async def approve_probe(
 @router.post("/{probe_id}/revoke", response_model=ProbeRead, summary="Revoke a probe")
 async def revoke_probe(
     probe_id: uuid.UUID,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("scouts.manage"))],
     _step_up: StepUpIdentity,
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> ProbeRead:
     """Revoke a probe's certificate; it can no longer heartbeat or poll jobs."""
-    probe = await _get_owned_probe(session, probe_id, admin)
+    probe = await _get_owned_probe(
+        session, probe_id, admin, permission_key="scouts.manage"
+    )
     return await _lifecycle_transition(
         probe=probe,
         new_status=ProbeStatus.REVOKED,
@@ -516,7 +532,7 @@ async def revoke_probe(
 async def set_pentest_enabled(
     probe_id: uuid.UUID,
     payload: PentestToggle,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("scouts.manage"))],
     _step_up: StepUpIdentity,
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
@@ -526,7 +542,9 @@ async def set_pentest_enabled(
     scout's signed policy permits the controlled_pentest mode, so a disabled scout
     fails closed on any pentest job (even from a compromised orchestrator). Bumps
     no scope, but the policy hash changes so the scout re-syncs."""
-    probe = await _get_owned_probe(session, probe_id, admin)
+    probe = await _get_owned_probe(
+        session, probe_id, admin, permission_key="scouts.manage"
+    )
     probe.pentest_enabled = payload.enabled
     record_audit(
         session,
@@ -542,14 +560,16 @@ async def set_pentest_enabled(
 @router.post("/{probe_id}/disable", response_model=ProbeRead, summary="Disable a probe")
 async def disable_probe(
     probe_id: uuid.UUID,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("scouts.manage"))],
     _step_up: StepUpIdentity,
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> ProbeRead:
     """Temporarily disable a probe (reversible via approve)."""
-    probe = await _get_owned_probe(session, probe_id, admin)
+    probe = await _get_owned_probe(
+        session, probe_id, admin, permission_key="scouts.manage"
+    )
     return await _lifecycle_transition(
         probe=probe,
         new_status=ProbeStatus.DISABLED,

@@ -33,6 +33,7 @@ ADVANCED_ROUTES: tuple[str, ...] = (
     "feeds",
     "identity",
     "provisioning",
+    "authorization",
     "system_health",
 )
 
@@ -91,13 +92,25 @@ CAPABILITIES: tuple[dict[str, Any], ...] = (
     },
     {
         "key": "granular_rbac",
-        "name": "Granular RBAC",
+        "name": "Granular RBAC and service accounts",
+        "status": "available",
+        "production_ready": False,
+    },
+    {
+        "key": "background_tasks",
+        "name": "Dedicated scheduler and worker",
         "status": "planned",
         "production_ready": False,
     },
     {
         "key": "asset_groups",
         "name": "Asset groups and ownership",
+        "status": "planned",
+        "production_ready": False,
+    },
+    {
+        "key": "explainable_priority",
+        "name": "Explainable priority and remediation units",
         "status": "planned",
         "production_ready": False,
     },
@@ -115,7 +128,7 @@ CAPABILITIES: tuple[dict[str, Any], ...] = (
     },
     {
         "key": "passive_inventory",
-        "name": "Passive inventory connectors",
+        "name": "Passive inventory connectors, analytics, and report builder",
         "status": "planned",
         "production_ready": False,
     },

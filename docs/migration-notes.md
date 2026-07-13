@@ -17,6 +17,16 @@ step is needed for schema changes unless noted.
 
 ## Unreleased (on `main`)
 
+- **Granular RBAC and service accounts (Phase 39).** The additive upgrade creates
+  built-in/custom roles, role permissions, scoped grants, service principals, and
+  hashed API-token records. Each existing user receives organization or site grants
+  derived from the current role and Phase 34 assignments; `role`, `is_active`, and
+  site-access fields remain compatible projections. No existing capability is
+  disabled. Authorization changes now revoke user sessions and invalidate issued
+  tokens. The portability bundle moves to schema v3 and validation still accepts v1
+  and v2. Downgrade preserves derived legacy role/site fields but deletes custom
+  roles, service accounts, and API tokens because the prior schema cannot represent
+  them; revoke automation credentials and take a verified encrypted backup first.
 - **SCIM 2.0 provisioning (Phase 38).** The additive upgrade creates hashed,
   expiring bearer-token records, provisioned groups and memberships, role/site
   mappings, sanitized request logs, and database-backed rate-limit windows. Existing
@@ -24,7 +34,8 @@ step is needed for schema changes unless noted.
   not change. New SCIM users default to Viewer with no assigned sites until an
   administrator previews and applies group mappings. The portability bundle moves
   to schema v2 and includes non-secret SCIM users/groups/mappings/history while
-  validation continues to accept v1. Downgrade removes provisioning configuration
+  validation continues to accept v1. Phase 39 supersedes this with schema v3 while
+  retaining v1/v2 validation. Downgrade removes provisioning configuration
   and external ids but preserves user and lifecycle rows; SCIM-created passwordless
   users still require SSO after downgrade, so take and verify an encrypted backup.
 - **OIDC and SAML SSO (Phase 37).** The additive upgrade creates organization

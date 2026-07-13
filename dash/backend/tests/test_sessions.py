@@ -7,6 +7,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from app.api.context import RequestContext
 from app.api.v1.auth import _set_refresh_cookie
 from app.auth.dependencies import get_authenticated_identity
 from app.auth.tokens import create_access_token, decode_access_token
@@ -209,6 +210,7 @@ async def test_runtime_rejects_legacy_stateless_access_tokens(
             HTTPAuthorizationCredentials(scheme="Bearer", credentials=legacy),
             db_session,
             production,
+            RequestContext(source_ip=None, user_agent=None, request_id=None),
         )
     assert denied.value.status_code == 401
 

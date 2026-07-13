@@ -26,6 +26,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.asset import Asset
+from app.models.authorization import (
+    ApiToken,
+    AuthorizationRole,
+    RolePermission,
+    ScopedGrant,
+    ServiceAccount,
+)
 from app.models.finding import Finding
 from app.models.finding_note import FindingNote
 from app.models.network_scope import NetworkScope
@@ -44,8 +51,8 @@ from app.models.site import Site
 from app.models.user import User
 from app.models.user_lifecycle import UserSiteAssignment
 
-EXPORT_SCHEMA_VERSION = "2"
-SUPPORTED_IMPORT_SCHEMA_VERSIONS = {"1", EXPORT_SCHEMA_VERSION}
+EXPORT_SCHEMA_VERSION = "3"
+SUPPORTED_IMPORT_SCHEMA_VERSIONS = {"1", "2", EXPORT_SCHEMA_VERSION}
 CHECKSUM_FIELD = "checksum"
 
 
@@ -83,6 +90,10 @@ async def build_export(
         },
         "users": await _users(session, org_id),
         "user_site_assignments": await _user_site_assignments(session, org_id),
+        "authorization_roles": await _authorization_roles(session, org_id),
+        "scoped_grants": await _scoped_grants(session, org_id),
+        "service_accounts": await _service_accounts(session, org_id),
+        "api_tokens": await _api_tokens(session, org_id),
         "scim_groups": await _scim_groups(session, org_id),
         "scim_group_members": await _scim_group_members(session, org_id),
         "scim_group_site_mappings": await _scim_group_site_mappings(session, org_id),
@@ -132,6 +143,105 @@ async def _user_site_assignments(
     ).scalars()
     return [
         {"user_id": str(row.user_id), "site_id": str(row.site_id)} for row in rows
+    ]
+
+
+async def _authorization_roles(
+    session: AsyncSession, org_id: uuid.UUID
+) -> list[dict[str, Any]]:
+    roles = list(
+        (
+            await session.execute(
+                select(AuthorizationRole).where(AuthorizationRole.organization_id == org_id)
+            )
+        ).scalars()
+    )
+    permissions = list(
+        (
+            await session.execute(
+                select(RolePermission).where(RolePermission.organization_id == org_id)
+            )
+        ).scalars()
+    )
+    by_role: dict[uuid.UUID, list[str]] = {}
+    for permission in permissions:
+        by_role.setdefault(permission.role_id, []).append(permission.permission_key)
+    return [
+        {
+            "id": str(role.id),
+            "key": role.key,
+            "name": role.name,
+            "description": role.description,
+            "is_system": role.is_system,
+            "compatibility_role": (
+                role.compatibility_role.value if role.compatibility_role else None
+            ),
+            "permission_keys": sorted(by_role.get(role.id, [])),
+        }
+        for role in roles
+    ]
+
+
+async def _scoped_grants(
+    session: AsyncSession, org_id: uuid.UUID
+) -> list[dict[str, Any]]:
+    rows = (
+        await session.execute(
+            select(ScopedGrant).where(ScopedGrant.organization_id == org_id)
+        )
+    ).scalars()
+    return [
+        {
+            "id": str(row.id),
+            "principal_type": row.principal_type.value,
+            "principal_id": str(row.user_id or row.service_account_id),
+            "role_id": str(row.role_id),
+            "scope_type": row.scope_type.value,
+            "scope_id": str(row.scope_id),
+        }
+        for row in rows
+    ]
+
+
+async def _service_accounts(
+    session: AsyncSession, org_id: uuid.UUID
+) -> list[dict[str, Any]]:
+    rows = (
+        await session.execute(
+            select(ServiceAccount).where(ServiceAccount.organization_id == org_id)
+        )
+    ).scalars()
+    return [
+        {
+            "id": str(row.id),
+            "name": row.name,
+            "description": row.description,
+            "status": row.status.value,
+            "primary_role": row.primary_role.value,
+            "last_used_at": _iso(row.last_used_at),
+        }
+        for row in rows
+    ]
+
+
+async def _api_tokens(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, Any]]:
+    """Export lifecycle metadata only; token hashes and values never leave the database."""
+    rows = (
+        await session.execute(select(ApiToken).where(ApiToken.organization_id == org_id))
+    ).scalars()
+    return [
+        {
+            "id": str(row.id),
+            "principal_type": row.principal_type.value,
+            "principal_id": str(row.user_id or row.service_account_id),
+            "name": row.name,
+            "has_secret": True,
+            "expires_at": _iso(row.expires_at),
+            "revoked_at": _iso(row.revoked_at),
+            "ip_restrictions": list(row.ip_restrictions_json or []),
+            "last_used_at": _iso(row.last_used_at),
+        }
+        for row in rows
     ]
 
 
@@ -399,9 +509,37 @@ def validate_import(payload: dict[str, Any], *, expected_org_id: uuid.UUID) -> d
         if mapping.get("site_id") not in site_ids:
             warnings.append("A SCIM site mapping references an unknown site.")
 
+    role_ids = {role.get("id") for role in payload.get("authorization_roles", [])}
+    service_ids = {service.get("id") for service in payload.get("service_accounts", [])}
+    for grant in payload.get("scoped_grants", []):
+        if grant.get("role_id") not in role_ids:
+            warnings.append("An authorization grant references an unknown role.")
+        if grant.get("principal_type") == "user" and grant.get("principal_id") not in user_ids:
+            warnings.append("An authorization grant references an unknown user.")
+        if (
+            grant.get("principal_type") == "service_account"
+            and grant.get("principal_id") not in service_ids
+        ):
+            warnings.append("An authorization grant references an unknown service account.")
+        if grant.get("scope_type") == "site" and grant.get("scope_id") not in site_ids:
+            warnings.append("An authorization grant references an unknown site.")
+
+    principal_ids = user_ids | service_ids
+    for token in payload.get("api_tokens", []):
+        if token.get("principal_id") not in principal_ids:
+            warnings.append("An API token record references an unknown principal.")
+
     counts = {
         key: len(payload.get(key, []))
-        for key in ("users", "sites", "assets", "services", "findings", "reports")
+        for key in (
+            "users",
+            "service_accounts",
+            "sites",
+            "assets",
+            "services",
+            "findings",
+            "reports",
+        )
     }
     return {
         "valid": not errors,

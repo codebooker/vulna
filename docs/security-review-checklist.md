@@ -57,6 +57,17 @@ directly. See also [`threat-model.md`](threat-model.md) and
 - [ ] Group mappings are previewed and explicitly confirmed, validate every site's
   organization, derive least-privilege Viewer/no-site fallback, and cannot demote or
   deactivate the final active administrator.
+- [ ] Permission keys are code-defined; database roles cannot introduce unknown
+  strings. Every role, principal, and scope id is rechecked against the caller's
+  organization (`app/auth/permission_catalog.py`, `app/services/authorization.py`).
+- [ ] Site-bound queries correlate the requested permission and scope to the same
+  grant; permissions from two different site grants cannot combine
+  (`app/auth/site_scope.py`, `tests/test_authorization.py`).
+- [ ] Role/grant/status changes revoke user sessions or invalidate service tokens,
+  and the final active administrator grant cannot be removed.
+- [ ] Personal/service API tokens are random, shown once, hashed, expiring,
+  optionally IP-bound, rotatable, immediately revocable, and rejected for step-up.
+  Service accounts have no password, session, SSO, or SCIM login path.
 
 ## Probe trust boundary (mTLS)
 - [ ] Caddy terminates mTLS with `client_auth mode require_and_verify` and a trust pool of the internal CA; `mode request` is not used (`deploy/Caddyfile`, ADR 0003 live validation).
@@ -84,6 +95,9 @@ directly. See also [`threat-model.md`](threat-model.md) and
 - [ ] SCIM bearer values and hashes never appear in API reads, logs, audit metadata,
   notifications, or portability exports; token values exist only in one creation or
   rotation response.
+- [ ] Personal/service API-token values and hashes never appear in API reads, logs,
+  audit metadata, notifications, or portability exports; only a one-time creation or
+  rotation response contains the value.
 - [ ] Untrusted scanner output parsed defensively (defusedxml for XML; malformed lines skipped).
 - [ ] `/metrics` exposes aggregate-only data — no finding titles, evidence, IPs, or CVE ids in labels (`tests/test_metrics.py`).
 

@@ -14,7 +14,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.dependencies import CurrentUser
+from app.auth.dependencies import CurrentUser, require_permission
 from app.db.session import get_session
 from app.models.probe import Probe
 from app.schemas.presets import (
@@ -34,7 +34,11 @@ from app.services import resources
 from app.services.capabilities import capability_report, installed_scanners
 from app.services.presets import KNOWN_SCANNERS, PresetError
 
-router = APIRouter(prefix="/presets", tags=["presets"])
+router = APIRouter(
+    prefix="/presets",
+    tags=["presets"],
+    dependencies=[Depends(require_permission("presets.read"))],
+)
 
 
 def _serialize(preset: presetsvc.Preset) -> PresetOut:

@@ -15,13 +15,17 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.context import RequestContext, get_request_context
-from app.auth.dependencies import CurrentUser, require_admin
+from app.auth.dependencies import CurrentUser, require_permission
 from app.db.session import get_session
 from app.models.user import User
 from app.services import export as export_svc
 from app.services.audit import record_audit
 
-router = APIRouter(prefix="/portability", tags=["portability"])
+router = APIRouter(
+    prefix="/portability",
+    tags=["portability"],
+    dependencies=[Depends(require_permission("portability.read"))],
+)
 
 
 class ValidateRequest(BaseModel):
@@ -30,7 +34,7 @@ class ValidateRequest(BaseModel):
 
 @router.get("/export", summary="Export organization data (admin)")
 async def export_data(
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("portability.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> dict[str, Any]:
@@ -49,7 +53,7 @@ async def export_data(
 @router.post("/validate", summary="Validate an export bundle without applying it (admin)")
 async def validate(
     payload: ValidateRequest,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("portability.manage"))],
 ) -> dict[str, Any]:
     """Independently validate a bundle: schema version, checksum, ownership, and
     conflicts. Never applies anything; refuses another organization's data."""

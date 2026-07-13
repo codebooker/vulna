@@ -10,8 +10,8 @@ checksummed** JSON bundle of your organization's non-secret data: organization,
 sites, network scopes, Scouts (metadata only), users (non-secret lifecycle and
 access metadata), user-site assignments, assets, services, findings, report
 metadata, and remediation history. It contains **no** password hashes, invitation
-or reset hashes, recovery codes, keys, tokens, certificates, lifecycle event
-details, or report file bytes.
+or reset hashes, recovery codes, keys, token values or hashes, certificates,
+lifecycle event details, or report file bytes.
 Session records, device/IP history, and refresh-token hashes are also excluded.
 They are authentication state, not portable organization content.
 TOTP seeds, recovery-code hashes, WebAuthn credentials/challenges, MFA policy,
@@ -22,12 +22,16 @@ links, group mappings, SSO policy/test history, break-glass flags, protocol stat
 and replay records are also excluded. Moving federation configuration requires an
 encrypted backup/restore so provider trust and anti-replay history cannot be
 separated from the credentials and MFA factors that make enforcement safe.
-Export schema v2 includes SCIM-owned user external ids, provisioned groups,
+Export schema v2 added SCIM-owned user external ids, provisioned groups,
 membership, role/site mapping metadata, and sanitized provisioning history. It
 excludes bearer-token hashes, token identifiers, source IPs, rate-limit windows,
 and reserved Phase 40 asset-group targets. Schema-v1 bundles remain valid input to
 the validation endpoint; full connector continuity still requires encrypted
-backup/restore.
+backup/restore. Schema v3 additionally includes non-secret authorization-role,
+permission-key, scoped-grant, and service-account metadata plus API-token lifecycle
+metadata (`has_secret`, expiry, revocation, restrictions, and last-use time). It
+never includes a token value or hash. Validation accepts schema v1 and v2 bundles;
+credential continuity still requires encrypted backup/restore.
 
 The bundle can be validated **independently**:
 

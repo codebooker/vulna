@@ -15,14 +15,18 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.context import RequestContext, get_request_context
-from app.auth.dependencies import CurrentUser, require_admin
+from app.auth.dependencies import CurrentUser, require_permission
 from app.db.session import get_session
 from app.models.organization import Organization
 from app.models.user import User
 from app.services import demo
 from app.services.audit import record_audit
 
-router = APIRouter(prefix="/demo", tags=["demo"])
+router = APIRouter(
+    prefix="/demo",
+    tags=["demo"],
+    dependencies=[Depends(require_permission("demo.read"))],
+)
 
 
 @router.get("/status", summary="Demo mode status")
@@ -36,7 +40,7 @@ async def demo_status(
 
 @router.post("/enable", summary="Enable demo mode and seed sample data (admin)")
 async def enable(
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("demo.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> dict[str, Any]:
@@ -53,7 +57,7 @@ async def enable(
 
 @router.post("/disable", summary="Disable demo mode and remove sample data (admin)")
 async def disable(
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("demo.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> dict[str, Any]:

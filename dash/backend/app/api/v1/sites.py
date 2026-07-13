@@ -16,7 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.context import RequestContext, get_request_context
-from app.auth.dependencies import CurrentUser, require_admin
+from app.auth.dependencies import CurrentUser, require_permission
 from app.auth.site_scope import get_accessible_site, site_scope_clause
 from app.db.session import get_session
 from app.models.site import Site
@@ -25,7 +25,11 @@ from app.schemas.common import Page
 from app.schemas.site import SiteCreate, SiteRead, SiteUpdate
 from app.services.audit import record_audit
 
-router = APIRouter(prefix="/sites", tags=["sites"])
+router = APIRouter(
+    prefix="/sites",
+    tags=["sites"],
+    dependencies=[Depends(require_permission("sites.read"))],
+)
 
 
 async def _get_owned_site(session: AsyncSession, site_id: uuid.UUID, org_id: uuid.UUID) -> Site:
@@ -47,7 +51,7 @@ async def list_sites(
     org_id = current_user.organization_id
     filters = [
         Site.organization_id == org_id,
-        site_scope_clause(current_user, Site.id),
+        site_scope_clause(current_user, Site.id, permission_key="sites.read"),
     ]
     total = await session.scalar(select(func.count()).select_from(Site).where(*filters))
     result = await session.execute(
@@ -72,7 +76,9 @@ async def get_site(
     current_user: CurrentUser,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> SiteRead:
-    site = await get_accessible_site(session, current_user, site_id)
+    site = await get_accessible_site(
+        session, current_user, site_id, permission_key="sites.read"
+    )
     return SiteRead.model_validate(site)
 
 
@@ -84,7 +90,7 @@ async def get_site(
 )
 async def create_site(
     payload: SiteCreate,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("sites.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> SiteRead:
@@ -129,7 +135,7 @@ async def create_site(
 async def update_site(
     site_id: uuid.UUID,
     payload: SiteUpdate,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("sites.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> SiteRead:
@@ -170,7 +176,7 @@ async def update_site(
 )
 async def delete_site(
     site_id: uuid.UUID,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("sites.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> None:

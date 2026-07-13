@@ -11,10 +11,10 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.context import RequestContext, get_request_context
-from app.auth.dependencies import CurrentUser, require_admin, require_roles
+from app.auth.dependencies import CurrentUser, require_permission
 from app.auth.site_scope import site_scope_clause
 from app.db.session import get_session
-from app.models.enums import RiskAcceptanceStatus, UserRole
+from app.models.enums import RiskAcceptanceStatus
 from app.models.finding import Finding
 from app.models.risk_acceptance import RiskAcceptance
 from app.models.user import User
@@ -27,9 +27,13 @@ from app.schemas.risk_acceptance import (
 from app.services.audit import record_audit
 from app.services.remediation import decide_risk_acceptance, expire_risk_acceptances
 
-router = APIRouter(prefix="/risk-acceptances", tags=["risk-acceptances"])
+router = APIRouter(
+    prefix="/risk-acceptances",
+    tags=["risk-acceptances"],
+    dependencies=[Depends(require_permission("risk_acceptance.read"))],
+)
 
-_require_approver = require_roles(UserRole.ADMINISTRATOR, UserRole.PENTEST_APPROVER)
+_require_approver = require_permission("risk_acceptance.approve")
 
 
 @router.get("", response_model=Page[RiskAcceptanceRead], summary="List risk acceptances")
@@ -43,7 +47,9 @@ async def list_risk_acceptances(
 ) -> Page[RiskAcceptanceRead]:
     filters = [
         RiskAcceptance.organization_id == current_user.organization_id,
-        site_scope_clause(current_user, Finding.site_id),
+        site_scope_clause(
+            current_user, Finding.site_id, permission_key="risk_acceptance.read"
+        ),
     ]
     if finding_id is not None:
         filters.append(RiskAcceptance.finding_id == finding_id)
@@ -90,7 +96,9 @@ async def decide(
         .where(
             RiskAcceptance.id == acceptance_id,
             RiskAcceptance.organization_id == approver.organization_id,
-            site_scope_clause(approver, Finding.site_id),
+            site_scope_clause(
+                approver, Finding.site_id, permission_key="risk_acceptance.approve"
+            ),
         )
     )
     if ra is None:
@@ -135,7 +143,7 @@ async def decide(
     summary="Expire lapsed risk acceptances (admin)",
 )
 async def run_expiry(
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("risk_acceptance.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> ExpiryResult:
     """Expire active acceptances past their expiry, reopening each finding and

@@ -14,7 +14,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.context import RequestContext, get_request_context
-from app.auth.dependencies import StepUpIdentity, require_admin
+from app.auth.dependencies import StepUpIdentity, require_permission
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
 from app.models.enums import ActorType, IdentityProviderProtocol, SsoPolicyMode, UserRole
@@ -43,7 +43,7 @@ from app.schemas.sso import (
     SsoStartResponse,
     SsoTestRecordRead,
 )
-from app.services import mfa, sso
+from app.services import authorization, mfa, sso
 from app.services.audit import record_audit
 from app.services.secret_crypto import SecretPurpose, encrypt_secret
 from app.services.sessions import REFRESH_COOKIE_NAME, create_session, revoke_user_sessions
@@ -53,6 +53,11 @@ router = APIRouter(tags=["identity"])
 
 def _error(detail: str, code: int = status.HTTP_400_BAD_REQUEST) -> HTTPException:
     return HTTPException(status_code=code, detail=detail)
+
+
+async def _ensure_identity_manager(session: AsyncSession, actor: User) -> None:
+    if not await authorization.has_permission(session, actor, "identity.manage"):
+        raise _error("You do not have permission to manage identity providers", 403)
 
 
 async def _owned_provider(
@@ -145,7 +150,7 @@ def _record(
     summary="List identity providers",
 )
 async def list_providers(
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("identity.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> list[IdentityProviderRead]:
     rows = list(
@@ -174,8 +179,7 @@ async def create_provider(
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> IdentityProviderRead:
     actor = identity.user
-    if actor.role != UserRole.ADMINISTRATOR:
-        raise _error("You do not have permission to manage identity providers", 403)
+    await _ensure_identity_manager(session, actor)
     scopes = payload.scopes or sso.OIDC_PRESET_SCOPES.get(
         payload.preset, sso.OIDC_PRESET_SCOPES["generic"]
     )
@@ -221,8 +225,7 @@ async def update_provider(
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> IdentityProviderRead:
     actor = identity.user
-    if actor.role != UserRole.ADMINISTRATOR:
-        raise _error("You do not have permission to manage identity providers", 403)
+    await _ensure_identity_manager(session, actor)
     provider = await _owned_provider(session, provider_id, actor.organization_id)
     values = payload.model_dump(exclude_unset=True)
     oidc_fields = {"issuer", "discovery_url", "client_id", "client_secret", "scopes"}
@@ -309,8 +312,7 @@ async def delete_provider(
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> Response:
     actor = identity.user
-    if actor.role != UserRole.ADMINISTRATOR:
-        raise _error("You do not have permission to manage identity providers", 403)
+    await _ensure_identity_manager(session, actor)
     provider = await _owned_provider(session, provider_id, actor.organization_id)
     policy = await sso.get_policy(session, actor.organization_id)
     if policy.identity_provider_id == provider.id:
@@ -332,8 +334,7 @@ async def validate_provider(
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> IdentityProviderRead:
     actor = identity.user
-    if actor.role != UserRole.ADMINISTRATOR:
-        raise _error("You do not have permission to manage identity providers", 403)
+    await _ensure_identity_manager(session, actor)
     provider = await _owned_provider(session, provider_id, actor.organization_id)
     try:
         await sso.validate_oidc_discovery(provider)
@@ -367,8 +368,7 @@ async def import_provider_metadata(
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> IdentityProviderRead:
     actor = identity.user
-    if actor.role != UserRole.ADMINISTRATOR:
-        raise _error("You do not have permission to manage identity providers", 403)
+    await _ensure_identity_manager(session, actor)
     provider = await _owned_provider(session, provider_id, actor.organization_id)
     try:
         sso.import_saml_metadata(
@@ -406,8 +406,7 @@ async def set_provider_enabled(
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> IdentityProviderRead:
     actor = identity.user
-    if actor.role != UserRole.ADMINISTRATOR:
-        raise _error("You do not have permission to manage identity providers", 403)
+    await _ensure_identity_manager(session, actor)
     provider = await _owned_provider(session, provider_id, actor.organization_id)
     if payload.enabled and (
         provider.validated_at is None or provider.last_test_succeeded_at is None
@@ -438,7 +437,7 @@ async def set_provider_enabled(
 )
 async def list_provider_tests(
     provider_id: uuid.UUID,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("identity.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> list[SsoTestRecordRead]:
     provider = await _owned_provider(session, provider_id, admin.organization_id)
@@ -474,7 +473,7 @@ async def list_provider_tests(
 )
 async def list_group_mappings(
     provider_id: uuid.UUID,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("identity.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> list[GroupMappingRead]:
     provider = await _owned_provider(session, provider_id, admin.organization_id)
@@ -511,8 +510,7 @@ async def replace_group_mappings(
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> list[GroupMappingRead]:
     actor = identity.user
-    if actor.role != UserRole.ADMINISTRATOR:
-        raise _error("You do not have permission to manage identity providers", 403)
+    await _ensure_identity_manager(session, actor)
     provider = await _owned_provider(session, provider_id, actor.organization_id)
     groups = [value.external_group for value in payload]
     if len(groups) != len(set(groups)):
@@ -595,7 +593,7 @@ async def _policy_read(session: AsyncSession, organization_id: uuid.UUID) -> Sso
 
 @router.get("/identity/policy", response_model=SsoPolicyRead, summary="Read SSO policy")
 async def read_policy(
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("identity.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> SsoPolicyRead:
     return await _policy_read(session, admin.organization_id)
@@ -609,8 +607,7 @@ async def update_policy(
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> SsoPolicyRead:
     actor = identity.user
-    if actor.role != UserRole.ADMINISTRATOR:
-        raise _error("You do not have permission to manage SSO policy", 403)
+    await _ensure_identity_manager(session, actor)
     policy = await sso.get_policy(session, actor.organization_id)
     old_mode = policy.mode
     old_provider = policy.identity_provider_id
@@ -659,8 +656,7 @@ async def set_break_glass(
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> SsoPolicyRead:
     actor = identity.user
-    if actor.role != UserRole.ADMINISTRATOR:
-        raise _error("You do not have permission to manage break-glass access", 403)
+    await _ensure_identity_manager(session, actor)
     target = await session.scalar(
         select(User).where(
             User.id == user_id,

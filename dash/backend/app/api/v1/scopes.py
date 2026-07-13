@@ -23,7 +23,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.context import RequestContext, get_request_context
-from app.auth.dependencies import CurrentUser, StepUpIdentity, require_admin
+from app.auth.dependencies import CurrentUser, StepUpIdentity, require_permission
 from app.auth.site_scope import get_accessible_site, site_scope_clause
 from app.db.session import get_session
 from app.models.network_scope import NetworkScope
@@ -35,7 +35,11 @@ from app.services import networks
 from app.services.audit import record_audit
 from app.services.scopes import ScopeValidationError, find_overlaps, validate_cidr
 
-router = APIRouter(prefix="/scopes", tags=["scopes"])
+router = APIRouter(
+    prefix="/scopes",
+    tags=["scopes"],
+    dependencies=[Depends(require_permission("scopes.read"))],
+)
 
 
 async def _get_owned_scope(
@@ -45,7 +49,7 @@ async def _get_owned_scope(
         select(NetworkScope).where(
             NetworkScope.id == scope_id,
             NetworkScope.organization_id == current_user.organization_id,
-            site_scope_clause(current_user, NetworkScope.site_id),
+            site_scope_clause(current_user, NetworkScope.site_id, permission_key="scopes.read"),
         )
     )
     if scope is None:
@@ -95,7 +99,7 @@ async def list_scopes(
     org_id = current_user.organization_id
     filters = [
         NetworkScope.organization_id == org_id,
-        site_scope_clause(current_user, NetworkScope.site_id),
+        site_scope_clause(current_user, NetworkScope.site_id, permission_key="scopes.read"),
     ]
     if site_id is not None:
         filters.append(NetworkScope.site_id == site_id)
@@ -137,14 +141,16 @@ async def get_scope(
 )
 async def create_scope(
     payload: NetworkScopeCreate,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("scopes.manage"))],
     _step_up: StepUpIdentity,
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> NetworkScopeRead:
     """Create an approved network scope (Administrator only)."""
     org_id = admin.organization_id
-    await get_accessible_site(session, admin, payload.site_id)
+    await get_accessible_site(
+        session, admin, payload.site_id, permission_key="scopes.manage"
+    )
 
     canonical = _validate_or_400(payload.cidr, allow_public=payload.allow_public_addresses)
 
@@ -201,7 +207,7 @@ async def create_scope(
 async def update_scope(
     scope_id: uuid.UUID,
     payload: NetworkScopeUpdate,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("scopes.manage"))],
     _step_up: StepUpIdentity,
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
@@ -257,7 +263,7 @@ async def update_scope(
 )
 async def approve_scope(
     scope_id: uuid.UUID,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("scopes.manage"))],
     _step_up: StepUpIdentity,
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
@@ -292,7 +298,7 @@ async def approve_scope(
 )
 async def delete_scope(
     scope_id: uuid.UUID,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("scopes.manage"))],
     _step_up: StepUpIdentity,
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],

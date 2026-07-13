@@ -18,7 +18,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.context import RequestContext, get_request_context
-from app.auth.dependencies import CurrentUser, require_admin
+from app.auth.dependencies import CurrentUser, require_permission
 from app.auth.site_scope import optional_site_scope_clause
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
@@ -28,7 +28,11 @@ from app.services import notifications as core
 from app.services import notify
 from app.services.audit import record_audit
 
-router = APIRouter(prefix="/notifications", tags=["notifications"])
+router = APIRouter(
+    prefix="/notifications",
+    tags=["notifications"],
+    dependencies=[Depends(require_permission("notifications.read"))],
+)
 
 
 class ChannelCreate(BaseModel):
@@ -78,7 +82,7 @@ async def list_channels(
 @router.post("/channels", summary="Create a notification channel (admin)", status_code=201)
 async def create_channel(
     payload: ChannelCreate,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("notifications.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
     context: Annotated[RequestContext, Depends(get_request_context)],
@@ -109,7 +113,7 @@ async def create_channel(
 async def update_channel(
     channel_id: uuid.UUID,
     payload: ChannelUpdate,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("notifications.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict[str, Any]:
     channel = await _get_channel(session, channel_id, admin.organization_id)
@@ -139,7 +143,7 @@ async def update_channel(
 async def rotate_secret(
     channel_id: uuid.UUID,
     payload: SecretRotate,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("notifications.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
     context: Annotated[RequestContext, Depends(get_request_context)],
@@ -159,7 +163,7 @@ async def rotate_secret(
 @router.delete("/channels/{channel_id}", summary="Delete a channel (admin)")
 async def delete_channel(
     channel_id: uuid.UUID,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("notifications.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict[str, Any]:
     channel = await _get_channel(session, channel_id, admin.organization_id)
@@ -171,7 +175,7 @@ async def delete_channel(
 @router.post("/channels/{channel_id}/test", summary="Send a test notification (admin)")
 async def test_channel(
     channel_id: uuid.UUID,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("notifications.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
     context: Annotated[RequestContext, Depends(get_request_context)],
@@ -217,7 +221,11 @@ async def deliveries(
             select(NotificationDelivery)
             .where(
                 NotificationDelivery.organization_id == current_user.organization_id,
-                optional_site_scope_clause(current_user, NotificationDelivery.site_id),
+                optional_site_scope_clause(
+                    current_user,
+                    NotificationDelivery.site_id,
+                    permission_key="notifications.read",
+                ),
             )
             .order_by(desc(NotificationDelivery.created_at))
             .limit(min(limit, 200))
@@ -244,7 +252,7 @@ async def deliveries(
 
 @router.post("/dispatch", summary="Send pending notifications (admin)")
 async def dispatch(
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("notifications.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> dict[str, int]:

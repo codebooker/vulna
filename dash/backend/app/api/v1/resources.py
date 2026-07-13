@@ -22,7 +22,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.context import RequestContext, get_request_context
-from app.auth.dependencies import CurrentUser, require_admin
+from app.auth.dependencies import CurrentUser, require_permission
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
 from app.models.audit import AuditEvent
@@ -33,7 +33,11 @@ from app.services.audit import record_audit
 from app.services.offline_bundle import BundleError, inspect, plan_import
 from app.services.signing import get_signer, public_key_from_raw_b64
 
-router = APIRouter(prefix="/resources", tags=["resources"])
+router = APIRouter(
+    prefix="/resources",
+    tags=["resources"],
+    dependencies=[Depends(require_permission("resources.read"))],
+)
 
 _IMPORT_ACTION = "offline_bundle.imported"
 
@@ -99,7 +103,7 @@ async def resource_profile(
 @router.post("/offline-bundle/inspect", summary="Inspect an offline bundle (admin)")
 async def offline_bundle_inspect(
     payload: BundleRequest,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("resources.manage"))],
 ) -> dict[str, Any]:
     """Validate a bundle manifest and return its metadata without importing.
 
@@ -117,7 +121,7 @@ async def offline_bundle_inspect(
 @router.post("/offline-bundle/import", summary="Import a signed offline bundle (admin)")
 async def offline_bundle_import(
     payload: BundleRequest,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("resources.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> dict[str, Any]:

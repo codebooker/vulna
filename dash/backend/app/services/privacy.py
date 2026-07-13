@@ -29,6 +29,7 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.config import Settings
 from app.models.asset import Asset
+from app.models.authorization import ApiToken
 from app.models.enums import Severity, UserRole
 from app.models.finding import Finding
 from app.models.notification import CHANNEL_EMAIL, CHANNEL_WEBHOOK, NotificationChannel
@@ -175,6 +176,14 @@ async def secret_inventory(
             ScimToken.revoked_at.is_(None),
         )
     )
+    api_tokens = await session.scalar(
+        select(func.count())
+        .select_from(ApiToken)
+        .where(
+            ApiToken.organization_id == org.id,
+            ApiToken.revoked_at.is_(None),
+        )
+    )
     return [
         {"name": "Application secret key", "present": settings.secret_key is not None,
          "category": "core", "rotatable": True},
@@ -192,6 +201,9 @@ async def secret_inventory(
         {"name": "SCIM bearer tokens", "present": bool(scim_tokens),
          "category": "identity", "rotatable": True,
          "count": int(scim_tokens or 0)},
+        {"name": "Personal and service API tokens", "present": bool(api_tokens),
+         "category": "authorization", "rotatable": True,
+         "count": int(api_tokens or 0)},
     ]
 
 

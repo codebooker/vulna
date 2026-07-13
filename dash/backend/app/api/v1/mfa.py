@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from webauthn.helpers.exceptions import WebAuthnException
 
 from app.api.context import RequestContext, get_request_context
-from app.auth.dependencies import MfaIdentity, StepUpIdentity, require_admin
+from app.auth.dependencies import MfaIdentity, StepUpIdentity, require_permission
 from app.auth.tokens import create_access_token
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
@@ -593,7 +593,7 @@ async def disable_webauthn_credential(
 
 @router.get("/policy", response_model=MfaPolicyRead, summary="Organization MFA policy")
 async def read_mfa_policy(
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("identity.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> MfaPolicyRead:
     value = await mfa.get_policy(session, admin.organization_id)
@@ -603,7 +603,7 @@ async def read_mfa_policy(
 @router.patch("/policy", response_model=MfaPolicyRead, summary="Update MFA policy")
 async def update_mfa_policy(
     payload: MfaPolicyUpdate,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("identity.manage"))],
     step_up: StepUpIdentity,
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],

@@ -11,7 +11,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.context import RequestContext, get_request_context
-from app.auth.dependencies import StepUpIdentity, require_admin
+from app.auth.dependencies import StepUpIdentity, require_permission
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
 from app.models.enums import UserRole
@@ -33,7 +33,7 @@ from app.schemas.scim import (
     ScimTokenIssued,
     ScimTokenRead,
 )
-from app.services import scim
+from app.services import authorization, scim
 from app.services.audit import record_audit
 from app.services.user_lifecycle import validate_site_ids
 
@@ -49,9 +49,9 @@ _ROLE_PRIORITY = {
 }
 
 
-def _require_admin(identity: StepUpIdentity) -> User:
-    if identity.user.role != UserRole.ADMINISTRATOR:
-        raise HTTPException(status_code=403, detail="Administrator access is required")
+async def _require_manager(identity: StepUpIdentity, session: AsyncSession) -> User:
+    if not await authorization.has_permission(session, identity.user, "scim.manage"):
+        raise HTTPException(status_code=403, detail="SCIM management permission is required")
     return identity.user
 
 
@@ -103,7 +103,7 @@ def _token_issued(value: ScimToken, secret: str) -> ScimTokenIssued:
 
 @router.get("/tokens", response_model=list[ScimTokenRead])
 async def list_tokens(
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("scim.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> list[ScimTokenRead]:
     rows = list(
@@ -126,7 +126,7 @@ async def create_token(
     settings: Annotated[Settings, Depends(get_settings)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> ScimTokenIssued:
-    admin = _require_admin(identity)
+    admin = await _require_manager(identity, session)
     generated = scim.generate_token()
     token = ScimToken(
         organization_id=admin.organization_id,
@@ -161,7 +161,7 @@ async def rotate_token(
     settings: Annotated[Settings, Depends(get_settings)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> ScimTokenIssued:
-    admin = _require_admin(identity)
+    admin = await _require_manager(identity, session)
     previous = await _owned_token(session, token_id, admin.organization_id)
     now = scim.utcnow()
     if previous.revoked_at is not None:
@@ -200,7 +200,7 @@ async def revoke_token(
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> None:
-    admin = _require_admin(identity)
+    admin = await _require_manager(identity, session)
     token = await _owned_token(session, token_id, admin.organization_id)
     token.revoked_at = token.revoked_at or scim.utcnow()
     record_audit(
@@ -248,7 +248,7 @@ async def _mapping_read(session: AsyncSession, group: ScimGroup) -> ScimGroupMap
 
 @router.get("/groups", response_model=list[ScimGroupMappingRead])
 async def list_group_mappings(
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("scim.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> list[ScimGroupMappingRead]:
     groups = list(
@@ -324,7 +324,7 @@ async def _mapping_preview(
 async def preview_group_mapping(
     group_id: uuid.UUID,
     payload: ScimGroupMappingUpdate,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("scim.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> ScimMappingPreview:
     group = await _owned_group(session, group_id, admin.organization_id)
@@ -340,7 +340,7 @@ async def update_group_mapping(
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> ScimGroupMappingRead:
-    admin = _require_admin(identity)
+    admin = await _require_manager(identity, session)
     group = await _owned_group(session, group_id, admin.organization_id)
     await validate_site_ids(session, admin.organization_id, set(payload.site_ids))
     preview = await _mapping_preview(session, group, payload)
@@ -395,7 +395,7 @@ async def update_group_mapping(
 
 @router.get("/logs", response_model=ScimLogPage)
 async def provisioning_logs(
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("scim.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,

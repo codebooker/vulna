@@ -18,7 +18,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.context import RequestContext, get_request_context
-from app.auth.dependencies import CurrentUser, StepUpIdentity
+from app.auth.dependencies import CurrentUser, StepUpIdentity, require_permission
 from app.auth.site_scope import optional_site_scope_clause, require_site_access
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
@@ -30,7 +30,11 @@ from app.schemas.report import ReportCreate, ReportRead
 from app.services.audit import record_audit
 from app.services.reports import generate_reports
 
-router = APIRouter(prefix="/reports", tags=["reports"])
+router = APIRouter(
+    prefix="/reports",
+    tags=["reports"],
+    dependencies=[Depends(require_permission("reports.read"))],
+)
 
 _MEDIA_TYPES = {
     ReportFormat.PDF: "application/pdf",
@@ -46,7 +50,9 @@ async def _get_owned_report(
         select(Report).where(
             Report.id == report_id,
             Report.organization_id == current_user.organization_id,
-            optional_site_scope_clause(current_user, Report.site_id),
+            optional_site_scope_clause(
+                current_user, Report.site_id, permission_key="reports.read"
+            ),
         )
     )
     if report is None:
@@ -73,7 +79,11 @@ async def create_reports(
     if scan_job is None or scan_job.organization_id != current_user.organization_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Scan job not found")
     await require_site_access(
-        session, current_user, scan_job.site_id, not_found_detail="Scan job not found"
+        session,
+        current_user,
+        scan_job.site_id,
+        not_found_detail="Scan job not found",
+        permission_key="reports.create",
     )
     if not payload.report_types:
         raise HTTPException(
@@ -114,7 +124,9 @@ async def list_reports(
 ) -> Page[ReportRead]:
     filters = [
         Report.organization_id == current_user.organization_id,
-        optional_site_scope_clause(current_user, Report.site_id),
+        optional_site_scope_clause(
+            current_user, Report.site_id, permission_key="reports.read"
+        ),
     ]
     if scan_job_id is not None:
         filters.append(Report.scan_job_id == scan_job_id)

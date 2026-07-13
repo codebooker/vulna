@@ -19,7 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.context import RequestContext, get_request_context
-from app.auth.dependencies import CurrentUser, require_admin
+from app.auth.dependencies import CurrentUser, require_permission
 from app.auth.site_scope import get_accessible_site, site_scope_clause
 from app.db.session import get_session
 from app.models.network import Network, NetworkScout
@@ -36,17 +36,27 @@ from app.schemas.network import (
 from app.services.audit import record_audit
 from app.services.scopes import ScopeValidationError, find_overlaps, validate_cidr
 
-router = APIRouter(prefix="/networks", tags=["networks"])
+router = APIRouter(
+    prefix="/networks",
+    tags=["networks"],
+    dependencies=[Depends(require_permission("networks.read"))],
+)
 
 
 async def _owned_network(
-    session: AsyncSession, network_id: uuid.UUID, current_user: User
+    session: AsyncSession,
+    network_id: uuid.UUID,
+    current_user: User,
+    *,
+    permission_key: str = "networks.read",
 ) -> Network:
     net = await session.scalar(
         select(Network).where(
             Network.id == network_id,
             Network.organization_id == current_user.organization_id,
-            site_scope_clause(current_user, Network.site_id),
+            site_scope_clause(
+                current_user, Network.site_id, permission_key=permission_key
+            ),
         )
     )
     if net is None:
@@ -181,12 +191,14 @@ async def _bind_scout(session: AsyncSession, net: Network, bind: NetworkScoutBin
              summary="Create a network")
 async def create_network(
     payload: NetworkCreate,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("networks.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> NetworkRead:
     org_id = admin.organization_id
-    await get_accessible_site(session, admin, payload.site_id)
+    await get_accessible_site(
+        session, admin, payload.site_id, permission_key="networks.manage"
+    )
     net = Network(
         organization_id=org_id,
         site_id=payload.site_id,
@@ -221,7 +233,7 @@ async def list_networks(
             select(Network)
             .where(
                 Network.organization_id == current_user.organization_id,
-                site_scope_clause(current_user, Network.site_id),
+                site_scope_clause(current_user, Network.site_id, permission_key="networks.read"),
             )
             .order_by(Network.name)
         )
@@ -243,11 +255,13 @@ async def get_network(
 async def update_network(
     network_id: uuid.UUID,
     payload: NetworkUpdate,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("networks.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> NetworkRead:
-    net = await _owned_network(session, network_id, admin)
+    net = await _owned_network(
+        session, network_id, admin, permission_key="networks.manage"
+    )
     if payload.name is not None:
         net.name = payload.name
     if payload.description is not None:
@@ -266,11 +280,13 @@ async def update_network(
 @router.delete("/{network_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete a network")
 async def delete_network(
     network_id: uuid.UUID,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("networks.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> None:
-    net = await _owned_network(session, network_id, admin)
+    net = await _owned_network(
+        session, network_id, admin, permission_key="networks.manage"
+    )
     record_audit(
         session, action="network.deleted", actor=admin, organization_id=admin.organization_id,
         target_type="network", target_id=net.id,
@@ -283,11 +299,13 @@ async def delete_network(
 async def add_range(
     network_id: uuid.UUID,
     payload: NetworkRangeCreate,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("networks.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> NetworkRead:
-    net = await _owned_network(session, network_id, admin)
+    net = await _owned_network(
+        session, network_id, admin, permission_key="networks.manage"
+    )
     scope = await _add_range(session, net, payload)
     net.policy_version += 1
     record_audit(
@@ -305,11 +323,13 @@ async def add_range(
 async def remove_range(
     network_id: uuid.UUID,
     range_id: uuid.UUID,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("networks.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> NetworkRead:
-    net = await _owned_network(session, network_id, admin)
+    net = await _owned_network(
+        session, network_id, admin, permission_key="networks.manage"
+    )
     scope = await session.get(NetworkScope, range_id)
     if scope is None or scope.network_id != net.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Range not found")
@@ -329,11 +349,13 @@ async def remove_range(
 async def bind_scout(
     network_id: uuid.UUID,
     payload: NetworkScoutBind,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("networks.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> NetworkRead:
-    net = await _owned_network(session, network_id, admin)
+    net = await _owned_network(
+        session, network_id, admin, permission_key="networks.manage"
+    )
     await _bind_scout(session, net, payload)
     net.policy_version += 1
     record_audit(
@@ -351,11 +373,13 @@ async def bind_scout(
 async def unbind_scout(
     network_id: uuid.UUID,
     probe_id: uuid.UUID,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("networks.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> NetworkRead:
-    net = await _owned_network(session, network_id, admin)
+    net = await _owned_network(
+        session, network_id, admin, permission_key="networks.manage"
+    )
     binding = (
         await session.execute(
             select(NetworkScout).where(

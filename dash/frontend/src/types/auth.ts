@@ -12,7 +12,7 @@ export type SiteAccessMode = 'all' | 'assigned';
 
 export interface CurrentUser {
   id: string;
-  email: string;
+  email: string | null;
   full_name: string | null;
   role: Role;
   organization_id: string;
@@ -21,6 +21,8 @@ export interface CurrentUser {
   mfa_grace_expires_at: string | null;
   authentication_source: AuthenticationSource;
   is_break_glass: boolean;
+  principal_type?: 'user' | 'service_account';
+  permissions?: string[];
 }
 
 export interface TokenResponse {
@@ -116,6 +118,7 @@ export interface SessionPolicy {
 }
 
 export interface UserSummary extends CurrentUser {
+  email: string;
   account_status: AccountStatus;
   authentication_source: AuthenticationSource;
   site_access_mode: SiteAccessMode;

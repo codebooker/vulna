@@ -46,6 +46,7 @@ import { SystemHealthPage } from '../pages/SystemHealthPage';
 import { UsersPage } from '../pages/UsersPage';
 import { IdentityProvidersPage } from '../pages/IdentityProvidersPage';
 import { ScimProvisioningPage } from '../pages/ScimProvisioningPage';
+import { AuthorizationPage } from '../pages/AuthorizationPage';
 import type { Role } from '../types/auth';
 
 export interface RouteDef {
@@ -54,6 +55,7 @@ export interface RouteDef {
   label: string;
   icon: LucideIcon;
   Component: ComponentType;
+  permission?: string;
   roles?: Role[];
 }
 
@@ -74,6 +76,7 @@ export const ROUTE_CATALOGUE: RouteSection[] = [
         label: 'Overview',
         icon: LayoutDashboard,
         Component: HomeDashboard,
+        permission: 'assets.read',
       },
       {
         id: 'assets',
@@ -81,6 +84,7 @@ export const ROUTE_CATALOGUE: RouteSection[] = [
         label: 'Assets',
         icon: Server,
         Component: AssetsPage,
+        permission: 'assets.read',
       },
       {
         id: 'findings',
@@ -88,14 +92,23 @@ export const ROUTE_CATALOGUE: RouteSection[] = [
         label: 'Findings',
         icon: ShieldAlert,
         Component: FindingsPage,
+        permission: 'findings.read',
       },
-      { id: 'scans', visibilityKey: 'scans', label: 'Scans', icon: Radar, Component: ScansPage },
+      {
+        id: 'scans',
+        visibilityKey: 'scans',
+        label: 'Scans',
+        icon: Radar,
+        Component: ScansPage,
+        permission: 'jobs.read',
+      },
       {
         id: 'sites',
         visibilityKey: 'sites',
         label: 'Sites',
         icon: Building2,
         Component: SitesPage,
+        permission: 'sites.read',
       },
       {
         id: 'changes',
@@ -103,6 +116,7 @@ export const ROUTE_CATALOGUE: RouteSection[] = [
         label: 'Activity',
         icon: History,
         Component: ChangesPage,
+        permission: 'assets.read',
       },
     ],
   },
@@ -116,6 +130,7 @@ export const ROUTE_CATALOGUE: RouteSection[] = [
         label: 'Remediation',
         icon: ClipboardCheck,
         Component: RemediationPage,
+        permission: 'remediation.read',
       },
       {
         id: 'reports',
@@ -123,6 +138,7 @@ export const ROUTE_CATALOGUE: RouteSection[] = [
         label: 'Reports',
         icon: FileText,
         Component: ReportsPage,
+        permission: 'reports.read',
       },
       {
         id: 'appliances',
@@ -130,6 +146,7 @@ export const ROUTE_CATALOGUE: RouteSection[] = [
         label: 'Appliances',
         icon: HardDrive,
         Component: AppliancesPage,
+        permission: 'scouts.read',
       },
       {
         id: 'networks',
@@ -137,6 +154,7 @@ export const ROUTE_CATALOGUE: RouteSection[] = [
         label: 'Networks',
         icon: Network,
         Component: NetworksPage,
+        permission: 'networks.read',
       },
       {
         id: 'presets',
@@ -144,6 +162,7 @@ export const ROUTE_CATALOGUE: RouteSection[] = [
         label: 'Scan presets',
         icon: SlidersHorizontal,
         Component: PresetsPage,
+        permission: 'presets.read',
       },
       {
         id: 'pentest',
@@ -151,6 +170,7 @@ export const ROUTE_CATALOGUE: RouteSection[] = [
         label: 'Pentest',
         icon: Crosshair,
         Component: PentestPage,
+        permission: 'pentest.read',
       },
     ],
   },
@@ -164,6 +184,7 @@ export const ROUTE_CATALOGUE: RouteSection[] = [
         label: 'Users',
         icon: UserRoundCog,
         Component: UsersPage,
+        permission: 'users.read',
         roles: ['administrator'],
       },
       {
@@ -172,6 +193,7 @@ export const ROUTE_CATALOGUE: RouteSection[] = [
         label: 'Identity & SSO',
         icon: KeyRound,
         Component: IdentityProvidersPage,
+        permission: 'identity.manage',
         roles: ['administrator'],
       },
       {
@@ -180,6 +202,16 @@ export const ROUTE_CATALOGUE: RouteSection[] = [
         label: 'Provisioning',
         icon: UserRoundPlus,
         Component: ScimProvisioningPage,
+        permission: 'scim.manage',
+        roles: ['administrator'],
+      },
+      {
+        id: 'authorization',
+        visibilityKey: 'authorization',
+        label: 'Authorization',
+        icon: ShieldCheck,
+        Component: AuthorizationPage,
+        permission: 'roles.manage',
         roles: ['administrator'],
       },
       {
@@ -188,6 +220,7 @@ export const ROUTE_CATALOGUE: RouteSection[] = [
         label: 'Sessions',
         icon: Smartphone,
         Component: SessionManagementPage,
+        permission: 'sessions.self',
       },
       {
         id: 'security',
@@ -195,14 +228,23 @@ export const ROUTE_CATALOGUE: RouteSection[] = [
         label: 'Security',
         icon: ShieldCheck,
         Component: SecurityPage,
+        permission: 'identity.self',
       },
-      { id: 'feeds', visibilityKey: 'feeds', label: 'CVE feeds', icon: Rss, Component: FeedsPage },
+      {
+        id: 'feeds',
+        visibilityKey: 'feeds',
+        label: 'CVE feeds',
+        icon: Rss,
+        Component: FeedsPage,
+        permission: 'feeds.read',
+      },
       {
         id: 'notifications',
         visibilityKey: 'notifications',
         label: 'Integrations',
         icon: Webhook,
         Component: NotificationsPage,
+        permission: 'notifications.read',
       },
       {
         id: 'settings',
@@ -210,6 +252,7 @@ export const ROUTE_CATALOGUE: RouteSection[] = [
         label: 'Settings',
         icon: SettingsIcon,
         Component: SettingsPage,
+        permission: 'organization.manage',
       },
       {
         id: 'system-health',
@@ -217,6 +260,7 @@ export const ROUTE_CATALOGUE: RouteSection[] = [
         label: 'System health',
         icon: ActivityIcon,
         Component: SystemHealthPage,
+        permission: 'system.read',
       },
       {
         id: 'getting-started',
@@ -224,6 +268,7 @@ export const ROUTE_CATALOGUE: RouteSection[] = [
         label: 'Getting started',
         icon: Rocket,
         Component: GettingStartedPage,
+        permission: 'onboarding.read',
       },
     ],
   },

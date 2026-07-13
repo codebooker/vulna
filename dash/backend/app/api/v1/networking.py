@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.dependencies import CurrentUser, require_admin
+from app.auth.dependencies import require_permission
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
 from app.models.user import User
@@ -50,7 +50,7 @@ def _no_keys(pem: str | None) -> None:
 
 @router.get("/status", summary="Current access configuration (no secrets)")
 async def status_(
-    current_user: CurrentUser,
+    current_user: Annotated[User, Depends(require_permission("networks.read"))],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> dict[str, Any]:
     return {
@@ -66,7 +66,7 @@ async def status_(
 @router.post("/validate", summary="Validate a proposed access configuration")
 async def validate(
     payload: ValidateRequest,
-    current_user: CurrentUser,
+    current_user: Annotated[User, Depends(require_permission("networks.read"))],
 ) -> dict[str, Any]:
     if payload.mode not in net.ACCESS_MODES:
         raise HTTPException(
@@ -103,7 +103,7 @@ async def validate(
 @router.get("/test-browser", summary="Test what the server sees from this browser")
 async def test_browser(
     request: Request,
-    current_user: CurrentUser,
+    current_user: Annotated[User, Depends(require_permission("networks.read"))],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> dict[str, Any]:
     """Report exactly what the server observed about this request so the operator
@@ -131,7 +131,7 @@ async def test_browser(
 
 @router.get("/test-scout", summary="Local Scout connectivity")
 async def test_scout(
-    current_user: CurrentUser,
+    current_user: Annotated[User, Depends(require_permission("networks.read"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> dict[str, Any]:
@@ -145,7 +145,7 @@ async def test_scout(
 
 @router.get("/proxy-snippet", summary="Generate a reverse-proxy snippet")
 async def proxy_snippet(
-    current_user: CurrentUser,
+    current_user: Annotated[User, Depends(require_permission("networks.read"))],
     hostname: str = "vulna.example.com",
 ) -> dict[str, str]:
     if not net.valid_hostname(hostname):
@@ -158,7 +158,7 @@ async def proxy_snippet(
 @router.post("/url-change", summary="Plan a safe URL change (with rollback)")
 async def url_change(
     payload: UrlChangeRequest,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("networks.manage"))],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> dict[str, Any]:
     """Validate a proposed new URL and return an *atomic change plan* with rollback.

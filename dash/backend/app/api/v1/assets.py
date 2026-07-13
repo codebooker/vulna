@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.dependencies import CurrentUser
+from app.auth.dependencies import CurrentUser, require_permission
 from app.auth.site_scope import site_scope_clause
 from app.db.session import get_session
 from app.models.asset import Asset
@@ -17,7 +17,11 @@ from app.models.service import Service
 from app.schemas.asset import AssetDetail, AssetIdentifierRead, AssetRead, ServiceRead
 from app.schemas.common import Page
 
-router = APIRouter(prefix="/assets", tags=["assets"])
+router = APIRouter(
+    prefix="/assets",
+    tags=["assets"],
+    dependencies=[Depends(require_permission("assets.read"))],
+)
 
 
 async def _get_owned_asset(
@@ -27,7 +31,7 @@ async def _get_owned_asset(
         select(Asset).where(
             Asset.id == asset_id,
             Asset.organization_id == current_user.organization_id,
-            site_scope_clause(current_user, Asset.site_id),
+            site_scope_clause(current_user, Asset.site_id, permission_key="assets.read"),
         )
     )
     if asset is None:
@@ -45,7 +49,7 @@ async def list_assets(
 ) -> Page[AssetRead]:
     filters = [
         Asset.organization_id == current_user.organization_id,
-        site_scope_clause(current_user, Asset.site_id),
+        site_scope_clause(current_user, Asset.site_id, permission_key="assets.read"),
     ]
     if site_id is not None:
         filters.append(Asset.site_id == site_id)

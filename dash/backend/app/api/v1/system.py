@@ -13,9 +13,10 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.dependencies import CurrentUser
+from app.auth.dependencies import require_permission
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
+from app.models.user import User
 from app.schemas.system import SystemInfoResponse
 from app.services.experience import CAPABILITIES
 from app.services.health import component_health
@@ -41,7 +42,7 @@ def system_health(settings: Settings = Depends(get_settings)) -> dict[str, str]:
 
 @router.get("/component-health", summary="Per-component health")
 async def system_component_health(
-    current_user: CurrentUser,
+    current_user: Annotated[User, Depends(require_permission("system.read"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> dict[str, str]:
@@ -53,7 +54,7 @@ async def system_component_health(
 
 @router.get("/backups", summary="Backup center (display only)")
 def backup_center(
-    current_user: CurrentUser,
+    current_user: Annotated[User, Depends(require_permission("system.read"))],
     settings: Settings = Depends(get_settings),
 ) -> dict[str, object]:
     """Show backup policy and the CLI commands. Backups are created, verified, and
@@ -100,7 +101,7 @@ def system_info(settings: Settings = Depends(get_settings)) -> SystemInfoRespons
 
 @router.get("/update", summary="Update center (display only)")
 def update_center(
-    current_user: CurrentUser,
+    current_user: Annotated[User, Depends(require_permission("system.read"))],
     settings: Settings = Depends(get_settings),
 ) -> dict[str, object]:
     """Show the current version and update channel. The web UI is display-only —

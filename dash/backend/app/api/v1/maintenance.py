@@ -20,7 +20,7 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.context import RequestContext, get_request_context
-from app.auth.dependencies import CurrentUser, StepUpIdentity, require_admin
+from app.auth.dependencies import CurrentUser, StepUpIdentity, require_permission
 from app.auth.password import verify_password
 from app.auth.site_scope import optional_site_scope_clause, site_scope_clause
 from app.core.config import Settings, get_settings
@@ -36,7 +36,11 @@ from app.services.audit import record_audit
 from app.services.diagnostics import _ca_cert_result, _probe_cert_result  # cert status reuse
 from app.services.diagnostics import as_dicts as diag_dicts
 
-router = APIRouter(prefix="/maintenance", tags=["maintenance"])
+router = APIRouter(
+    prefix="/maintenance",
+    tags=["maintenance"],
+    dependencies=[Depends(require_permission("maintenance.read"))],
+)
 
 _HOLD_TYPES = {HOLD_REPORT, HOLD_SCAN_JOB}
 
@@ -123,7 +127,7 @@ async def certificate_status(
 
 @router.get("/retention/preview", summary="Preview a retention cleanup (admin)")
 async def retention_preview(
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("maintenance.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     raw_output_days: int | None = None,
     report_days: int | None = None,
@@ -143,7 +147,7 @@ async def retention_preview(
 @router.post("/retention/cleanup", summary="Run a safe retention cleanup (admin)")
 async def retention_cleanup(
     payload: CleanupRequest,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("maintenance.manage"))],
     _step_up: StepUpIdentity,
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
@@ -214,7 +218,11 @@ async def list_holds(
                         RetentionHold.target_id.in_(
                             select(Report.id).where(
                                 Report.organization_id == current_user.organization_id,
-                                optional_site_scope_clause(current_user, Report.site_id),
+                                optional_site_scope_clause(
+                                    current_user,
+                                    Report.site_id,
+                                    permission_key="maintenance.read",
+                                ),
                             )
                         ),
                     ),
@@ -223,7 +231,11 @@ async def list_holds(
                         RetentionHold.target_id.in_(
                             select(ScanJob.id).where(
                                 ScanJob.organization_id == current_user.organization_id,
-                                site_scope_clause(current_user, ScanJob.site_id),
+                                site_scope_clause(
+                                    current_user,
+                                    ScanJob.site_id,
+                                    permission_key="maintenance.read",
+                                ),
                             )
                         ),
                     ),
@@ -248,7 +260,7 @@ async def list_holds(
 @router.post("/holds", summary="Place a legal/retention hold (admin)", status_code=201)
 async def place_hold(
     payload: HoldRequest,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("maintenance.manage"))],
     _step_up: StepUpIdentity,
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
@@ -293,7 +305,7 @@ async def place_hold(
 @router.delete("/holds/{hold_id}", summary="Lift a hold (admin)")
 async def lift_hold(
     hold_id: uuid.UUID,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("maintenance.manage"))],
     _step_up: StepUpIdentity,
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],

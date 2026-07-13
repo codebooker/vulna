@@ -40,6 +40,7 @@ from app.models.scim import (
 )
 from app.models.user import User
 from app.models.user_lifecycle import UserSiteAssignment
+from app.services import authorization
 from app.services.audit import record_audit
 from app.services.sessions import revoke_user_sessions
 from app.services.user_lifecycle import active_admin_count, lifecycle_event
@@ -904,6 +905,11 @@ async def recompute_scim_access(
                 for site_id in sorted(site_ids, key=str)
             ]
         )
+    await authorization.sync_user_compatibility_grants(
+        session,
+        user,
+        created_by_user_id=authorization.user_actor_id(actor) if actor else None,
+    )
     user.auth_version += 1
     await revoke_user_sessions(session, user.id, reason="SCIM access mapping changed")
     lifecycle_event(

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://vulna.dev/schemas/export-bundle.schema.json",
   "title": "Vulna Data Export Bundle",
-  "description": "Versioned, checksummed export of an organization's non-secret data (Phase 31). Contains no keys, tokens, certificates, passwords, or report file bytes. Can be validated independently: recompute sha256 over the canonical JSON of every field except 'checksum'.",
+  "description": "Versioned, checksummed export of an organization's non-secret data. Contains no credential values or hashes, keys, certificates, passwords, or report file bytes. Can be validated independently: recompute sha256 over the canonical JSON of every field except 'checksum'.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -11,6 +11,10 @@
     "organization",
     "users",
     "user_site_assignments",
+    "authorization_roles",
+    "scoped_grants",
+    "service_accounts",
+    "api_tokens",
     "scim_groups",
     "scim_group_members",
     "scim_group_site_mappings",
@@ -27,7 +31,7 @@
     "checksum"
   ],
   "properties": {
-    "schema_version": { "type": "string", "const": "2" },
+    "schema_version": { "type": "string", "const": "3" },
     "exported_at": { "type": "string" },
     "checksum": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "organization": {
@@ -79,6 +83,10 @@
         }
       }
     },
+    "authorization_roles": { "type": "array", "items": { "type": "object" } },
+    "scoped_grants": { "type": "array", "items": { "type": "object" } },
+    "service_accounts": { "type": "array", "items": { "type": "object" } },
+    "api_tokens": { "type": "array", "items": { "type": "object" } },
     "scim_groups": { "type": "array", "items": { "type": "object" } },
     "scim_group_members": { "type": "array", "items": { "type": "object" } },
     "scim_group_site_mappings": { "type": "array", "items": { "type": "object" } },

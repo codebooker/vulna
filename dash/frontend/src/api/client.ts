@@ -92,6 +92,17 @@ import type {
   ScimToken,
   ScimTokenIssued,
 } from '../types/scim';
+import type {
+  ApiTokenCreate,
+  ApiTokenIssued,
+  ApiTokenSummary,
+  AuthorizationRole,
+  GrantScopeType,
+  PermissionDefinition,
+  PrincipalType,
+  ScopedGrant,
+  ServiceAccount,
+} from '../types/authorization';
 
 // In development, Vite proxies /api to the backend (see vite.config.ts).
 // In production the frontend is served behind the same reverse proxy as the API.
@@ -355,6 +366,84 @@ export const api = {
   },
   me(token: string): Promise<CurrentUser> {
     return request<CurrentUser>('/api/v1/auth/me', { token });
+  },
+  permissionCatalogue(token: string): Promise<PermissionDefinition[]> {
+    return request<PermissionDefinition[]>('/api/v1/permissions', { token });
+  },
+  listAuthorizationRoles(token: string): Promise<AuthorizationRole[]> {
+    return request<AuthorizationRole[]>('/api/v1/roles', { token });
+  },
+  createAuthorizationRole(
+    token: string,
+    payload: { key: string; name: string; description?: string; permission_keys: string[] },
+  ): Promise<AuthorizationRole> {
+    return request<AuthorizationRole>('/api/v1/roles', { method: 'POST', token, body: payload });
+  },
+  listScopedGrants(token: string): Promise<ScopedGrant[]> {
+    return request<ScopedGrant[]>('/api/v1/grants', { token });
+  },
+  createScopedGrant(
+    token: string,
+    payload: {
+      principal_type: PrincipalType;
+      principal_id: string;
+      role_id: string;
+      scope_type: GrantScopeType;
+      scope_id: string;
+    },
+  ): Promise<ScopedGrant> {
+    return request<ScopedGrant>('/api/v1/grants', { method: 'POST', token, body: payload });
+  },
+  deleteScopedGrant(token: string, grantId: string): Promise<void> {
+    return request<void>(`/api/v1/grants/${grantId}`, { method: 'DELETE', token });
+  },
+  listServiceAccounts(token: string): Promise<ServiceAccount[]> {
+    return request<ServiceAccount[]>('/api/v1/service-accounts', { token });
+  },
+  createServiceAccount(
+    token: string,
+    payload: { name: string; description?: string },
+  ): Promise<ServiceAccount> {
+    return request<ServiceAccount>('/api/v1/service-accounts', {
+      method: 'POST',
+      token,
+      body: payload,
+    });
+  },
+  suspendServiceAccount(token: string, accountId: string): Promise<void> {
+    return request<void>(`/api/v1/service-accounts/${accountId}`, {
+      method: 'DELETE',
+      token,
+    });
+  },
+  listPersonalApiTokens(token: string): Promise<ApiTokenSummary[]> {
+    return request<ApiTokenSummary[]>('/api/v1/tokens', { token });
+  },
+  createPersonalApiToken(token: string, payload: ApiTokenCreate): Promise<ApiTokenIssued> {
+    return request<ApiTokenIssued>('/api/v1/tokens', { method: 'POST', token, body: payload });
+  },
+  revokePersonalApiToken(token: string, tokenId: string): Promise<void> {
+    return request<void>(`/api/v1/tokens/${tokenId}`, { method: 'DELETE', token });
+  },
+  listServiceApiTokens(token: string, accountId: string): Promise<ApiTokenSummary[]> {
+    return request<ApiTokenSummary[]>(`/api/v1/service-accounts/${accountId}/tokens`, { token });
+  },
+  createServiceApiToken(
+    token: string,
+    accountId: string,
+    payload: ApiTokenCreate,
+  ): Promise<ApiTokenIssued> {
+    return request<ApiTokenIssued>(`/api/v1/service-accounts/${accountId}/tokens`, {
+      method: 'POST',
+      token,
+      body: payload,
+    });
+  },
+  revokeServiceApiToken(token: string, accountId: string, tokenId: string): Promise<void> {
+    return request<void>(`/api/v1/service-accounts/${accountId}/tokens/${tokenId}`, {
+      method: 'DELETE',
+      token,
+    });
   },
   mfaStatus(token: string): Promise<MfaStatus> {
     return request<MfaStatus>('/api/v1/mfa/status', { token });

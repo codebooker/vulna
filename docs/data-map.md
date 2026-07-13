@@ -43,6 +43,9 @@ cross-installation identifier.
 | OIDC/SAML state, nonce, request, and replay records | database (hashed/encrypted where secret) | high | no |
 | SCIM user/group/mapping metadata and sanitized history | database | high | yes, metadata only |
 | SCIM bearer tokens and request counters | database (hashed token) | critical | no |
+| Roles, permission mappings, scoped grants, and service-account metadata | database | high | yes, metadata only |
+| Personal/service API-token values and hashes | value shown once / hash in database | critical | no |
+| API-token lifecycle metadata (expiry, revocation, restrictions, last use) | database | high | yes, metadata only |
 | Internal CA + signing keys | keys volume | critical | no |
 | Notification / SMTP secrets | database (encrypted) | high | no |
 

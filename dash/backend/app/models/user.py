@@ -82,6 +82,9 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         default=SiteAccessMode.ALL,
     )
     auth_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    authorization_migrated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     invited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     activated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

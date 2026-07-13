@@ -16,7 +16,8 @@ from app.auth.password import hash_password, needs_rehash, verify_password
 from app.auth.tokens import create_access_token
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
-from app.models.enums import AccountStatus, ActorType, SsoPolicyMode
+from app.models.authorization import ServiceAccount
+from app.models.enums import AccountStatus, ActorType, PrincipalType, SsoPolicyMode
 from app.models.organization import Organization
 from app.models.session import SessionRefreshToken, UserSession
 from app.models.user import User
@@ -28,7 +29,7 @@ from app.schemas.session import (
     SessionRead,
 )
 from app.schemas.user import AcceptInvitationRequest, CompletePasswordResetRequest
-from app.services import auth_throttle, mfa, sso
+from app.services import auth_throttle, authorization, mfa, sso
 from app.services.account_tokens import (
     AccountTokenPurpose,
     generate_account_token,
@@ -737,7 +738,23 @@ async def read_me(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> CurrentUserResponse:
     """Return the authenticated user's own profile."""
-    current_user = identity.user
+    current_user: authorization.Principal = identity.user
+    permissions = sorted(await authorization.effective_permissions(session, current_user))
+    if isinstance(current_user, ServiceAccount):
+        return CurrentUserResponse(
+            id=current_user.id,
+            email=None,
+            full_name=current_user.name,
+            role=current_user.primary_role,
+            organization_id=current_user.organization_id,
+            is_active=current_user.is_active,
+            mfa_status="not_applicable",
+            mfa_grace_expires_at=None,
+            authentication_source="api_token",
+            is_break_glass=False,
+            principal_type=PrincipalType.SERVICE_ACCOUNT,
+            permissions=permissions,
+        )
     enrolled = set(await mfa.methods(session, current_user)) & {"totp", "webauthn"}
     return CurrentUserResponse(
         id=current_user.id,
@@ -750,4 +767,6 @@ async def read_me(
         mfa_grace_expires_at=current_user.mfa_grace_expires_at,
         authentication_source=current_user.authentication_source.value,
         is_break_glass=current_user.is_break_glass,
+        principal_type=PrincipalType.USER,
+        permissions=permissions,
     )

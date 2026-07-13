@@ -16,7 +16,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.context import RequestContext, get_request_context
-from app.auth.dependencies import CurrentUser, require_roles
+from app.auth.dependencies import CurrentUser, require_permission
 from app.auth.site_scope import can_access_site, site_scope_clause
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
@@ -24,11 +24,11 @@ from app.models.asset import AssetIdentifier
 from app.models.enums import (
     FindingStatus,
     FindingType,
+    GrantScopeType,
     IdentifierType,
     JobMode,
     ProbeStatus,
     Severity,
-    UserRole,
 )
 from app.models.finding import Finding
 from app.models.finding_note import FindingNote
@@ -45,24 +45,34 @@ from app.schemas.finding import (
 )
 from app.schemas.job import JobRead
 from app.schemas.risk_acceptance import RiskAcceptanceCreate, RiskAcceptanceRead
+from app.services import authorization
 from app.services.audit import record_audit
 from app.services.jobs import JobValidationError, create_scan_job
 from app.services.remediation import create_risk_acceptance
 
-router = APIRouter(prefix="/findings", tags=["findings"])
+router = APIRouter(
+    prefix="/findings",
+    tags=["findings"],
+    dependencies=[Depends(require_permission("findings.read"))],
+)
 
-_require_operator = require_roles(UserRole.ADMINISTRATOR, UserRole.SECURITY_OPERATOR)
-_OPERATOR_ROLES = (UserRole.ADMINISTRATOR, UserRole.SECURITY_OPERATOR)
+_require_operator = require_permission("findings.manage")
 
 
 async def _get_owned_finding(
-    session: AsyncSession, finding_id: uuid.UUID, current_user: User
+    session: AsyncSession,
+    finding_id: uuid.UUID,
+    current_user: User,
+    *,
+    permission_key: str = "findings.read",
 ) -> Finding:
     finding = await session.scalar(
         select(Finding).where(
             Finding.id == finding_id,
             Finding.organization_id == current_user.organization_id,
-            site_scope_clause(current_user, Finding.site_id),
+            site_scope_clause(
+                current_user, Finding.site_id, permission_key=permission_key
+            ),
         )
     )
     if finding is None:
@@ -85,7 +95,7 @@ async def list_findings(
     """List findings in the caller's organization, most recent first."""
     filters = [
         Finding.organization_id == current_user.organization_id,
-        site_scope_clause(current_user, Finding.site_id),
+        site_scope_clause(current_user, Finding.site_id, permission_key="findings.read"),
     ]
     if asset_id is not None:
         filters.append(Finding.asset_id == asset_id)
@@ -117,7 +127,7 @@ _BULK_ACTIONS = {"assign", "false_positive", "start_remediation", "triage"}
 @router.post("/bulk", response_model=BulkFindingResult, summary="Apply an action to many findings")
 async def bulk_update(
     payload: BulkFindingAction,
-    operator: Annotated[User, Depends(require_roles(*_OPERATOR_ROLES))],
+    operator: Annotated[User, Depends(require_permission("findings.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> BulkFindingResult:
@@ -142,7 +152,7 @@ async def bulk_update(
             select(Finding).where(
                 Finding.id == finding_id,
                 Finding.organization_id == operator.organization_id,
-                site_scope_clause(operator, Finding.site_id),
+                site_scope_clause(operator, Finding.site_id, permission_key="findings.manage"),
             )
         )
         # Per-object authorization: silently skip inaccessible identifiers.
@@ -154,7 +164,9 @@ async def bulk_update(
             if (
                 owner is None
                 or owner.organization_id != operator.organization_id
-                or not await can_access_site(session, owner, finding.site_id)
+                or not await can_access_site(
+                    session, owner, finding.site_id, permission_key="findings.read"
+                )
             ):
                 skipped += 1
                 continue
@@ -211,7 +223,14 @@ async def update_finding(
     """
     finding = await _get_owned_finding(session, finding_id, current_user)
     is_owner = finding.owner_user_id == current_user.id
-    if current_user.role not in _OPERATOR_ROLES and not is_owner:
+    can_manage = await authorization.has_permission(
+        session,
+        current_user,
+        "findings.manage",
+        scope_type=GrantScopeType.SITE,
+        scope_id=finding.site_id,
+    )
+    if not can_manage and not is_owner:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only an operator, administrator, or the finding owner may update it",
@@ -231,7 +250,9 @@ async def update_finding(
             if (
                 owner is None
                 or owner.organization_id != current_user.organization_id
-                or not await can_access_site(session, owner, finding.site_id)
+                or not await can_access_site(
+                    session, owner, finding.site_id, permission_key="findings.read"
+                )
             ):
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -293,7 +314,9 @@ async def add_finding_note(
     """Add an append-only note (any authenticated user in the organization)."""
     await _get_owned_finding(session, finding_id, current_user)
     note = FindingNote(
-        finding_id=finding_id, author_user_id=current_user.id, body=payload.body
+        finding_id=finding_id,
+        author_user_id=authorization.user_actor_id(current_user),
+        body=payload.body,
     )
     session.add(note)
     await session.flush()
@@ -315,7 +338,9 @@ async def rescan_finding(
 ) -> JobRead:
     """Create a scan job that re-checks this finding's asset. If the scanner no
     longer observes the finding, it is resolved as fixed."""
-    finding = await _get_owned_finding(session, finding_id, operator)
+    finding = await _get_owned_finding(
+        session, finding_id, operator, permission_key="findings.manage"
+    )
     if finding.asset_id is None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -352,7 +377,7 @@ async def rescan_finding(
             settings,
             targets=[ip],
             mode=JobMode.VULNERABILITY_ASSESSMENT,
-            created_by=operator.id,
+            created_by=authorization.user_actor_id(operator),
             verifies_finding_ids=[str(finding.id)],
         )
     except JobValidationError as exc:
@@ -389,11 +414,13 @@ async def request_risk_acceptance(
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> RiskAcceptanceRead:
     """Request a bounded risk acceptance (an approver activates it separately)."""
-    finding = await _get_owned_finding(session, finding_id, operator)
+    finding = await _get_owned_finding(
+        session, finding_id, operator, permission_key="findings.manage"
+    )
     ra = await create_risk_acceptance(
         session,
         finding=finding,
-        requested_by=operator.id,
+        requested_by=authorization.user_actor_id(operator),
         reason=payload.reason,
         compensating_controls=payload.compensating_controls,
         starts_at=payload.starts_at,

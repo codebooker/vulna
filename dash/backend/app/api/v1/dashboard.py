@@ -38,7 +38,9 @@ async def summary(
         session,
         settings,
         current_user.organization_id,
-        site_ids=await accessible_site_ids(session, current_user),
+        site_ids=await accessible_site_ids(
+            session, current_user, permission_key="assets.read"
+        ),
     )
 
 
@@ -62,7 +64,7 @@ async def global_search(
             select(Asset)
             .where(
                 Asset.organization_id == org,
-                site_scope_clause(current_user, Asset.site_id),
+                site_scope_clause(current_user, Asset.site_id, permission_key="assets.read"),
                 Asset.canonical_name.ilike(like),
             )
             .limit(limit)
@@ -73,7 +75,7 @@ async def global_search(
             select(Finding)
             .where(
                 Finding.organization_id == org,
-                site_scope_clause(current_user, Finding.site_id),
+                site_scope_clause(current_user, Finding.site_id, permission_key="findings.read"),
                 Finding.title.ilike(like),
             )
             .limit(limit)
@@ -84,7 +86,7 @@ async def global_search(
             select(Site)
             .where(
                 Site.organization_id == org,
-                site_scope_clause(current_user, Site.id),
+                site_scope_clause(current_user, Site.id, permission_key="sites.read"),
                 Site.name.ilike(like),
             )
             .limit(limit)
@@ -95,7 +97,7 @@ async def global_search(
             select(ScanJob)
             .where(
                 ScanJob.organization_id == org,
-                site_scope_clause(current_user, ScanJob.site_id),
+                site_scope_clause(current_user, ScanJob.site_id, permission_key="jobs.read"),
             )
             .order_by(ScanJob.created_at.desc())
             .limit(limit)
@@ -106,7 +108,9 @@ async def global_search(
             select(Report)
             .where(
                 Report.organization_id == org,
-                optional_site_scope_clause(current_user, Report.site_id),
+                optional_site_scope_clause(
+                    current_user, Report.site_id, permission_key="reports.read"
+                ),
             )
             .order_by(Report.created_at.desc())
             .limit(limit)

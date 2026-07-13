@@ -29,6 +29,27 @@ class UserRole(StrEnum):
     VIEWER = "viewer"
 
 
+class PrincipalType(StrEnum):
+    """Kinds of principals that may receive scoped authorization grants."""
+
+    USER = "user"
+    SERVICE_ACCOUNT = "service_account"
+
+
+class GrantScopeType(StrEnum):
+    """Scopes supported by Phase 39 grants."""
+
+    ORGANIZATION = "organization"
+    SITE = "site"
+
+
+class ServiceAccountStatus(StrEnum):
+    """Non-interactive principal lifecycle."""
+
+    ACTIVE = "active"
+    SUSPENDED = "suspended"
+
+
 class AccountStatus(StrEnum):
     """Authoritative lifecycle state of an interactive user account."""
 
@@ -75,6 +96,7 @@ class ActorType(StrEnum):
     USER = "user"
     SYSTEM = "system"
     PROBE = "probe"
+    SERVICE_ACCOUNT = "service_account"
 
 
 class ProbeStatus(StrEnum):
@@ -369,7 +391,6 @@ class FindingStatus(StrEnum):
     FALSE_POSITIVE = "false_positive"
     DUPLICATE = "duplicate"
     SUPPRESSED = "suppressed"
-
 
 
 class RelayStatus(StrEnum):

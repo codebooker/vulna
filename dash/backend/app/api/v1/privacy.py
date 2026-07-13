@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.context import RequestContext, get_request_context
-from app.auth.dependencies import CurrentUser, require_admin
+from app.auth.dependencies import CurrentUser, require_permission
 from app.auth.site_scope import accessible_site_ids
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
@@ -25,7 +25,11 @@ from app.models.user import User
 from app.services import privacy
 from app.services.audit import record_audit
 
-router = APIRouter(prefix="/privacy", tags=["privacy"])
+router = APIRouter(
+    prefix="/privacy",
+    tags=["privacy"],
+    dependencies=[Depends(require_permission("privacy.read"))],
+)
 
 
 class PrivacySettingsUpdate(BaseModel):
@@ -54,7 +58,7 @@ async def outbound(
 
 @router.get("/secrets", summary="Secret inventory (status only, never values)")
 async def secrets(
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("privacy.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> dict[str, Any]:
@@ -74,7 +78,7 @@ async def get_settings_(
 @router.post("/settings", summary="Update privacy toggles (admin)")
 async def update_settings(
     payload: PrivacySettingsUpdate,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("privacy.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> dict[str, Any]:
@@ -103,7 +107,9 @@ async def telemetry_preview(
         session,
         settings,
         current_user.organization_id,
-        site_ids=await accessible_site_ids(session, current_user),
+        site_ids=await accessible_site_ids(
+            session, current_user, permission_key="privacy.read"
+        ),
     )
 
 
@@ -115,5 +121,7 @@ async def analytics(
     return await privacy.local_analytics(
         session,
         current_user.organization_id,
-        site_ids=await accessible_site_ids(session, current_user),
+        site_ids=await accessible_site_ids(
+            session, current_user, permission_key="privacy.read"
+        ),
     )

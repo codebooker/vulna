@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.context import RequestContext, get_request_context
-from app.auth.dependencies import CurrentUser, require_admin
+from app.auth.dependencies import CurrentUser, require_permission
 from app.db.session import get_session
 from app.models.organization import Organization
 from app.models.user import User
@@ -70,7 +70,7 @@ async def get_current_experience(
 )
 async def preview_current_experience(
     payload: ExperienceChange,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("organization.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> ExperiencePreview:
     org = await _get_own_org(session, admin.organization_id)
@@ -94,7 +94,7 @@ async def preview_current_experience(
 )
 async def update_current_experience(
     payload: ExperienceChange,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("organization.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> ExperienceRead:
@@ -143,7 +143,7 @@ async def update_current_experience(
     summary="Get the organization session policy",
 )
 async def get_session_policy(
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("organization.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> SessionPolicyRead:
     org = await _get_own_org(session, admin.organization_id)
@@ -157,7 +157,7 @@ async def get_session_policy(
 )
 async def patch_session_policy(
     payload: SessionPolicyUpdate,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("organization.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> SessionPolicyRead:
@@ -197,7 +197,7 @@ async def get_org(
 async def update_org(
     org_id: uuid.UUID,
     payload: OrganizationUpdate,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("organization.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> OrganizationRead:

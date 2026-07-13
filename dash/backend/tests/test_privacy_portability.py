@@ -102,7 +102,7 @@ async def test_export_is_versioned_checksummed_and_schema_valid(
     r = await client.get("/api/v1/portability/export", headers=admin_headers)
     assert r.status_code == 200
     bundle = r.json()
-    assert bundle["schema_version"] == "2"
+    assert bundle["schema_version"] == "3"
     # Independently validatable against the published schema and its checksum.
     jsonschema.Draft202012Validator(EXPORT_SCHEMA).validate(bundle)
     assert bundle["checksum"] == export_svc.checksum(bundle)
@@ -112,6 +112,10 @@ async def test_export_is_versioned_checksummed_and_schema_valid(
     assert bundle["users"][0]["account_status"] == "active"
     assert "authentication_source" in bundle["users"][0]
     assert "user_site_assignments" in bundle
+    assert "authorization_roles" in bundle
+    assert "scoped_grants" in bundle
+    assert "service_accounts" in bundle
+    assert "api_tokens" in bundle
     assert "scim_groups" in bundle
     assert "scim_group_members" in bundle
     assert "scim_group_site_mappings" in bundle

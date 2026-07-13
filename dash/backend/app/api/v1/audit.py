@@ -12,17 +12,16 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.dependencies import require_roles
+from app.auth.dependencies import require_permission
 from app.db.session import get_session
 from app.models.audit import AuditEvent
-from app.models.enums import UserRole
 from app.models.user import User
 from app.schemas.audit import AuditEventRead
 from app.schemas.common import Page
 
 router = APIRouter(prefix="/audit", tags=["audit"])
 
-_reader = require_roles(UserRole.ADMINISTRATOR, UserRole.AUDITOR)
+_reader = require_permission("audit.read")
 
 
 @router.get("", response_model=Page[AuditEventRead], summary="List audit events")

@@ -39,8 +39,9 @@ access. Frontend navigation is never the authorization boundary.
 
 Site access applies to sites, assets, scopes, networks, Scouts, changes, findings,
 reports, jobs, schedules, workflows, dashboards/search, notifications, retention,
-privacy analytics, relays, and controlled pentest data. Phase 39 will migrate these
-assignments into generalized scoped grants without changing effective access.
+privacy analytics, relays, and controlled pentest data. Phase 39 migrates these
+assignments into generalized scoped grants and retains these fields as derived
+`/api/v1` compatibility projections.
 
 ## Upgrade, export, and recovery
 

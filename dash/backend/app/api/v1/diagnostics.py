@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.context import RequestContext, get_request_context
-from app.auth.dependencies import CurrentUser, StepUpIdentity, require_admin
+from app.auth.dependencies import CurrentUser, StepUpIdentity, require_permission
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
 from app.models.user import User
@@ -25,7 +25,11 @@ from app.services.audit import record_audit
 from app.services.diagnostics import as_dicts, run_diagnostics, summarize
 from app.services.support_bundle import build_support_bundle, build_timeline
 
-router = APIRouter(prefix="/diagnostics", tags=["diagnostics"])
+router = APIRouter(
+    prefix="/diagnostics",
+    tags=["diagnostics"],
+    dependencies=[Depends(require_permission("diagnostics.read"))],
+)
 
 # Allowlisted, safe, reversible repair actions.
 _REPAIRS = {"recreate_storage_dirs"}
@@ -56,7 +60,7 @@ async def timeline(
 
 @router.get("/support-bundle", summary="Redacted support bundle (preview, admin)")
 async def support_bundle(
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("diagnostics.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
     context: Annotated[RequestContext, Depends(get_request_context)],
@@ -82,7 +86,7 @@ async def support_bundle(
 @router.post("/repair", summary="Run a safe, confirmed repair action (admin)")
 async def repair(
     payload: RepairRequest,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("diagnostics.manage"))],
     _step_up: StepUpIdentity,
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],

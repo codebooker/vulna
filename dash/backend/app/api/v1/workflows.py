@@ -25,11 +25,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.api.context import RequestContext, get_request_context
-from app.auth.dependencies import CurrentUser, require_roles
+from app.auth.dependencies import CurrentUser, require_permission
 from app.auth.site_scope import get_accessible_site, site_scope_clause
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
-from app.models.enums import UserRole
 from app.models.network import Network
 from app.models.user import User
 from app.models.workflow_run import WorkflowRun
@@ -40,24 +39,34 @@ from app.schemas.workflow import (
     WorkflowRunCreate,
     WorkflowRunRead,
 )
+from app.services import authorization, workflow_dispatch
 from app.services import workflow as engine
-from app.services import workflow_dispatch
 from app.services.audit import record_audit
 
-router = APIRouter(prefix="/workflows", tags=["workflows"])
+router = APIRouter(
+    prefix="/workflows",
+    tags=["workflows"],
+    dependencies=[Depends(require_permission("workflows.read"))],
+)
 
-_require_operator = require_roles(UserRole.ADMINISTRATOR, UserRole.SECURITY_OPERATOR)
-_require_approver = require_roles(UserRole.ADMINISTRATOR, UserRole.PENTEST_APPROVER)
+_require_operator = require_permission("workflows.run")
+_require_approver = require_permission("workflows.approve")
 
 
 async def _owned_run(
-    session: AsyncSession, run_id: uuid.UUID, current_user: User
+    session: AsyncSession,
+    run_id: uuid.UUID,
+    current_user: User,
+    *,
+    permission_key: str = "workflows.read",
 ) -> WorkflowRun:
     run = await session.scalar(
         select(WorkflowRun).where(
             WorkflowRun.id == run_id,
             WorkflowRun.organization_id == current_user.organization_id,
-            site_scope_clause(current_user, WorkflowRun.site_id),
+            site_scope_clause(
+                current_user, WorkflowRun.site_id, permission_key=permission_key
+            ),
         )
     )
     if run is None:
@@ -77,7 +86,9 @@ async def create_run(
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> WorkflowRunRead:
-    await get_accessible_site(session, operator, payload.site_id)
+    await get_accessible_site(
+        session, operator, payload.site_id, permission_key="workflows.run"
+    )
     if payload.network_id is not None:
         net = await session.get(Network, payload.network_id)
         if (
@@ -96,7 +107,7 @@ async def create_run(
         stages_json=engine.create_run(
             include_web=payload.include_web, include_intrusive=payload.include_intrusive
         ),
-        created_by=operator.id,
+        created_by=authorization.user_actor_id(operator),
     )
     engine.start(run, now)
     session.add(run)
@@ -125,7 +136,9 @@ async def list_runs(
 ) -> Page[WorkflowRunRead]:
     filters = [
         WorkflowRun.organization_id == current_user.organization_id,
-        site_scope_clause(current_user, WorkflowRun.site_id),
+        site_scope_clause(
+            current_user, WorkflowRun.site_id, permission_key="workflows.read"
+        ),
     ]
     total = await session.scalar(select(func.count()).select_from(WorkflowRun).where(*filters))
     result = await session.execute(
@@ -166,7 +179,9 @@ async def advance_run(
     settings: Annotated[Settings, Depends(get_settings)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> WorkflowRunRead:
-    run = await _owned_run(session, run_id, operator)
+    run = await _owned_run(
+        session, run_id, operator, permission_key="workflows.run"
+    )
     # A scanning stage backed by a dispatched job advances on that job's result,
     # not by hand, so the two cannot disagree.
     if run.scan_job_id is not None and engine.scanning_stage_active(run):
@@ -212,7 +227,9 @@ async def decide_run(
 ) -> WorkflowRunRead:
     """Decide the workflow's approval pause. Denial continues the workflow safely
     (validation is skipped; verification and reporting still run)."""
-    run = await _owned_run(session, run_id, approver)
+    run = await _owned_run(
+        session, run_id, approver, permission_key="workflows.approve"
+    )
     try:
         engine.decide_intrusive(run, approve=payload.approve, now=datetime.now(UTC))
     except engine.WorkflowError as exc:

@@ -49,7 +49,7 @@ from app.models.sso import (
 )
 from app.models.user import User
 from app.models.user_lifecycle import UserSiteAssignment
-from app.services import notifications
+from app.services import authorization, notifications
 from app.services.secret_crypto import SecretPurpose, decrypt_secret, encrypt_secret
 
 OIDC_PRESET_SCOPES: dict[str, list[str]] = {
@@ -817,6 +817,8 @@ async def resolve_sso_user(
                 for site_id in sorted(site_ids, key=str)
             ]
         )
+    if user.authentication_source == AuthenticationSource.JIT:
+        await authorization.sync_user_compatibility_grants(session, user)
     now = utcnow()
     user.last_login_at = now
     if link is not None:

@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 39: granular RBAC and service accounts
+
+- A source-controlled permission catalogue now drives database roles and
+  organization/site-scoped user and service-account grants. Permission-aware query
+  predicates prevent permissions from different site grants from combining.
+- Existing roles and Phase 34 site assignments migrate into immutable built-in
+  grants. The `/api/v1` `role`, `is_active`, `site_access_mode`, and site-assignment
+  shapes remain derived compatibility fields while endpoints use permissions.
+- Service accounts cannot sign in interactively. Personal and service API tokens
+  expire, may be IP-restricted, rotate/revoke immediately, are shown once, and are
+  stored only as hashes. Authorization changes invalidate sessions and issued
+  tokens; high-risk step-up operations reject API-token authentication.
+- The Authorization page manages roles, grants, service principals, and tokens.
+  Audit attribution distinguishes service principals, the last administrator is
+  protected, capability status is public, and OpenAPI/isolation/security tests are
+  release-gated.
+- The additive migration, encrypted backup guidance, privacy inventory, and
+  portability schema v3 cover the new records without exporting token values or
+  hashes.
+
 ### Added — Phase 38: SCIM 2.0 provisioning
 
 - Organization-specific bearer tokens are displayed once, stored only as SHA-256

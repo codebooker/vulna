@@ -17,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.context import RequestContext, get_request_context
-from app.auth.dependencies import CurrentUser, require_admin
+from app.auth.dependencies import CurrentUser, require_permission
 from app.auth.site_scope import site_scope_clause
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
@@ -49,7 +49,11 @@ from app.services.experience import (
 )
 from app.services.scopes import ScopeValidationError
 
-router = APIRouter(prefix="/onboarding", tags=["onboarding"])
+router = APIRouter(
+    prefix="/onboarding",
+    tags=["onboarding"],
+    dependencies=[Depends(require_permission("onboarding.read"))],
+)
 
 
 def _profile_plan_payload(org: Organization, extra: dict[str, object]) -> dict[str, object]:
@@ -88,7 +92,7 @@ async def get_state(
     summary="Get profile planning questions and recommendations",
 )
 async def get_profile_plan(
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("onboarding.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> ProfilePlanRead:
     state = await ob.get_or_create_state(session, admin.organization_id)
@@ -105,7 +109,7 @@ async def get_profile_plan(
 )
 async def update_profile_plan(
     payload: ProfilePlanUpdate,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("onboarding.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> ProfilePlanRead:
@@ -223,7 +227,7 @@ async def network_candidates(
     result = await session.execute(
         select(Probe).where(
             Probe.organization_id == current_user.organization_id,
-            site_scope_clause(current_user, Probe.site_id),
+            site_scope_clause(current_user, Probe.site_id, permission_key="onboarding.read"),
             Probe.name == settings.local_scout_name,
         )
     )
@@ -232,7 +236,9 @@ async def network_candidates(
         result = await session.execute(
             select(Probe).where(
                 Probe.organization_id == current_user.organization_id,
-                site_scope_clause(current_user, Probe.site_id),
+                site_scope_clause(
+                    current_user, Probe.site_id, permission_key="onboarding.read"
+                ),
                 Probe.status == ProbeStatus.ENROLLED,
             )
         )

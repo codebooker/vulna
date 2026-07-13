@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.context import RequestContext, get_request_context
-from app.auth.dependencies import CurrentUser, require_admin
+from app.auth.dependencies import CurrentUser, require_permission
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
 from app.intelligence.fetchers import HttpFetcher
@@ -26,7 +26,11 @@ from app.schemas.intelligence import FeedHealthRead, SyncResultRead
 from app.services import intelligence as intel
 from app.services.audit import record_audit
 
-router = APIRouter(prefix="/feeds", tags=["feeds"])
+router = APIRouter(
+    prefix="/feeds",
+    tags=["feeds"],
+    dependencies=[Depends(require_permission("feeds.read"))],
+)
 
 _SYNC_FUNCS = {
     FeedSource.NVD: intel.sync_nvd,
@@ -85,7 +89,7 @@ async def feed_health(
 )
 async def trigger_sync(
     source: FeedSource,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("feeds.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
     context: Annotated[RequestContext, Depends(get_request_context)],

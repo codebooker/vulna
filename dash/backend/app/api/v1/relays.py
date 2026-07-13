@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.context import RequestContext, get_request_context
 from app.api.relay_auth import CurrentRelay
-from app.auth.dependencies import CurrentUser, require_admin
+from app.auth.dependencies import require_permission
 from app.auth.site_scope import get_accessible_site, optional_site_scope_clause
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
@@ -110,7 +110,7 @@ def _serialize(r: Relay) -> dict[str, Any]:
 
 @router.get("/settings", summary="Relay mode status")
 async def get_relay_settings(
-    current_user: CurrentUser,
+    current_user: Annotated[User, Depends(require_permission("relays.read"))],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict[str, Any]:
     org = await _org(session, current_user.organization_id)
@@ -120,7 +120,7 @@ async def get_relay_settings(
 @router.post("/settings", summary="Enable or disable relay mode (admin)")
 async def update_relay_settings(
     payload: RelaySettings,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("relays.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> dict[str, Any]:
@@ -138,14 +138,16 @@ async def update_relay_settings(
 
 @router.get("", summary="List relays")
 async def list_relays(
-    current_user: CurrentUser,
+    current_user: Annotated[User, Depends(require_permission("relays.read"))],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict[str, Any]:
     rows = (
         await session.execute(
             select(Relay).where(
                 Relay.organization_id == current_user.organization_id,
-                optional_site_scope_clause(current_user, Relay.site_id),
+                optional_site_scope_clause(
+                    current_user, Relay.site_id, permission_key="relays.read"
+                ),
             )
         )
     ).scalars().all()
@@ -156,7 +158,7 @@ async def list_relays(
 async def enrollment_command(
     payload: EnrollmentCommandRequest,
     request: Request,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("relays.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
     context: Annotated[RequestContext, Depends(get_request_context)],
@@ -167,7 +169,9 @@ async def enrollment_command(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="A relay must be assigned to a site.",
         )
-    await get_accessible_site(session, admin, payload.site_id)
+    await get_accessible_site(
+        session, admin, payload.site_id, permission_key="relays.manage"
+    )
     generated = generate_token()
     relay = Relay(
         organization_id=admin.organization_id,
@@ -365,13 +369,15 @@ async def heartbeat(
 async def set_scope(
     relay_id: uuid.UUID,
     payload: ScopeRequest,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("relays.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> dict[str, Any]:
     await _require_enabled(session, admin.organization_id)
-    relay = await _get_relay(session, relay_id, admin.organization_id)
+    relay = await _get_relay(
+        session, relay_id, admin, permission_key="relays.manage"
+    )
     try:
         approved = relay_svc.validate_egress_cidrs(
             payload.approved_cidrs, allow_public=payload.allow_public_addresses
@@ -507,10 +513,12 @@ async def set_scope(
 async def egress_check(
     relay_id: uuid.UUID,
     payload: EgressCheckRequest,
-    current_user: CurrentUser,
+    current_user: Annotated[User, Depends(require_permission("relays.read"))],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict[str, Any]:
-    relay = await _get_relay(session, relay_id, current_user.organization_id)
+    relay = await _get_relay(
+        session, relay_id, current_user, permission_key="relays.read"
+    )
     # Fail closed when relay mode is disabled: the central egress is the security
     # boundary, so a disabled feature blocks all relay traffic regardless of the
     # relay's stored scope/tunnel state.
@@ -530,12 +538,14 @@ async def egress_check(
 @router.post("/{relay_id}/kill", summary="Engage the relay kill switch (admin)")
 async def kill(
     relay_id: uuid.UUID,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("relays.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> dict[str, Any]:
     """Tear the tunnel and block all scanning through this relay immediately."""
-    relay = await _get_relay(session, relay_id, admin.organization_id)
+    relay = await _get_relay(
+        session, relay_id, admin, permission_key="relays.manage"
+    )
     relay.status = RelayStatus.KILLED
     relay.tunnel_up = False
     relay.killed_at = datetime.now(UTC)
@@ -551,11 +561,13 @@ async def kill(
 @router.post("/{relay_id}/resume", summary="Clear the kill switch (admin)")
 async def resume(
     relay_id: uuid.UUID,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("relays.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> dict[str, Any]:
-    relay = await _get_relay(session, relay_id, admin.organization_id)
+    relay = await _get_relay(
+        session, relay_id, admin, permission_key="relays.manage"
+    )
     if relay.status == RelayStatus.KILLED:
         relay.status = RelayStatus.ENROLLED
         relay.killed_at = None
@@ -571,11 +583,13 @@ async def resume(
 @router.delete("/{relay_id}", summary="Revoke a relay (admin)")
 async def revoke(
     relay_id: uuid.UUID,
-    admin: Annotated[User, Depends(require_admin)],
+    admin: Annotated[User, Depends(require_permission("relays.manage"))],
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> dict[str, Any]:
-    relay = await _get_relay(session, relay_id, admin.organization_id)
+    relay = await _get_relay(
+        session, relay_id, admin, permission_key="relays.manage"
+    )
     relay.status = RelayStatus.REVOKED
     relay.tunnel_up = False
     record_audit(
@@ -587,8 +601,20 @@ async def revoke(
     return {"revoked": True}
 
 
-async def _get_relay(session: AsyncSession, relay_id: uuid.UUID, org_id: uuid.UUID) -> Relay:
-    relay = await session.get(Relay, relay_id)
-    if relay is None or relay.organization_id != org_id:
+async def _get_relay(
+    session: AsyncSession,
+    relay_id: uuid.UUID,
+    user: User,
+    *,
+    permission_key: str,
+) -> Relay:
+    relay = await session.scalar(
+        select(Relay).where(
+            Relay.id == relay_id,
+            Relay.organization_id == user.organization_id,
+            optional_site_scope_clause(user, Relay.site_id, permission_key=permission_key),
+        )
+    )
+    if relay is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="relay not found")
     return relay

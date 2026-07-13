@@ -59,6 +59,10 @@ Phase 38 adds hashed SCIM bearer tokens, provisioned group membership and role/s
 mappings, rate-limit windows, external directory ids, and sanitized provisioning
 history. These records are required to keep a restored connector's old token,
 revocation, ownership, and access decisions intact.
+Phase 39 adds authorization roles/permissions, user and service-account scoped
+grants, service-principal lifecycle, hashed personal/service API tokens, expiry/IP
+restrictions, rotation links, and authorization versions. These records keep
+least-privilege automation and immediate revocation intact after restore.
 A restore test should verify
 that an assigned user sees the same sites, a deactivated user remains unable to
 sign in, consumed one-time links remain unusable, revoked sessions remain revoked,
@@ -75,6 +79,11 @@ A Phase 38 restore test must verify that revoked/rotated SCIM tokens remain unus
 active tokens still resolve only their original organization, deprovisioned users
 remain inactive, group-derived role/site access is unchanged, and provisioning
 logs contain no bearer values.
+A Phase 39 restore test must verify that custom and built-in grants resolve to the
+same sites and permissions, the last-administrator protection remains effective,
+suspended service accounts remain unusable, revoked/rotated API tokens stay
+unusable, active tokens retain their original organization and IP restrictions,
+and no token value appears in logs or exports.
 
 ## Destinations
 

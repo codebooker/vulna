@@ -70,6 +70,9 @@
     { "category": "OIDC/SAML state, nonce, request, and replay records", "store": "database (hashed/encrypted where secret)", "sensitivity": "high", "in_export": false },
     { "category": "SCIM user/group/mapping metadata and sanitized history", "store": "database", "sensitivity": "high", "in_export": "metadata_only" },
     { "category": "SCIM bearer tokens and request counters", "store": "database (hashed token)", "sensitivity": "critical", "in_export": false },
+    { "category": "authorization roles, permission mappings, scoped grants, and service-account metadata", "store": "database", "sensitivity": "high", "in_export": "metadata_only" },
+    { "category": "personal/service API-token values and hashes", "store": "value shown once / hash in database", "sensitivity": "critical", "in_export": false },
+    { "category": "API-token lifecycle metadata", "store": "database", "sensitivity": "high", "in_export": "metadata_only" },
     { "category": "internal CA + signing keys", "store": "keys volume", "sensitivity": "critical", "in_export": false },
     { "category": "notification/SMTP secrets", "store": "database (encrypted)", "sensitivity": "high", "in_export": false }
   ]

@@ -13,15 +13,18 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.audit import AuditEvent
+from app.models.authorization import ServiceAccount
 from app.models.enums import ActorType
 from app.models.user import User
+
+AuditPrincipal = User | ServiceAccount
 
 
 def record_audit(
     session: AsyncSession,
     *,
     action: str,
-    actor: User | None = None,
+    actor: AuditPrincipal | None = None,
     actor_type: ActorType = ActorType.USER,
     actor_id: uuid.UUID | None = None,
     organization_id: uuid.UUID | None = None,
@@ -39,7 +42,11 @@ def record_audit(
     """
     event = AuditEvent(
         organization_id=organization_id or (actor.organization_id if actor else None),
-        actor_type=ActorType.USER if actor is not None else actor_type,
+        actor_type=(
+            ActorType.SERVICE_ACCOUNT
+            if isinstance(actor, ServiceAccount)
+            else (ActorType.USER if actor is not None else actor_type)
+        ),
         actor_id=actor.id if actor is not None else actor_id,
         action=action,
         target_type=target_type,

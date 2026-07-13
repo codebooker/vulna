@@ -7,7 +7,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, EmailStr, Field
 
-from app.models.enums import UserRole
+from app.models.enums import PrincipalType, UserRole
 
 
 class LoginRequest(BaseModel):
@@ -38,10 +38,14 @@ class CurrentUserResponse(BaseModel):
     """The authenticated user's own profile."""
 
     id: uuid.UUID
-    email: EmailStr
+    email: EmailStr | None
     full_name: str | None
     role: UserRole
     organization_id: uuid.UUID
     is_active: bool
     mfa_status: str = "not_enrolled"
     mfa_grace_expires_at: datetime | None = None
+    authentication_source: str = "local"
+    is_break_glass: bool = False
+    principal_type: PrincipalType = PrincipalType.USER
+    permissions: list[str] = Field(default_factory=list)

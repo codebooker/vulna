@@ -16,43 +16,51 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.context import RequestContext, get_request_context
-from app.auth.dependencies import CurrentUser, require_roles
+from app.auth.dependencies import CurrentUser, require_permission
 from app.auth.site_scope import accessible_site_ids, require_site_access, site_scope_clause
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
-from app.models.enums import JobStatus, ProbeStatus, UserRole, WebScanProfile
+from app.models.enums import GrantScopeType, JobStatus, ProbeStatus, WebScanProfile
 from app.models.organization import Organization
 from app.models.probe import Probe
 from app.models.scan_job import ScanJob
 from app.models.user import User
 from app.schemas.common import Page
 from app.schemas.job import JobCreate, JobRead
-from app.services import reaper
+from app.services import authorization, reaper
 from app.services.audit import record_audit
 from app.services.demo import is_demo_mode
 from app.services.jobs import JobValidationError, create_scan_job
 
-router = APIRouter(prefix="/jobs", tags=["jobs"])
+router = APIRouter(
+    prefix="/jobs",
+    tags=["jobs"],
+    dependencies=[Depends(require_permission("jobs.read"))],
+)
 
-_require_operator = require_roles(UserRole.ADMINISTRATOR, UserRole.SECURITY_OPERATOR)
+_require_operator = require_permission("jobs.manage")
 # Job creation also admits pentest approvers (for active web assessments); the
 # handler enforces which profiles each role may request.
-_require_job_creator = require_roles(
-    UserRole.ADMINISTRATOR, UserRole.SECURITY_OPERATOR, UserRole.PENTEST_APPROVER
-)
+_require_job_creator = require_permission("jobs.create")
 
 # Statuses at which a job is still active and can be cancelled.
 _CANCELLABLE = {JobStatus.QUEUED, JobStatus.OFFERED, JobStatus.ACCEPTED, JobStatus.RUNNING}
 
 
 async def _get_owned_job(
-    session: AsyncSession, job_id: uuid.UUID, current_user: User
+    session: AsyncSession,
+    job_id: uuid.UUID,
+    current_user: User,
+    *,
+    permission_key: str = "jobs.read",
 ) -> ScanJob:
     job = await session.scalar(
         select(ScanJob).where(
             ScanJob.id == job_id,
             ScanJob.organization_id == current_user.organization_id,
-            site_scope_clause(current_user, ScanJob.site_id),
+            site_scope_clause(
+                current_user, ScanJob.site_id, permission_key=permission_key
+            ),
         )
     )
     if job is None:
@@ -93,7 +101,11 @@ async def create_job(
     if probe is None or probe.organization_id != operator.organization_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Probe not found")
     await require_site_access(
-        session, operator, probe.site_id, not_found_detail="Probe not found"
+        session,
+        operator,
+        probe.site_id,
+        not_found_detail="Probe not found",
+        permission_key="jobs.create",
     )
     if probe.status != ProbeStatus.ENROLLED:
         raise HTTPException(
@@ -104,7 +116,13 @@ async def create_job(
     web_profile = payload.web_scan.profile if payload.web_scan else None
     web_start_urls = payload.web_scan.start_urls if payload.web_scan else None
     if web_profile == WebScanProfile.LIMITED_ACTIVE:
-        if operator.role not in (UserRole.ADMINISTRATOR, UserRole.PENTEST_APPROVER):
+        if not await authorization.has_permission(
+            session,
+            operator,
+            "pentest.approve",
+            scope_type=GrantScopeType.SITE,
+            scope_id=probe.site_id,
+        ):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=(
@@ -112,7 +130,13 @@ async def create_job(
                     "pentest-approver approval"
                 ),
             )
-    elif operator.role not in (UserRole.ADMINISTRATOR, UserRole.SECURITY_OPERATOR):
+    elif not await authorization.has_permission(
+        session,
+        operator,
+        "jobs.manage",
+        scope_type=GrantScopeType.SITE,
+        scope_id=probe.site_id,
+    ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Creating scans requires the operator or administrator role",
@@ -125,7 +149,7 @@ async def create_job(
             settings,
             targets=payload.targets,
             mode=payload.mode,
-            created_by=operator.id,
+            created_by=authorization.user_actor_id(operator),
             not_before=payload.not_before,
             expires_at=payload.expires_at,
             web_profile=web_profile,
@@ -167,7 +191,9 @@ async def reap_jobs(
         session,
         settings,
         organization_id=current_user.organization_id,
-        site_ids=await accessible_site_ids(session, current_user),
+        site_ids=await accessible_site_ids(
+            session, current_user, permission_key="jobs.manage"
+        ),
     )
     return {"reaped": reaped}
 
@@ -184,7 +210,7 @@ async def list_jobs(
     """List scan jobs in the caller's organization (any authenticated role)."""
     filters = [
         ScanJob.organization_id == current_user.organization_id,
-        site_scope_clause(current_user, ScanJob.site_id),
+        site_scope_clause(current_user, ScanJob.site_id, permission_key="jobs.read"),
     ]
     if probe_id is not None:
         filters.append(ScanJob.probe_id == probe_id)
@@ -225,7 +251,9 @@ async def cancel_job(
     A job that has not yet been delivered is cancelled immediately; an active
     job is flagged so the probe stops it and confirms via a status report.
     """
-    job = await _get_owned_job(session, job_id, operator)
+    job = await _get_owned_job(
+        session, job_id, operator, permission_key="jobs.manage"
+    )
     if job.status not in _CANCELLABLE:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
