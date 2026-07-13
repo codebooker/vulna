@@ -35,6 +35,7 @@ from app.models.enums import Severity, UserRole
 from app.models.finding import Finding
 from app.models.notification import CHANNEL_EMAIL, CHANNEL_WEBHOOK, NotificationChannel
 from app.models.organization import Organization
+from app.models.passive_inventory import InventoryConnector, ReportTemplate, ReportTemplateRun
 from app.models.scan_job import ScanJob
 from app.models.scim import ScimToken
 from app.models.site import Site
@@ -150,6 +151,28 @@ async def outbound_connections(
                 }
             )
 
+    inventory_connectors = (
+        (
+            await session.execute(
+                select(InventoryConnector).where(
+                    InventoryConnector.organization_id == org.id,
+                    InventoryConnector.enabled.is_(True),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for connector in inventory_connectors:
+        out.append(
+            {
+                "name": f"Inventory: {connector.name}",
+                "category": "passive_inventory",
+                "destination": _host(connector.base_url or ""),
+                "enabled": True,
+                "purpose": "Read asset inventory from an operator-configured source.",
+            }
+        )
     if toggles["telemetry_enabled"]:
         out.append(
             {
@@ -222,6 +245,31 @@ async def secret_inventory(
         .select_from(TicketConnector)
         .where(TicketConnector.organization_id == org.id)
     )
+    inventory_connector_secrets = await session.scalar(
+        select(func.count())
+        .select_from(InventoryConnector)
+        .where(
+            InventoryConnector.organization_id == org.id,
+            InventoryConnector.encrypted_secret.is_not(None),
+        )
+    )
+    report_passwords = await session.scalar(
+        select(func.count())
+        .select_from(ReportTemplate)
+        .where(
+            ReportTemplate.organization_id == org.id,
+            ReportTemplate.encrypted_export_password.is_not(None),
+        )
+    )
+    report_run_passwords = await session.scalar(
+        select(func.count())
+        .select_from(ReportTemplateRun)
+        .where(
+            ReportTemplateRun.organization_id == org.id,
+            ReportTemplateRun.encrypted_export_password.is_not(None),
+        )
+    )
+    report_password_count = int(report_passwords or 0) + int(report_run_passwords or 0)
     return [
         {
             "name": "Application secret key",
@@ -287,6 +335,20 @@ async def secret_inventory(
             "category": "ticketing",
             "rotatable": True,
             "count": int(ticket_connectors or 0),
+        },
+        {
+            "name": "Passive inventory connector secrets",
+            "present": bool(inventory_connector_secrets),
+            "category": "passive_inventory",
+            "rotatable": True,
+            "count": int(inventory_connector_secrets or 0),
+        },
+        {
+            "name": "Report export passwords",
+            "present": bool(report_password_count),
+            "category": "reports",
+            "rotatable": True,
+            "count": report_password_count,
         },
     ]
 

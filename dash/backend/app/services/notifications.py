@@ -59,6 +59,7 @@ class EventType(StrEnum):
     STORAGE_PRESSURE = "storage_pressure"
     UPDATE_AVAILABLE = "update_available"
     SECURITY_ALERT = "security_alert"
+    REPORT_READY = "report_ready"
 
 
 # Events treated as emergencies: they may be delivered even during quiet hours.
@@ -85,6 +86,7 @@ EVENT_CATALOG: dict[str, str] = {
     EventType.STORAGE_PRESSURE: "Storage is under pressure",
     EventType.UPDATE_AVAILABLE: "An update is available",
     EventType.SECURITY_ALERT: "An account security event needs attention",
+    EventType.REPORT_READY: "A scheduled report is ready",
 }
 
 

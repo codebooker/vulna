@@ -52,6 +52,19 @@ from app.models.finding import Finding
 from app.models.finding_note import FindingNote
 from app.models.network_scope import NetworkScope
 from app.models.organization import Organization
+from app.models.passive_inventory import (
+    AssetInventoryState,
+    AssetObservation,
+    AssetSourceLink,
+    ConnectorRun,
+    DailyFindingAggregate,
+    InventoryConnector,
+    InventoryLifecycleEvent,
+    ReconciliationCandidate,
+    ReportTemplate,
+    ReportTemplateRun,
+    ReportTemplateSchedule,
+)
 from app.models.probe import Probe
 from app.models.report import Report
 from app.models.risk import (
@@ -83,7 +96,7 @@ from app.models.ticketing import TicketConnector, TicketSync, TicketSyncEvent
 from app.models.user import User
 from app.models.user_lifecycle import UserSiteAssignment
 
-EXPORT_SCHEMA_VERSION = "7"
+EXPORT_SCHEMA_VERSION = "8"
 SUPPORTED_IMPORT_SCHEMA_VERSIONS = {
     "1",
     "2",
@@ -91,6 +104,7 @@ SUPPORTED_IMPORT_SCHEMA_VERSIONS = {
     "4",
     "5",
     "6",
+    "7",
     EXPORT_SCHEMA_VERSION,
 }
 CHECKSUM_FIELD = "checksum"
@@ -173,6 +187,17 @@ async def build_export(
         "ticket_connectors": await _ticket_connectors(session, org_id),
         "ticket_syncs": await _ticket_syncs(session, org_id),
         "ticket_sync_events": await _ticket_sync_events(session, org_id),
+        "inventory_connectors": await _inventory_connectors(session, org_id),
+        "connector_runs": await _connector_runs(session, org_id),
+        "asset_observations": await _asset_observations(session, org_id),
+        "asset_source_links": await _asset_source_links(session, org_id),
+        "asset_inventory_states": await _asset_inventory_states(session, org_id),
+        "inventory_lifecycle_events": await _inventory_lifecycle_events(session, org_id),
+        "reconciliation_candidates": await _reconciliation_candidates(session, org_id),
+        "daily_finding_aggregates": await _daily_finding_aggregates(session, org_id),
+        "report_templates": await _report_templates(session, org_id),
+        "report_template_schedules": await _report_template_schedules(session, org_id),
+        "report_template_runs": await _report_template_runs(session, org_id),
         "reports": await _reports(session, org_id),
         "risk_acceptances": await _risk_acceptances(session, org_id),
         "finding_notes": await _finding_notes(session, org_id),
@@ -823,9 +848,7 @@ async def _finding_sla_calculations(
 ) -> list[dict[str, Any]]:
     rows = (
         await session.execute(
-            select(FindingSlaCalculation).where(
-                FindingSlaCalculation.organization_id == org_id
-            )
+            select(FindingSlaCalculation).where(FindingSlaCalculation.organization_id == org_id)
         )
     ).scalars()
     return [
@@ -886,9 +909,7 @@ async def _sla_history(session: AsyncSession, org_id: uuid.UUID) -> list[dict[st
     ]
 
 
-async def _remediation_guidance(
-    session: AsyncSession, org_id: uuid.UUID
-) -> list[dict[str, Any]]:
+async def _remediation_guidance(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, Any]]:
     rows = (
         await session.execute(
             select(RemediationGuidance).where(RemediationGuidance.organization_id == org_id)
@@ -910,9 +931,7 @@ async def _remediation_guidance(
     ]
 
 
-async def _ticket_connectors(
-    session: AsyncSession, org_id: uuid.UUID
-) -> list[dict[str, Any]]:
+async def _ticket_connectors(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, Any]]:
     rows = (
         await session.execute(
             select(TicketConnector).where(TicketConnector.organization_id == org_id)
@@ -956,9 +975,7 @@ async def _ticket_syncs(session: AsyncSession, org_id: uuid.UUID) -> list[dict[s
     ]
 
 
-async def _ticket_sync_events(
-    session: AsyncSession, org_id: uuid.UUID
-) -> list[dict[str, Any]]:
+async def _ticket_sync_events(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, Any]]:
     rows = (
         await session.execute(
             select(TicketSyncEvent).where(TicketSyncEvent.organization_id == org_id)
@@ -1115,6 +1132,266 @@ async def _finding_decisions(session: AsyncSession, org_id: uuid.UUID) -> list[d
             "created_by_user_id": (str(row.created_by_user_id) if row.created_by_user_id else None),
             "revoked_by_user_id": (str(row.revoked_by_user_id) if row.revoked_by_user_id else None),
             "revoked_at": _iso(row.revoked_at),
+            "created_at": _iso(row.created_at),
+        }
+        for row in rows
+    ]
+
+
+async def _inventory_connectors(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, Any]]:
+    rows = (
+        await session.execute(
+            select(InventoryConnector).where(InventoryConnector.organization_id == org_id)
+        )
+    ).scalars()
+    return [
+        {
+            "id": str(row.id),
+            "site_id": str(row.site_id),
+            "name": row.name,
+            "connector_type": row.connector_type.value,
+            "base_url": row.base_url,
+            "config": row.config_json,
+            "has_secret": bool(row.encrypted_secret),
+            "enabled": row.enabled,
+            "interval_minutes": row.interval_minutes,
+            "next_run_at": _iso(row.next_run_at),
+            "successful_test_at": _iso(row.successful_test_at),
+            "last_run_at": _iso(row.last_run_at),
+        }
+        for row in rows
+    ]
+
+
+async def _connector_runs(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, Any]]:
+    rows = (
+        await session.execute(select(ConnectorRun).where(ConnectorRun.organization_id == org_id))
+    ).scalars()
+    return [
+        {
+            "id": str(row.id),
+            "site_id": str(row.site_id),
+            "connector_id": str(row.connector_id),
+            "status": row.status.value,
+            "started_at": _iso(row.started_at),
+            "finished_at": _iso(row.finished_at),
+            "records_read": row.records_read,
+            "observations_created": row.observations_created,
+            "has_cursor": bool(row.cursor_json),
+        }
+        for row in rows
+    ]
+
+
+async def _asset_observations(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, Any]]:
+    rows = (
+        await session.execute(
+            select(AssetObservation).where(AssetObservation.organization_id == org_id)
+        )
+    ).scalars()
+    return [
+        {
+            "id": str(row.id),
+            "site_id": str(row.site_id),
+            "connector_id": str(row.connector_id),
+            "run_id": str(row.run_id),
+            "source_record_id": row.source_record_id,
+            "observed_at": _iso(row.observed_at),
+            "identifiers": row.identifiers_json,
+            "attributes": row.attributes_json,
+            "payload_hash": row.payload_hash,
+            "matched_asset_id": str(row.matched_asset_id) if row.matched_asset_id else None,
+        }
+        for row in rows
+    ]
+
+
+async def _asset_source_links(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, Any]]:
+    rows = (
+        await session.execute(
+            select(AssetSourceLink).where(AssetSourceLink.organization_id == org_id)
+        )
+    ).scalars()
+    return [
+        {
+            "id": str(row.id),
+            "site_id": str(row.site_id),
+            "connector_id": str(row.connector_id),
+            "source_record_id": row.source_record_id,
+            "asset_id": str(row.asset_id),
+            "first_observed_at": _iso(row.first_observed_at),
+            "last_observed_at": _iso(row.last_observed_at),
+            "identifiers": row.identifiers_json,
+        }
+        for row in rows
+    ]
+
+
+async def _asset_inventory_states(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, Any]]:
+    rows = (
+        await session.execute(
+            select(AssetInventoryState).where(AssetInventoryState.organization_id == org_id)
+        )
+    ).scalars()
+    return [
+        {
+            "asset_id": str(row.asset_id),
+            "site_id": str(row.site_id),
+            "state": row.state.value,
+            "expected": row.expected,
+            "discovered_at": _iso(row.discovered_at),
+            "assessed_at": _iso(row.assessed_at),
+            "last_observed_at": _iso(row.last_observed_at),
+            "missing_since": _iso(row.missing_since),
+            "stale_after_days": row.stale_after_days,
+        }
+        for row in rows
+    ]
+
+
+async def _inventory_lifecycle_events(
+    session: AsyncSession, org_id: uuid.UUID
+) -> list[dict[str, Any]]:
+    rows = (
+        await session.execute(
+            select(InventoryLifecycleEvent).where(InventoryLifecycleEvent.organization_id == org_id)
+        )
+    ).scalars()
+    return [
+        {
+            "id": str(row.id),
+            "site_id": str(row.site_id),
+            "asset_id": str(row.asset_id),
+            "previous_state": row.previous_state.value if row.previous_state else None,
+            "new_state": row.new_state.value,
+            "reason": row.reason,
+            "source_observation_id": (
+                str(row.source_observation_id) if row.source_observation_id else None
+            ),
+            "metadata": row.metadata_json,
+            "created_at": _iso(row.created_at),
+        }
+        for row in rows
+    ]
+
+
+async def _reconciliation_candidates(
+    session: AsyncSession, org_id: uuid.UUID
+) -> list[dict[str, Any]]:
+    rows = (
+        await session.execute(
+            select(ReconciliationCandidate).where(ReconciliationCandidate.organization_id == org_id)
+        )
+    ).scalars()
+    return [
+        {
+            "id": str(row.id),
+            "site_id": str(row.site_id),
+            "observation_id": str(row.observation_id),
+            "candidate_asset_id": str(row.candidate_asset_id),
+            "score": row.score,
+            "reasons": row.reasons_json,
+            "conflicts": row.conflicts_json,
+            "status": row.status.value,
+            "merge_snapshot": row.merge_snapshot_json,
+            "decided_by_user_id": (str(row.decided_by_user_id) if row.decided_by_user_id else None),
+            "decided_at": _iso(row.decided_at),
+            "split_at": _iso(row.split_at),
+        }
+        for row in rows
+    ]
+
+
+async def _daily_finding_aggregates(
+    session: AsyncSession, org_id: uuid.UUID
+) -> list[dict[str, Any]]:
+    rows = (
+        await session.execute(
+            select(DailyFindingAggregate).where(DailyFindingAggregate.organization_id == org_id)
+        )
+    ).scalars()
+    return [
+        {
+            "site_id": str(row.site_id) if row.site_id else None,
+            "date": row.aggregate_date.isoformat(),
+            "finding_total": row.finding_total,
+            "finding_open": row.finding_open,
+            "finding_resolved": row.finding_resolved,
+            "finding_breached": row.finding_breached,
+            "severity": row.severity_json,
+            "inventory_state": row.inventory_state_json,
+        }
+        for row in rows
+    ]
+
+
+async def _report_templates(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, Any]]:
+    rows = (
+        await session.execute(
+            select(ReportTemplate).where(ReportTemplate.organization_id == org_id)
+        )
+    ).scalars()
+    return [
+        {
+            "id": str(row.id),
+            "site_id": str(row.site_id) if row.site_id else None,
+            "name": row.name,
+            "description": row.description,
+            "version": row.version,
+            "report_types": row.report_types_json,
+            "sections": row.sections_json,
+            "filters": row.filters_json,
+            "redaction": row.redaction_json,
+            "branding": row.branding_json,
+            "has_export_password": bool(row.encrypted_export_password),
+            "enabled": row.enabled,
+        }
+        for row in rows
+    ]
+
+
+async def _report_template_schedules(
+    session: AsyncSession, org_id: uuid.UUID
+) -> list[dict[str, Any]]:
+    rows = (
+        await session.execute(
+            select(ReportTemplateSchedule).where(ReportTemplateSchedule.organization_id == org_id)
+        )
+    ).scalars()
+    return [
+        {
+            "id": str(row.id),
+            "site_id": str(row.site_id) if row.site_id else None,
+            "template_id": str(row.template_id),
+            "interval_minutes": row.interval_minutes,
+            "next_run_at": _iso(row.next_run_at),
+            "delivery": row.delivery_json,
+            "enabled": row.enabled,
+            "last_run_at": _iso(row.last_run_at),
+        }
+        for row in rows
+    ]
+
+
+async def _report_template_runs(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, Any]]:
+    rows = (
+        await session.execute(
+            select(ReportTemplateRun).where(ReportTemplateRun.organization_id == org_id)
+        )
+    ).scalars()
+    return [
+        {
+            "id": str(row.id),
+            "site_id": str(row.site_id) if row.site_id else None,
+            "template_id": str(row.template_id),
+            "schedule_id": str(row.schedule_id) if row.schedule_id else None,
+            "status": row.status.value,
+            "template_version": row.template_version,
+            "parameters": row.parameters_json,
+            "report_ids": row.report_ids_json,
+            "comparison": row.comparison_json,
+            "started_at": _iso(row.started_at),
+            "finished_at": _iso(row.finished_at),
             "created_at": _iso(row.created_at),
         }
         for row in rows

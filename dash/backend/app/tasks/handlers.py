@@ -15,7 +15,20 @@ from app.intelligence.fetchers import HttpFetcher
 from app.models.background_task import BackgroundTask
 from app.models.enums import FeedSource, ReportType
 from app.models.scan_job import ScanJob
-from app.services import intelligence, notify, pentest, reaper, risk, scheduler, sla, ticketing
+from app.services import (
+    analytics,
+    intelligence,
+    notify,
+    passive_inventory,
+    pentest,
+    reaper,
+    reconciliation,
+    report_builder,
+    risk,
+    scheduler,
+    sla,
+    ticketing,
+)
 from app.services.reports import generate_reports
 
 TaskHandler = Callable[[AsyncSession, BackgroundTask, Settings], Awaitable[dict[str, Any]]]
@@ -43,8 +56,18 @@ async def system_sweep(
         "expired_finding_decisions": await risk.expire_finding_decisions(
             session, now, organization_id=task.organization_id
         ),
-        "sla": await sla.sweep_sla_status(
-            session, now, organization_id=task.organization_id
+        "sla": await sla.sweep_sla_status(session, now, organization_id=task.organization_id),
+        "daily_aggregates": await analytics.refresh_daily_aggregates(
+            session, task.organization_id, now=now
+        ),
+        "scheduled_reports": await report_builder.schedule_due_templates(
+            session, task.organization_id, now=now
+        ),
+        "inventory_lifecycle": await reconciliation.sweep_inventory_states(
+            session, task.organization_id, now=now
+        ),
+        "scheduled_inventory": await passive_inventory.schedule_due_connectors(
+            session, task.organization_id, now=now
         ),
     }
 
@@ -121,12 +144,26 @@ async def sync_ticket_task(
     return await ticketing.execute_sync_task(session, task, settings)
 
 
+async def collect_inventory_task(
+    session: AsyncSession, task: BackgroundTask, settings: Settings
+) -> dict[str, Any]:
+    return await passive_inventory.execute_connector_task(session, task, settings)
+
+
+async def generate_report_template_task(
+    session: AsyncSession, task: BackgroundTask, settings: Settings
+) -> dict[str, Any]:
+    return await report_builder.execute_template_task(session, task, settings)
+
+
 HANDLERS: dict[str, TaskHandler] = {
     "system.sweep": system_sweep,
     "notifications.dispatch": dispatch_notifications,
     "feeds.sync": sync_feed,
     "reports.generate": generate_report_task,
     "tickets.sync": sync_ticket_task,
+    "inventory.collect": collect_inventory_task,
+    "report_templates.generate": generate_report_template_task,
 }
 
 

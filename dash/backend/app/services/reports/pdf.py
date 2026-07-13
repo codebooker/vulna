@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 from fpdf import FPDF
-from fpdf.enums import XPos, YPos
+from fpdf.enums import EncryptionMethod, XPos, YPos
 
 TEMPLATE_VERSION = "1"
 
@@ -34,6 +34,15 @@ class _Doc(FPDF):
         self._subtitle = _txt(subtitle)
         self.set_auto_page_break(auto=True, margin=15)
         self.set_title(self._title)
+        self._accent = (238, 240, 244)
+
+    def set_accent(self, value: str) -> None:
+        if len(value) == 7 and value.startswith("#"):
+            self._accent = (
+                int(value[1:3], 16),
+                int(value[3:5], 16),
+                int(value[5:7], 16),
+            )
 
     def header(self) -> None:
         self.set_font("Helvetica", "B", 9)
@@ -56,7 +65,7 @@ class _Doc(FPDF):
     def h2(self, text: str) -> None:
         self.ln(2)
         self.set_font("Helvetica", "B", 13)
-        self.set_fill_color(238, 240, 244)
+        self.set_fill_color(*self._accent)
         self.cell(0, 8, _txt(text), new_x=XPos.LMARGIN, new_y=YPos.NEXT, fill=True)
         self.ln(1)
 
@@ -95,11 +104,26 @@ def _org_site(snapshot: dict[str, Any]) -> str:
     return f"{org} — {site}" if site else org
 
 
+def _configure_security(doc: FPDF, snapshot: dict[str, Any]) -> None:
+    branding = (snapshot.get("report_template") or {}).get("branding") or {}
+    if isinstance(doc, _Doc) and branding.get("primary_color"):
+        doc.set_accent(str(branding["primary_color"]))
+    password = snapshot.pop("_pdf_user_password", None)
+    if password:
+        doc.set_encryption(
+            owner_password=str(password),
+            user_password=str(password),
+            encryption_method=EncryptionMethod.AES_256,
+            encrypt_metadata=True,
+        )
+
+
 def executive_pdf(snapshot: dict[str, Any]) -> bytes:
     summary = snapshot.get("summary", {})
     counts = summary.get("severity_counts", {})
     scan = snapshot.get("scan_job", {})
     doc = _Doc("Executive Assessment Summary", _org_site(snapshot))
+    _configure_security(doc, snapshot)
     doc.add_page()
 
     doc.h1("Executive Assessment Summary")
@@ -152,6 +176,7 @@ def technical_pdf(snapshot: dict[str, Any]) -> bytes:
     counts = summary.get("severity_counts", {})
     scan = snapshot.get("scan_job", {})
     doc = _Doc("Technical Assessment Report", _org_site(snapshot))
+    _configure_security(doc, snapshot)
     doc.add_page()
 
     doc.h1("Technical Assessment Report")
@@ -213,6 +238,7 @@ def pentest_pdf(snapshot: dict[str, Any]) -> bytes:
     sessions = snapshot.get("pentest_sessions", [])
     scan = snapshot.get("scan_job", {})
     doc = _Doc("Controlled Pentest Report", _org_site(snapshot))
+    _configure_security(doc, snapshot)
     doc.add_page()
 
     doc.h1("Controlled Pentest Report")
@@ -291,6 +317,7 @@ def full_spectrum_pdf(snapshot: dict[str, Any]) -> bytes:
     counts = summary.get("severity_counts", {})
     sessions = snapshot.get("pentest_sessions", [])
     doc = _Doc("Full-Spectrum Assessment Report", _org_site(snapshot))
+    _configure_security(doc, snapshot)
     doc.add_page()
 
     doc.h1("Full-Spectrum Assessment Report")

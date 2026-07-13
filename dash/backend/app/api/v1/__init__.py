@@ -3,6 +3,7 @@
 from fastapi import APIRouter
 
 from app.api.v1 import (
+    analytics,
     asset_context,
     assets,
     audit,
@@ -25,12 +26,14 @@ from app.api.v1 import (
     notifications,
     onboarding,
     organizations,
+    passive_inventory,
     pentest,
     portability,
     presets,
     privacy,
     probes,
     relays,
+    report_templates,
     reports,
     resources,
     risk,
@@ -67,6 +70,7 @@ api_router.include_router(relays.router)
 api_router.include_router(credentials.router)
 api_router.include_router(jobs.router)
 api_router.include_router(dashboard.router)
+api_router.include_router(analytics.router)
 api_router.include_router(diagnostics.router)
 api_router.include_router(demo.router)
 api_router.include_router(help.router)
@@ -87,6 +91,7 @@ api_router.include_router(asset_context.tag_router)
 api_router.include_router(asset_context.group_router)
 api_router.include_router(asset_context.department_router)
 api_router.include_router(assets.router)
+api_router.include_router(passive_inventory.router)
 api_router.include_router(software.router)
 api_router.include_router(changes.router)
 api_router.include_router(risk.profile_router)
@@ -102,4 +107,5 @@ api_router.include_router(workflows.router)
 api_router.include_router(feeds.router)
 api_router.include_router(cve.router)
 api_router.include_router(reports.router)
+api_router.include_router(report_templates.router)
 api_router.include_router(audit.router)

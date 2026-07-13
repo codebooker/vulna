@@ -313,7 +313,7 @@ async def test_one_way_vault_envelope_inventory_and_eol_override(
     exported = await client.get("/api/v1/portability/export", headers=admin_headers)
     assert exported.status_code == 200, exported.text
     bundle = exported.json()
-    assert bundle["schema_version"] == "7"
+    assert bundle["schema_version"] == "8"
     assert any(row["id"] == credential["id"] for row in bundle["credential_records"])
     assert len(bundle["software_inventory"]) == 2
     export_text = json.dumps(bundle)

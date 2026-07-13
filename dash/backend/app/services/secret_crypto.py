@@ -20,6 +20,8 @@ class SecretPurpose(StrEnum):
     CREDENTIAL_SSH_SECRET = "credential_ssh_secret"  # noqa: S105 - purpose label
     CREDENTIAL_WINRM_SECRET = "credential_winrm_secret"  # noqa: S105 - purpose label
     TICKET_CONNECTOR_SECRET = "ticket_connector_secret"  # noqa: S105 - purpose label
+    INVENTORY_CONNECTOR_SECRET = "inventory_connector_secret"  # noqa: S105
+    REPORT_EXPORT_PASSWORD = "report_export_password"  # noqa: S105
 
 
 _CONTEXT = {
@@ -32,6 +34,8 @@ _CONTEXT = {
     SecretPurpose.CREDENTIAL_SSH_SECRET: b"vulna-credential-ssh-secret-encryption-v1",
     SecretPurpose.CREDENTIAL_WINRM_SECRET: b"vulna-credential-winrm-secret-encryption-v1",
     SecretPurpose.TICKET_CONNECTOR_SECRET: b"vulna-ticket-connector-secret-encryption-v1",
+    SecretPurpose.INVENTORY_CONNECTOR_SECRET: b"vulna-inventory-connector-secret-encryption-v1",
+    SecretPurpose.REPORT_EXPORT_PASSWORD: b"vulna-report-export-password-encryption-v1",
 }
 
 

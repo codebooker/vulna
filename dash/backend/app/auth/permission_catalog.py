@@ -199,6 +199,58 @@ PERMISSIONS: tuple[PermissionDefinition, ...] = (
         site_scoped=True,
     ),
     _permission(
+        "connectors.read",
+        "View inventory connectors",
+        "View passive inventory source metadata and runs.",
+        site_scoped=True,
+    ),
+    _permission(
+        "connectors.manage",
+        "Manage inventory connectors",
+        "Configure, test, schedule, and disable passive inventory sources.",
+        site_scoped=True,
+        high_risk=True,
+    ),
+    _permission(
+        "connectors.run",
+        "Run inventory connectors",
+        "Queue read-only inventory collection for assigned sites.",
+        site_scoped=True,
+        high_risk=True,
+    ),
+    _permission(
+        "reconciliation.read",
+        "View inventory reconciliation",
+        "View source observations and reconciliation explanations.",
+        site_scoped=True,
+    ),
+    _permission(
+        "reconciliation.manage",
+        "Manage inventory reconciliation",
+        "Approve, reject, merge, and split inventory observations.",
+        site_scoped=True,
+        high_risk=True,
+    ),
+    _permission(
+        "analytics.read",
+        "View inventory analytics",
+        "View scoped dashboards, history, and daily aggregates.",
+        site_scoped=True,
+    ),
+    _permission(
+        "report_templates.read",
+        "View report templates",
+        "View reusable report definitions and generation history.",
+        site_scoped=True,
+    ),
+    _permission(
+        "report_templates.manage",
+        "Manage report templates",
+        "Create scheduled, branded, redacted, and protected report exports.",
+        site_scoped=True,
+        high_risk=True,
+    ),
+    _permission(
         "pentest.read", "View pentest", "View controlled pentest sessions.", site_scoped=True
     ),
     _permission(
@@ -325,6 +377,8 @@ BUILTIN_ROLE_PERMISSIONS: dict[UserRole, frozenset[str]] = {
             "remediation.manage",
             "sla.manage",
             "ticketing.sync",
+            "connectors.run",
+            "reconciliation.manage",
             "pentest.request",
             "workflows.run",
             "reports.create",

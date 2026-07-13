@@ -44,8 +44,12 @@ username, and safe connection metadata), assignments, sanitized tests/usage,
 software inventory/history, and EOL overrides. It excludes encrypted secret-version
 values, Scout private keys, and job credential ciphertext. Schema v7 adds SLA
 calculations, exceptions, guidance, and sanitized ticket connector/sync metadata.
-Validation accepts v1 through v7; restoring usable vault or connector secrets still
-requires an encrypted backup.
+Schema v8 adds sanitized passive inventory connector/run metadata, append-only
+observations, source links, lifecycle history, reconciliation explanations and
+snapshots, daily aggregates, and report template/schedule/run metadata. Connector
+ciphertext, report export passwords, analytics cache rows, and task payloads remain
+excluded. Validation accepts v1 through v8; restoring usable vault or connector
+secrets still requires an encrypted backup.
 Background task payloads, leases, retries, dead letters, results, and process
 heartbeats are operational state and are excluded from portability exports. They
 remain available only through encrypted database backup/restore.

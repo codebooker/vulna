@@ -14,6 +14,7 @@ deployment. The machine-readable version is
 | Update checks | none | — | the app never contacts a release server |
 | OIDC / SAML sign-in | operator-configured identity provider | identity protocol messages only | per provider; off by default |
 | Ticket synchronization | operator-configured ticket provider | selected finding fields only; never evidence/raw output | per connector; tested and off by default |
+| Passive inventory collection | operator-configured inventory source | read-only bounded asset observations | per connector; tested and off by default |
 
 Telemetry, when enabled, **never** contains IP addresses, hostnames, usernames,
 findings, CVEs tied to assets, evidence, credentials, report contents, or a stable
@@ -58,6 +59,11 @@ cross-installation identifier.
 | Signed Scout credential envelopes | database (Scout-bound ciphertext) | critical | no |
 | Ticket connector metadata and synchronization history | database | high | metadata only |
 | Ticket connector secrets | database (purpose-bound encrypted) | critical | no |
+| Passive connector metadata, observations, source links, lifecycle, reconciliation snapshots, and aggregate history | database | high | yes or metadata only |
+| Passive inventory connector secrets | database (purpose-bound encrypted) | critical | no |
+| Report templates, schedules, and comparison history | database | medium | yes |
+| Report export passwords | database (purpose-bound encrypted) | critical | no |
+| Scope-specific analytics cache | database | medium | no |
 | Internal CA + signing keys | keys volume | critical | no |
 | Notification / SMTP secrets | database (encrypted) | high | no |
 
@@ -66,3 +72,10 @@ or "metadata only". User lifecycle events are backup-only; exported user records
 contain status/source/role/site access metadata but never authentication or
 session material.
 Secrets, keys, evidence, and raw output never appear in an export.
+
+Passive inventory preserves every bounded source observation before applying an
+identity decision. Exact identifier weights make unique conflict-free scores of 95
+or above auto-merge; 70–94 requires review, and each merge is reversible. Scoped
+analytics and report templates reuse the same permission predicates. See
+[Inventory intelligence](passive-inventory.md) and
+[ADR 0045](adr/0045-passive-inventory-reconciliation.md).

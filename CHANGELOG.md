@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 44 core: passive inventory, reconciliation, analytics, and report builder
+
+- A provider-neutral, read-only inventory connector contract now runs through the
+  durable worker and preserves every bounded source observation, run, source link,
+  and expected/discovered/assessed/stale/missing lifecycle transition.
+- Reconciliation weights immutable identifiers highest, auto-merges only a unique
+  conflict-free score of at least 95, routes scores 70–94 to review, and retains a
+  reversible merge snapshot for audited split operations.
+- Permission-scoped server dashboards use constant-query-count SQL aggregation,
+  scope-specific database caching, daily history, and comparison periods.
+- Reusable report templates support site/tag/group/date filters, bounded redaction,
+  branding, worker-backed schedules and selected-field delivery notifications, and
+  optional purpose-encrypted AES-256 PDF passwords.
+- The additive migration safely backfills existing assets, portability advances to
+  schema v8 without connector/export ciphertext, and the capability remains
+  `in_progress` until every Phase 44 provider adapter is qualified.
+
 ### Added — Phase 43 connector: generic webhook/API
 
 - A bounded generic JSON connector now supports bearer, named-header, and basic

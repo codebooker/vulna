@@ -135,6 +135,15 @@ import type {
   TicketConnectorType,
   TicketSync,
 } from '../types/sla-ticketing';
+import type {
+  ConnectorRun,
+  InventoryConnector,
+  InventoryDashboard,
+  PassiveConnectorType,
+  ReconciliationCandidate,
+  ReportTemplate,
+  ReportTemplateRun,
+} from '../types/passive-inventory';
 
 // In development, Vite proxies /api to the backend (see vite.config.ts).
 // In production the frontend is served behind the same reverse proxy as the API.
@@ -1399,6 +1408,111 @@ export const api = {
   },
   exportData(token: string): Promise<Record<string, unknown>> {
     return request<Record<string, unknown>>('/api/v1/portability/export', { token });
+  },
+
+  // --- Passive inventory, reconciliation, analytics, and report builder (Phase 44) ---
+  inventoryDashboard(token: string): Promise<InventoryDashboard> {
+    return request<InventoryDashboard>('/api/v1/analytics/dashboard', { token });
+  },
+  listInventoryConnectors(token: string): Promise<InventoryConnector[]> {
+    return request<InventoryConnector[]>('/api/v1/inventory/connectors', { token });
+  },
+  createInventoryConnector(
+    token: string,
+    body: {
+      site_id: string;
+      name: string;
+      connector_type: PassiveConnectorType;
+      base_url?: string;
+      secret?: string;
+      interval_minutes?: number;
+      config?: Record<string, unknown>;
+    },
+  ): Promise<InventoryConnector> {
+    return request<InventoryConnector>('/api/v1/inventory/connectors', {
+      method: 'POST',
+      token,
+      body,
+    });
+  },
+  testInventoryConnector(
+    token: string,
+    connectorId: string,
+  ): Promise<{ succeeded: boolean; error: string | null }> {
+    return request(`/api/v1/inventory/connectors/${encodeURIComponent(connectorId)}/test`, {
+      method: 'POST',
+      token,
+    });
+  },
+  updateInventoryConnector(
+    token: string,
+    connectorId: string,
+    body: {
+      enabled?: boolean;
+      interval_minutes?: number | null;
+      secret?: string;
+      clear_secret?: boolean;
+      config?: Record<string, unknown>;
+    },
+  ): Promise<InventoryConnector> {
+    return request<InventoryConnector>(
+      `/api/v1/inventory/connectors/${encodeURIComponent(connectorId)}`,
+      { method: 'PATCH', token, body },
+    );
+  },
+  runInventoryConnector(token: string, connectorId: string): Promise<unknown> {
+    return request(`/api/v1/inventory/connectors/${encodeURIComponent(connectorId)}/runs`, {
+      method: 'POST',
+      token,
+    });
+  },
+  listConnectorRuns(token: string): Promise<ConnectorRun[]> {
+    return request<ConnectorRun[]>('/api/v1/inventory/runs', { token });
+  },
+  listReconciliationCandidates(token: string): Promise<ReconciliationCandidate[]> {
+    return request<ReconciliationCandidate[]>('/api/v1/inventory/reconciliation', { token });
+  },
+  decideReconciliation(
+    token: string,
+    candidateId: string,
+    action: 'approve' | 'reject' | 'split',
+  ): Promise<ReconciliationCandidate> {
+    return request<ReconciliationCandidate>(
+      `/api/v1/inventory/reconciliation/${encodeURIComponent(candidateId)}/decision`,
+      { method: 'POST', token, body: { action } },
+    );
+  },
+  listReportTemplates(token: string): Promise<ReportTemplate[]> {
+    return request<ReportTemplate[]>('/api/v1/report-templates', { token });
+  },
+  createReportTemplate(
+    token: string,
+    body: {
+      site_id?: string;
+      name: string;
+      description?: string;
+      report_types: string[];
+      sections?: string[];
+      filters?: Record<string, unknown>;
+      redaction?: Record<string, unknown>;
+      branding?: Record<string, unknown>;
+      export_password?: string;
+    },
+  ): Promise<ReportTemplate> {
+    return request<ReportTemplate>('/api/v1/report-templates', {
+      method: 'POST',
+      token,
+      body,
+    });
+  },
+  runReportTemplate(token: string, templateId: string): Promise<unknown> {
+    return request(`/api/v1/report-templates/${encodeURIComponent(templateId)}/runs`, {
+      method: 'POST',
+      token,
+    });
+  },
+  listReportTemplateRuns(token: string): Promise<ReportTemplateRun[]> {
+    return request<ReportTemplateRun[]>('/api/v1/report-templates/runs', { token });
   },
 
   // --- VulnaRelay (Phase 16, opt-in) ---

@@ -17,6 +17,17 @@ step is needed for schema changes unless noted.
 
 ## Unreleased (on `main`)
 
+- **Passive inventory and report builder (Phase 44 core).** The additive upgrade
+  creates connector/run/observation/source-link records, reconciliation candidates
+  and reversible snapshots, inventory lifecycle projections/events, daily
+  aggregates and scoped cache entries, plus report templates/schedules/runs.
+  Existing assets receive a neutral `assessed` or `discovered` state based only on
+  their existing assessment timestamp; no connector, expected policy, schedule, or
+  outbound delivery is enabled automatically. Portability moves to schema v8 and
+  accepts v1–v7 while excluding connector ciphertext, export passwords, cache rows,
+  and task payloads. Downgrade drops Phase 44 provenance and cannot reconstruct
+  source links or split history; take and verify an encrypted backup first.
+
 - **Remediation SLAs and ticket synchronization (Phase 43 core).** The additive
   upgrade creates ordered SLA policies, immutable finding calculations, exception
   and event history, structured guidance, purpose-encrypted connector

@@ -37,6 +37,7 @@ ADVANCED_ROUTES: tuple[str, ...] = (
     "tasks",
     "authenticated_inventory",
     "ticketing",
+    "passive_inventory",
     "system_health",
 )
 

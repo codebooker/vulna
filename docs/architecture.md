@@ -87,6 +87,13 @@ the API commits the finding first, then the durable worker sends only selected
 fields and persists the remote outcome independently. See [Remediation SLAs and
 ticket synchronization](sla-ticketing.md) and [ADR 0044](adr/0044-sla-ticket-sync-boundary.md).
 
+Passive inventory connectors expose a read-only provider contract and feed an
+append-only observation ledger. Deterministic reconciliation materializes current
+source links while keeping every merge reversible; lifecycle events and daily
+aggregates power permission-scoped analytics and report templates. See
+[Inventory intelligence](passive-inventory.md) and
+[ADR 0045](adr/0045-passive-inventory-reconciliation.md).
+
 ### VulnaScout (`scout/`)
 
 A single statically linked Go binary deployed as a systemd service, container,

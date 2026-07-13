@@ -8,6 +8,7 @@ of later database changes.
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import uuid
 from collections.abc import Callable
@@ -65,6 +66,8 @@ async def generate_reports(
     now: datetime,
     report_ids: dict[ReportType, uuid.UUID] | None = None,
     asset_filter_ids: set[uuid.UUID] | None = None,
+    template_options: dict[str, Any] | None = None,
+    export_password: str | None = None,
 ) -> list[Report]:
     """Render and store the requested report artifacts for a scan job."""
     snapshot = await build_snapshot(
@@ -82,10 +85,22 @@ async def generate_reports(
         spec = ARTIFACTS[report_type]
         report_id = (report_ids or {}).get(report_type, uuid.uuid4())
         existing = await session.get(Report, report_id)
-        if existing is not None:
+        if existing is not None and existing.status == ReportStatus.COMPLETED:
             created.append(existing)
             continue
-        report = Report(
+        parameters = {
+            "snapshot_version": snapshot.get("schema_version"),
+            "snapshot_generated_at": snapshot.get("generated_at"),
+            "finding_count": snapshot.get("summary", {}).get("finding_count", 0),
+            "asset_filter_ids": (
+                sorted(str(value) for value in asset_filter_ids)
+                if asset_filter_ids is not None
+                else None
+            ),
+            "report_template": template_options or None,
+            "password_protected": bool(export_password and spec.format == ReportFormat.PDF),
+        }
+        report = existing or Report(
             id=report_id,
             organization_id=scan_job.organization_id,
             site_id=scan_job.site_id,
@@ -96,22 +111,24 @@ async def generate_reports(
             generated_by=requested_by,
             generated_at=now,
             expires_at=expires_at,
-            parameters_json={
-                "snapshot_version": snapshot.get("schema_version"),
-                "snapshot_generated_at": snapshot.get("generated_at"),
-                "finding_count": snapshot.get("summary", {}).get("finding_count", 0),
-                "asset_filter_ids": (
-                    sorted(str(value) for value in asset_filter_ids)
-                    if asset_filter_ids is not None
-                    else None
-                ),
-            },
+            parameters_json=parameters,
         )
+        report.status = ReportStatus.GENERATING
+        report.error = None
+        report.generated_at = now
+        report.expires_at = expires_at
+        report.parameters_json = parameters
         try:
-            data = spec.render(snapshot)
+            render_snapshot = _apply_template_options(snapshot, template_options or {})
+            if export_password and spec.format == ReportFormat.PDF:
+                render_snapshot["_pdf_user_password"] = export_password
+            data = spec.render(render_snapshot)
         except Exception as exc:  # defensive: one bad artifact must not abort the rest
             report.status = ReportStatus.FAILED
-            report.error = str(exc)[:1024]
+            error = str(exc)
+            if export_password:
+                error = error.replace(export_password, "[REDACTED]")
+            report.error = error[:1024]
             session.add(report)
             created.append(report)
             continue
@@ -127,3 +144,57 @@ async def generate_reports(
 
     await session.flush()
     return created
+
+
+def _apply_template_options(snapshot: dict[str, Any], options: dict[str, Any]) -> dict[str, Any]:
+    """Apply bounded presentation redaction without changing stored source data."""
+
+    rendered = copy.deepcopy(snapshot)
+    branding = options.get("branding") or {}
+    display_name = str(branding.get("display_name") or "").strip()
+    if display_name and rendered.get("organization"):
+        rendered["organization"]["name"] = display_name[:255]
+    redactions = set((options.get("redaction") or {}).get("fields") or [])
+    sections = set(options.get("sections") or [])
+    if sections:
+        for section in (
+            "assets",
+            "services",
+            "findings",
+            "cve_exposure",
+            "changes",
+            "pentest_sessions",
+        ):
+            if section not in sections:
+                rendered[section] = []
+    for asset in rendered.get("assets", []):
+        if "network_identifiers" in redactions:
+            asset["ip_addresses"] = []
+            asset["mac_addresses"] = []
+            asset["hostnames"] = []
+        if "asset_names" in redactions:
+            asset["canonical_name"] = "Redacted asset"
+        if "ownership" in redactions:
+            asset["owner_user_id"] = None
+            asset["department"] = None
+    for service in rendered.get("services", []):
+        if "network_identifiers" in redactions:
+            service["ip_address"] = None
+        if "asset_names" in redactions:
+            service["asset_name"] = "Redacted asset"
+    for finding in rendered.get("findings", []):
+        if "asset_names" in redactions:
+            finding["asset_name"] = "Redacted asset"
+        if "remediation" in redactions:
+            finding["remediation"] = None
+    for exposure in rendered.get("cve_exposure", []):
+        if "asset_names" in redactions:
+            exposure["asset_name"] = "Redacted asset"
+    rendered["report_template"] = {
+        "name": options.get("name"),
+        "version": options.get("version"),
+        "sections": sorted(sections),
+        "redaction": {"fields": sorted(redactions)},
+        "branding": branding,
+    }
+    return rendered

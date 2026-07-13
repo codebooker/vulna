@@ -11,6 +11,7 @@ import {
   ListChecks,
   Network,
   PackageSearch,
+  DatabaseZap,
   TimerReset,
   Radar,
   Rocket,
@@ -53,6 +54,7 @@ import { AuthorizationPage } from '../pages/AuthorizationPage';
 import { TaskOperationsPage } from '../pages/TaskOperationsPage';
 import { AuthenticatedInventoryPage } from '../pages/AuthenticatedInventoryPage';
 import { SlaTicketingPage } from '../pages/SlaTicketingPage';
+import { PassiveInventoryPage } from '../pages/PassiveInventoryPage';
 import type { Role } from '../types/auth';
 
 export interface RouteDef {
@@ -161,6 +163,14 @@ export const ROUTE_CATALOGUE: RouteSection[] = [
         icon: PackageSearch,
         Component: AuthenticatedInventoryPage,
         permission: 'credentials.read',
+      },
+      {
+        id: 'inventory-intelligence',
+        visibilityKey: 'passive_inventory',
+        label: 'Inventory intelligence',
+        icon: DatabaseZap,
+        Component: PassiveInventoryPage,
+        permission: 'analytics.read',
       },
       {
         id: 'sla-ticketing',

@@ -121,6 +121,14 @@ directly. See also [`threat-model.md`](threat-model.md) and
   or raw output, remote failures cannot roll back findings, sync is idempotent, and
   closure requires verification or an explicit audited reason
   (`app/services/ticketing.py`, `tests/test_sla_ticketing.py`).
+- [ ] Passive inventory adapters expose no source mutation method; public config
+  rejects secret fields, connector secrets use a distinct HKDF purpose, task
+  payloads contain only run IDs, observations reject secret-shaped attributes, and
+  reconciliation auto-merges only unique conflict-free scores at or above 95.
+  Every merge has a reversible snapshot and split audit (`tests/test_passive_inventory.py`).
+- [ ] Report export passwords use a separate HKDF purpose, appear only as
+  `has_export_password`, never enter task payloads/portability/audit metadata, and
+  AES-256 protection is applied only in renderer memory (`tests/test_passive_inventory.py`).
 - [ ] Scheduler replicas use PostgreSQL advisory-lock leader election and unique
   idempotency keys; queue backpressure is configured before connector workloads.
 - [ ] Untrusted scanner output parsed defensively (defusedxml for XML; malformed lines skipped).

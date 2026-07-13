@@ -113,6 +113,13 @@ disabled, idempotency keys and external ticket identities must survive, and a
 restored worker retry must not duplicate a successful remote ticket. No connector
 secret may appear in portability, task payloads, audit metadata, or logs.
 
+A Phase 44 restore test must verify connector ciphertext under its dedicated HKDF
+purpose, append-only observations, source links, lifecycle events, daily aggregates,
+reconciliation snapshots/splits, and report template schedules/runs. Report export
+passwords must decrypt only under their separate purpose and must not appear in
+task payloads, portability, audit metadata, or logs. Restored auto-merge decisions
+must remain reversible without contacting the original source.
+
 Post-Phase-39 background tasks, lease/retry/dead-letter state, and worker heartbeats
 are ordinary PostgreSQL records and are included in the encrypted database backup.
 After restore, start the API/migrations before the scheduler and worker. Leases from

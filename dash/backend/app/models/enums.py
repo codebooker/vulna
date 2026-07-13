@@ -645,6 +645,64 @@ class TicketSyncStatus(StrEnum):
     SKIPPED = "skipped"
 
 
+class PassiveConnectorType(StrEnum):
+    """Read-only sources supported by the Phase 44 inventory contract."""
+
+    DHCP = "dhcp"
+    DNS = "dns"
+    ACTIVE_DIRECTORY = "active_directory"
+    ENTRA = "entra"
+    UNIFI = "unifi"
+    VCENTER = "vcenter"
+    PROXMOX = "proxmox"
+    XCP_NG = "xcp_ng"
+    AWS = "aws"
+    AZURE = "azure"
+    GOOGLE_CLOUD = "google_cloud"
+    CSV = "csv"
+    GENERIC_API = "generic_api"
+
+
+class ConnectorRunStatus(StrEnum):
+    """Durable execution state for a passive connector run."""
+
+    QUEUED = "queued"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    PARTIAL = "partial"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class InventoryAssetState(StrEnum):
+    """Expected-versus-observed inventory lifecycle."""
+
+    EXPECTED = "expected"
+    DISCOVERED = "discovered"
+    ASSESSED = "assessed"
+    STALE = "stale"
+    MISSING = "missing"
+
+
+class ReconciliationStatus(StrEnum):
+    """Review and merge state for a source observation."""
+
+    PENDING = "pending"
+    AUTO_MERGED = "auto_merged"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    SPLIT = "split"
+
+
+class ReportTemplateRunStatus(StrEnum):
+    """Scheduled or interactive report-builder execution state."""
+
+    QUEUED = "queued"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+
+
 class RelayStatus(StrEnum):
     """Administrative lifecycle state of a VulnaRelay (Phase 16, opt-in).
 
