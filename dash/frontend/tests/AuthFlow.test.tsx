@@ -19,7 +19,10 @@ const adminUser = {
   is_active: true,
 };
 
-function installFetchMock({ refreshSession = false }: { refreshSession?: boolean } = {}) {
+function installFetchMock({
+  refreshSession = false,
+  mfaSession = false,
+}: { refreshSession?: boolean; mfaSession?: boolean } = {}) {
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     const method = init?.method ?? 'GET';
@@ -50,6 +53,10 @@ function installFetchMock({ refreshSession = false }: { refreshSession?: boolean
           token_type: 'bearer',
           expires_in: 900,
           session_id: 'session-1',
+          mfa_required: mfaSession,
+          mfa_enrollment_required: false,
+          mfa_methods: mfaSession ? ['totp', 'recovery_code'] : [],
+          mfa_grace_expires_at: null,
         });
       }
       return jsonResponse({ detail: 'Invalid email or password' }, 401);
@@ -66,10 +73,19 @@ function installFetchMock({ refreshSession = false }: { refreshSession?: boolean
       return jsonResponse({ detail: 'No refresh session' }, 401);
     }
     if (url.endsWith('/api/v1/auth/me')) {
-      if (headers.Authorization === 'Bearer tok123') {
+      if (headers.Authorization === 'Bearer tok123' || headers.Authorization === 'Bearer tok456') {
         return jsonResponse(adminUser);
       }
       return jsonResponse({ detail: 'Could not validate credentials' }, 401);
+    }
+    if (url.endsWith('/api/v1/mfa/totp/verify') && method === 'POST') {
+      return jsonResponse({
+        access_token: 'tok456',
+        token_type: 'bearer',
+        expires_in: 900,
+        method: 'totp',
+        recovery_codes_remaining: 10,
+      });
     }
     if (url.endsWith('/api/v1/sites')) {
       return jsonResponse({
@@ -197,5 +213,40 @@ describe('Authentication flow', () => {
       expect(screen.getByRole('alert')).toHaveTextContent('Invalid email or password.'),
     );
     expect(localStorage.getItem('vulna.token')).toBeNull();
+  });
+
+  it('keeps an MFA-pending session and completes the second factor before loading the app', async () => {
+    vi.restoreAllMocks();
+    installFetchMock({ mfaSession: true });
+    renderApp();
+    await screen.findByRole('heading', { name: 'Sign in' });
+    fireEvent.change(screen.getByLabelText('Email'), {
+      target: { value: 'admin@example.com' },
+    });
+    fireEvent.change(screen.getByLabelText('Password'), {
+      target: { value: 'right-password' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    await screen.findByRole('heading', { name: 'Verify your identity' });
+    expect(
+      vi
+        .mocked(fetch)
+        .mock.calls.filter(([input]) => String(input).endsWith('/api/v1/auth/logout')),
+    ).toHaveLength(0);
+    fireEvent.change(screen.getByLabelText('Authenticator code'), {
+      target: { value: '123456' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument(),
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/api/v1/mfa/totp/verify'),
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ code: '123456' }),
+      }),
+    );
   });
 });

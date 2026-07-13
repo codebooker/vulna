@@ -33,6 +33,10 @@ cross-installation identifier.
 | Password, invitation, reset, recovery material | database (hashed) | critical | no |
 | Session device/IP metadata | database | high | no |
 | Refresh-token hashes | database (hashed) | critical | no |
+| TOTP seeds | database (purpose-bound encrypted) | critical | no |
+| Recovery codes | database (one Argon2 hash per code) | critical | no |
+| WebAuthn credentials/challenges | database (public keys and short-lived challenge state) | high | no |
+| Authentication throttle state | database (hashed account/IP keys) | high | no |
 | Internal CA + signing keys | keys volume | critical | no |
 | Notification / SMTP secrets | database (encrypted) | high | no |
 

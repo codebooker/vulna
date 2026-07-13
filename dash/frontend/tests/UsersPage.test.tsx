@@ -14,7 +14,8 @@ const admin = {
   authentication_source: 'local',
   site_access_mode: 'all',
   site_ids: [],
-  mfa_status: 'planned',
+  mfa_status: 'not_enrolled',
+  mfa_grace_expires_at: null,
   last_login_at: null,
   invited_at: null,
   activated_at: '2026-07-12T00:00:00Z',
@@ -133,6 +134,6 @@ it('opens a user detail with lifecycle, login, access, and MFA information', asy
   expect(screen.getByText('Login history')).toBeInTheDocument();
   expect(screen.getByText('Sessions')).toBeInTheDocument();
   expect(screen.getByText('Lifecycle history')).toBeInTheDocument();
-  expect(screen.getAllByText(/Phase 36/).length).toBeGreaterThan(0);
+  expect(screen.getAllByText(/MFA Not Enrolled/).length).toBeGreaterThan(0);
   expect(screen.getByLabelText('Role')).toBeDisabled();
 });

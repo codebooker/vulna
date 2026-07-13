@@ -16,6 +16,7 @@ import {
   Smartphone,
   Settings as SettingsIcon,
   ShieldAlert,
+  ShieldCheck,
   SlidersHorizontal,
   UserRoundCog,
   Webhook,
@@ -36,6 +37,7 @@ import { RemediationPage } from '../pages/RemediationPage';
 import { ReportsPage } from '../pages/ReportsPage';
 import { ScansPage } from '../pages/SchedulesPage';
 import { SessionManagementPage } from '../pages/SessionManagementPage';
+import { SecurityPage } from '../pages/SecurityPage';
 import { SettingsPage } from '../pages/SettingsPage';
 import { SitesPage } from '../pages/SitesPage';
 import { SystemHealthPage } from '../pages/SystemHealthPage';
@@ -166,6 +168,13 @@ export const ROUTE_CATALOGUE: RouteSection[] = [
         label: 'Sessions',
         icon: Smartphone,
         Component: SessionManagementPage,
+      },
+      {
+        id: 'security',
+        visibilityKey: 'settings',
+        label: 'Security',
+        icon: ShieldCheck,
+        Component: SecurityPage,
       },
       { id: 'feeds', visibilityKey: 'feeds', label: 'CVE feeds', icon: Rss, Component: FeedsPage },
       {

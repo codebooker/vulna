@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
@@ -16,9 +17,10 @@ from app.auth.tokens import TokenError, decode_access_token
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
 from app.models.enums import AccountStatus, UserRole
+from app.models.organization import Organization
 from app.models.session import UserSession
 from app.models.user import User
-from app.services.sessions import is_session_active, touch_session
+from app.services.sessions import aware, is_session_active, session_policy, touch_session
 
 bearer_scheme = HTTPBearer(auto_error=False, description="JWT access token")
 
@@ -40,6 +42,29 @@ async def get_authenticated_identity(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
+) -> AuthenticatedIdentity:
+    return await _resolve_authenticated_identity(
+        credentials, session, settings, allow_mfa_pending=False
+    )
+
+
+async def get_mfa_identity(
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> AuthenticatedIdentity:
+    """Resolve a session for MFA completion, including a pending MFA session."""
+    return await _resolve_authenticated_identity(
+        credentials, session, settings, allow_mfa_pending=True
+    )
+
+
+async def _resolve_authenticated_identity(
+    credentials: HTTPAuthorizationCredentials | None,
+    session: AsyncSession,
+    settings: Settings,
+    *,
+    allow_mfa_pending: bool,
 ) -> AuthenticatedIdentity:
     """Resolve the authenticated user from a Bearer token.
 
@@ -98,6 +123,7 @@ async def get_authenticated_identity(
         user_session is None
         or user_session.auth_version != user.auth_version
         or not is_session_active(user_session)
+        or (user_session.mfa_pending and not allow_mfa_pending)
     ):
         raise _CREDENTIALS_EXCEPTION
     touch_session(user_session)
@@ -114,6 +140,40 @@ CurrentUser = Annotated[User, Depends(get_current_user)]
 CurrentIdentity = Annotated[
     AuthenticatedIdentity, Depends(get_authenticated_identity)
 ]
+MfaIdentity = Annotated[AuthenticatedIdentity, Depends(get_mfa_identity)]
+
+
+async def require_recent_step_up(
+    identity: CurrentIdentity,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> AuthenticatedIdentity:
+    """Require a recent password or MFA assertion for a high-risk operation."""
+    if identity.session is None:
+        # Legacy stateless test fixtures remain usable only inside the test
+        # environment. Runtime environments rejected them in Phase 35.
+        if settings.env == "test":
+            return identity
+        raise _CREDENTIALS_EXCEPTION
+    org = await session.get(Organization, identity.user.organization_id)
+    if org is None:
+        raise _CREDENTIALS_EXCEPTION
+    window = session_policy(org).privileged_window_minutes
+    strongest = aware(identity.session.authenticated_at)
+    if identity.session.mfa_authenticated_at is not None:
+        strongest = max(strongest, aware(identity.session.mfa_authenticated_at))
+    if datetime.now(UTC) - strongest > timedelta(minutes=window):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "step_up_required",
+                "message": "Recent authentication is required for this operation",
+            },
+        )
+    return identity
+
+
+StepUpIdentity = Annotated[AuthenticatedIdentity, Depends(require_recent_step_up)]
 
 
 def require_roles(*roles: UserRole) -> Callable[[User], Awaitable[User]]:

@@ -31,7 +31,8 @@ class UserRead(BaseModel):
     authentication_source: AuthenticationSource
     site_access_mode: SiteAccessMode
     site_ids: list[uuid.UUID] = Field(default_factory=list)
-    mfa_status: Literal["not_enrolled", "planned"] = "planned"
+    mfa_status: Literal["not_enrolled", "enrolled", "required"] = "not_enrolled"
+    mfa_grace_expires_at: datetime | None = None
     last_login_at: datetime | None
     invited_at: datetime | None
     activated_at: datetime | None

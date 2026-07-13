@@ -17,6 +17,8 @@ from pathlib import Path
 # value and is never used outside the suite.
 os.environ.setdefault("VULNA_SECRET_KEY", "test-only-secret-do-not-use-in-production")
 os.environ.setdefault("VULNA_ENV", "test")
+os.environ.setdefault("VULNA_WEBAUTHN_ORIGIN", "http://localhost")
+os.environ.setdefault("VULNA_WEBAUTHN_RP_ID", "localhost")
 
 # Point the internal CA and job-signing key at a writable temp directory so
 # enrollment/signing tests do not touch /var/lib/vulna.

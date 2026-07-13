@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../api/client';
-import type { CurrentUser, TokenResponse } from '../types/auth';
-import { AuthContext, type AuthContextValue } from './AuthContext';
+import type { CurrentUser, MfaVerification, TokenResponse } from '../types/auth';
+import { AuthContext, type AuthContextValue, type PendingMfa } from './AuthContext';
 
 const LEGACY_TOKEN_KEY = 'vulna.token';
 
@@ -21,11 +21,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [expiresAt, setExpiresAt] = useState<number | null>(null);
   const [initializing, setInitializing] = useState(true);
+  const [pendingMfa, setPendingMfa] = useState<PendingMfa | null>(null);
 
   const clear = useCallback(() => {
     setToken(null);
     setUser(null);
     setExpiresAt(null);
+    setPendingMfa(null);
   }, []);
 
   const applyToken = useCallback((response: TokenResponse) => {
@@ -33,10 +35,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setExpiresAt(Date.now() + response.expires_in * 1000);
   }, []);
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
     const current = token;
     clear();
-    if (current) void api.logout(current).catch(() => undefined);
+    if (current) await api.logout(current).catch(() => undefined);
   }, [clear, token]);
 
   useEffect(() => {
@@ -69,20 +71,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (!token || expiresAt === null) return;
+    if (!token || expiresAt === null || pendingMfa) return;
     const delay = Math.max(1_000, expiresAt - Date.now() - 60_000);
     const timer = window.setTimeout(() => {
       void api.refreshAccess().then(applyToken).catch(clear);
     }, delay);
     return () => window.clearTimeout(timer);
-  }, [applyToken, clear, expiresAt, token]);
+  }, [applyToken, clear, expiresAt, pendingMfa, token]);
 
   const login = useCallback(
     async (email: string, password: string, trustDevice = false) => {
       const response = await api.login(email, password, trustDevice);
+      applyToken(response);
+      if (response.mfa_required) {
+        setUser(null);
+        setPendingMfa({
+          enrollmentRequired: response.mfa_enrollment_required,
+          methods: response.mfa_methods,
+          graceExpiresAt: response.mfa_grace_expires_at,
+        });
+        return;
+      }
       try {
         const current = await api.me(response.access_token);
-        applyToken(response);
         setUser(current);
       } catch (error) {
         await api.logout(response.access_token).catch(() => undefined);
@@ -92,9 +103,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [applyToken],
   );
 
+  const completeMfa = useCallback(
+    async (verification: MfaVerification) => {
+      const response: TokenResponse = {
+        access_token: verification.access_token,
+        token_type: verification.token_type,
+        expires_in: verification.expires_in,
+        session_id: null,
+        mfa_required: false,
+        mfa_enrollment_required: false,
+        mfa_methods: [verification.method],
+        mfa_grace_expires_at: null,
+      };
+      const current = await api.me(verification.access_token);
+      applyToken(response);
+      setPendingMfa(null);
+      setUser(current);
+    },
+    [applyToken],
+  );
+
   const value = useMemo<AuthContextValue>(
-    () => ({ user, token, initializing, login, logout }),
-    [user, token, initializing, login, logout],
+    () => ({ user, token, initializing, login, pendingMfa, completeMfa, logout }),
+    [user, token, initializing, login, pendingMfa, completeMfa, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

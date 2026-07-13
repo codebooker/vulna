@@ -17,6 +17,8 @@ export interface CurrentUser {
   role: Role;
   organization_id: string;
   is_active: boolean;
+  mfa_status: 'not_enrolled' | 'enrolled' | 'required';
+  mfa_grace_expires_at: string | null;
 }
 
 export interface TokenResponse {
@@ -24,6 +26,61 @@ export interface TokenResponse {
   token_type: string;
   expires_in: number;
   session_id: string | null;
+  mfa_required: boolean;
+  mfa_enrollment_required: boolean;
+  mfa_methods: string[];
+  mfa_grace_expires_at: string | null;
+}
+
+export interface MfaVerification {
+  access_token: string;
+  token_type: string;
+  expires_in: number;
+  method: string;
+  recovery_codes_remaining: number | null;
+}
+
+export interface MfaStatus {
+  required: boolean;
+  enrolled: boolean;
+  grace_expires_at: string | null;
+  totp: boolean;
+  webauthn_credentials: number;
+  recovery_codes_remaining: number;
+  methods: string[];
+}
+
+export interface TotpSetup {
+  factor_id: string;
+  secret: string;
+  provisioning_uri: string;
+  expires_in: number;
+}
+
+export interface RecoveryCodes {
+  codes: string[];
+  shown_once: boolean;
+}
+
+export interface WebAuthnBegin {
+  challenge_id: string;
+  public_key: Record<string, unknown>;
+}
+
+export interface WebAuthnCredentialSummary {
+  id: string;
+  label: string;
+  device_type: string;
+  backed_up: boolean;
+  transports: string[];
+  created_at: string;
+  last_used_at: string | null;
+}
+
+export interface MfaPolicy {
+  mode: 'optional' | 'required';
+  required_roles: Role[];
+  grace_period_days: number;
 }
 
 export interface UserSession {
@@ -43,6 +100,9 @@ export interface UserSession {
   current: boolean;
   active: boolean;
   privileged_until: string;
+  mfa_pending: boolean;
+  mfa_authenticated_at: string | null;
+  authentication_methods: string[];
 }
 
 export interface SessionPolicy {
@@ -58,7 +118,8 @@ export interface UserSummary extends CurrentUser {
   authentication_source: AuthenticationSource;
   site_access_mode: SiteAccessMode;
   site_ids: string[];
-  mfa_status: 'not_enrolled' | 'planned';
+  mfa_status: 'not_enrolled' | 'enrolled' | 'required';
+  mfa_grace_expires_at: string | null;
   last_login_at: string | null;
   invited_at: string | null;
   activated_at: string | null;

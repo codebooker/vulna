@@ -54,6 +54,10 @@
     { "category": "password/invitation/reset/recovery material", "store": "database (hashed)", "sensitivity": "critical", "in_export": false },
     { "category": "session device/IP metadata", "store": "database", "sensitivity": "high", "in_export": false },
     { "category": "refresh-token hashes", "store": "database (hashed)", "sensitivity": "critical", "in_export": false },
+    { "category": "TOTP seeds", "store": "database (purpose-bound encrypted)", "sensitivity": "critical", "in_export": false },
+    { "category": "MFA recovery codes", "store": "database (one Argon2 hash per code)", "sensitivity": "critical", "in_export": false },
+    { "category": "WebAuthn public credentials and short-lived challenges", "store": "database", "sensitivity": "high", "in_export": false },
+    { "category": "authentication throttle state", "store": "database (hashed account/IP keys)", "sensitivity": "high", "in_export": false },
     { "category": "internal CA + signing keys", "store": "keys volume", "sensitivity": "critical", "in_export": false },
     { "category": "notification/SMTP secrets", "store": "database (encrypted)", "sensitivity": "high", "in_export": false }
   ]

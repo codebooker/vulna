@@ -44,6 +44,14 @@ from app.models.enums import (
 from app.models.feed_health import FeedHealth
 from app.models.finding import Finding
 from app.models.finding_note import FindingNote
+from app.models.mfa import (
+    AuthenticationThrottle,
+    MfaPolicy,
+    MfaRecoveryCode,
+    TotpFactor,
+    WebAuthnChallenge,
+    WebAuthnCredential,
+)
 from app.models.network import Network, NetworkScout
 from app.models.network_scope import NetworkScope
 from app.models.notification import NotificationChannel, NotificationDelivery
@@ -80,6 +88,7 @@ __all__ = [
     "AssetStatus",
     "AssetType",
     "AuthenticationSource",
+    "AuthenticationThrottle",
     "AuditEvent",
     "ChangeEvent",
     "ChangeEventType",
@@ -96,6 +105,8 @@ __all__ = [
     "JobMode",
     "JobStatus",
     "MatchConfidence",
+    "MfaPolicy",
+    "MfaRecoveryCode",
     "Network",
     "NetworkScout",
     "NetworkScope",
@@ -130,6 +141,7 @@ __all__ = [
     "Site",
     "SiteAccessMode",
     "ThreatIntelEnrichment",
+    "TotpFactor",
     "User",
     "UserInvitation",
     "UserLifecycleEvent",
@@ -138,6 +150,8 @@ __all__ = [
     "UserSession",
     "ValidationStatus",
     "WebScanProfile",
+    "WebAuthnChallenge",
+    "WebAuthnCredential",
     "WorkflowRun",
     "WorkflowRunStatus",
     "WorkflowStageStatus",

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
 from pydantic import BaseModel, EmailStr, Field
 
@@ -25,6 +26,10 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"  # noqa: S105  (label, not a secret)
     expires_in: int = Field(description="Token lifetime in seconds")
     session_id: uuid.UUID | None = None
+    mfa_required: bool = False
+    mfa_enrollment_required: bool = False
+    mfa_methods: list[str] = Field(default_factory=list)
+    mfa_grace_expires_at: datetime | None = None
 
 
 class CurrentUserResponse(BaseModel):
@@ -36,3 +41,5 @@ class CurrentUserResponse(BaseModel):
     role: UserRole
     organization_id: uuid.UUID
     is_active: bool
+    mfa_status: str = "not_enrolled"
+    mfa_grace_expires_at: datetime | None = None

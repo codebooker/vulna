@@ -141,6 +141,7 @@ async def create_session(
     user_agent: str | None,
     device_name: str | None,
     trust_device: bool,
+    mfa_pending: bool = False,
     now: datetime | None = None,
 ) -> tuple[UserSession, GeneratedAccountToken]:
     now = now or utcnow()
@@ -179,6 +180,8 @@ async def create_session(
         trusted_until=(
             now + timedelta(days=policy.trusted_device_days) if trust_device else None
         ),
+        mfa_pending=mfa_pending,
+        authentication_methods_json=["password"],
     )
     session.add(value)
     await session.flush()

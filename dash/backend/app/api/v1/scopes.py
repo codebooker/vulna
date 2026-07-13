@@ -23,7 +23,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.context import RequestContext, get_request_context
-from app.auth.dependencies import CurrentUser, require_admin
+from app.auth.dependencies import CurrentUser, StepUpIdentity, require_admin
 from app.auth.site_scope import get_accessible_site, site_scope_clause
 from app.db.session import get_session
 from app.models.network_scope import NetworkScope
@@ -138,6 +138,7 @@ async def get_scope(
 async def create_scope(
     payload: NetworkScopeCreate,
     admin: Annotated[User, Depends(require_admin)],
+    _step_up: StepUpIdentity,
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> NetworkScopeRead:
@@ -201,6 +202,7 @@ async def update_scope(
     scope_id: uuid.UUID,
     payload: NetworkScopeUpdate,
     admin: Annotated[User, Depends(require_admin)],
+    _step_up: StepUpIdentity,
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> NetworkScopeRead:
@@ -256,6 +258,7 @@ async def update_scope(
 async def approve_scope(
     scope_id: uuid.UUID,
     admin: Annotated[User, Depends(require_admin)],
+    _step_up: StepUpIdentity,
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> NetworkScopeRead:
@@ -290,6 +293,7 @@ async def approve_scope(
 async def delete_scope(
     scope_id: uuid.UUID,
     admin: Annotated[User, Depends(require_admin)],
+    _step_up: StepUpIdentity,
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> None:

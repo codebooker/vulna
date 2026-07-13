@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import pytest
+from app.models.mfa import MfaRecoveryCode
 from app.models.user import User
 from app.services import onboarding as ob
 from app.services.scopes import ScopeValidationError
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # --------------------------------------------------------------------------- #
@@ -108,13 +110,21 @@ async def test_recovery_codes_generate_and_consume(
 ) -> None:
     codes = await ob.generate_recovery_codes(db_session, admin, count=5)
     assert len(codes) == 5
-    assert len(admin.recovery_codes_json) == 5
+    rows = list(
+        (
+            await db_session.execute(
+                select(MfaRecoveryCode).where(MfaRecoveryCode.user_id == admin.id)
+            )
+        ).scalars()
+    )
+    assert len(rows) == 5
     # stored values are hashes, not the plaintext codes
-    assert all(code not in admin.recovery_codes_json for code in codes)
+    assert all(code not in {row.code_hash for row in rows} for code in codes)
+    assert admin.recovery_codes_json == []
 
     # a valid code verifies and is consumed one-time
     assert await ob.verify_and_consume_recovery_code(db_session, admin, codes[0]) is True
-    assert len(admin.recovery_codes_json) == 4
+    assert sum(row.used_at is None for row in rows) == 4
     assert await ob.verify_and_consume_recovery_code(db_session, admin, codes[0]) is False
     # a wrong code fails
     assert await ob.verify_and_consume_recovery_code(db_session, admin, "aaaa-bbbb-cccc") is False

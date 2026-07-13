@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 36: MFA, WebAuthn, and step-up authentication
+
+- Authenticator-app TOTP seeds are purpose-bound encrypted, recovery codes are
+  stored as independent Argon2 hashes and shown once, and replayed TOTP timecodes
+  or used recovery codes are rejected.
+- WebAuthn passkey/security-key registration and authentication use strict relying
+  party, origin, challenge, user-verification, signature, and sign-counter checks.
+  Challenges expire after five minutes and are scoped to one user and session.
+- Organization MFA policy defaults to optional. Administrators may require MFA for
+  selected roles or everyone with a configurable seven-day default grace period;
+  expired unenrolled users can reach only the enrollment APIs.
+- Sessions record authentication methods and MFA strength. A reusable recent-step-up
+  dependency now protects scope, pentest, retention/hold, evidence/report, repair,
+  Scout enrollment/certificate, and MFA-policy operations.
+- Login and MFA failures use generic responses plus durable, hashed per-account and
+  per-IP exponential backoff. Security events feed the existing audited notification
+  path without making authentication depend on delivery.
+- The Security page manages authenticators, passkeys, recovery codes, and policy.
+  Browser coverage uses a Chromium virtual authenticator, and migration, export,
+  backup/restore, capability, OpenAPI, and release-gate coverage are updated.
+
 ### Added — Phase 35: revocable sessions
 
 - Sign-in now creates a database-backed user session and a family of hashed,

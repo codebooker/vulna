@@ -27,7 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.context import RequestContext, get_request_context
 from app.api.probe_auth import CurrentProbe
-from app.auth.dependencies import CurrentUser, require_admin
+from app.auth.dependencies import CurrentUser, StepUpIdentity, require_admin
 from app.auth.site_scope import get_accessible_site, site_scope_clause
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
@@ -100,6 +100,7 @@ _CERT_EXPIRING_SOON = timedelta(days=14)
 async def create_enrollment_token(
     payload: EnrollmentTokenCreate,
     admin: Annotated[User, Depends(require_admin)],
+    _step_up: StepUpIdentity,
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
     context: Annotated[RequestContext, Depends(get_request_context)],
@@ -154,6 +155,7 @@ async def create_enrollment_command(
     payload: EnrollmentCommandRequest,
     request: Request,
     admin: Annotated[User, Depends(require_admin)],
+    _step_up: StepUpIdentity,
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
     context: Annotated[RequestContext, Depends(get_request_context)],
@@ -460,6 +462,7 @@ async def _lifecycle_transition(
 async def approve_probe(
     probe_id: uuid.UUID,
     admin: Annotated[User, Depends(require_admin)],
+    _step_up: StepUpIdentity,
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
     context: Annotated[RequestContext, Depends(get_request_context)],
@@ -487,6 +490,7 @@ async def approve_probe(
 async def revoke_probe(
     probe_id: uuid.UUID,
     admin: Annotated[User, Depends(require_admin)],
+    _step_up: StepUpIdentity,
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
     context: Annotated[RequestContext, Depends(get_request_context)],
@@ -513,6 +517,7 @@ async def set_pentest_enabled(
     probe_id: uuid.UUID,
     payload: PentestToggle,
     admin: Annotated[User, Depends(require_admin)],
+    _step_up: StepUpIdentity,
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
     context: Annotated[RequestContext, Depends(get_request_context)],
@@ -538,6 +543,7 @@ async def set_pentest_enabled(
 async def disable_probe(
     probe_id: uuid.UUID,
     admin: Annotated[User, Depends(require_admin)],
+    _step_up: StepUpIdentity,
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
     context: Annotated[RequestContext, Depends(get_request_context)],

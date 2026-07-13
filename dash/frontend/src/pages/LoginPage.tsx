@@ -5,6 +5,7 @@ import { Button } from '../components/ui/button';
 import { Field, Input } from '../components/ui/input';
 import { InlineError } from '../components/ui/states';
 import { HealthPage } from './HealthPage';
+import { MfaChallengePage } from './MfaChallengePage';
 
 /** Sign-in form (kept as its own component; also rendered by tests). */
 export function LoginPage() {
@@ -80,6 +81,7 @@ export function LoginPage() {
 
 /** Full-screen login layout with brand and backend status. */
 export function LoginScreen() {
+  const { pendingMfa } = useAuth();
   return (
     <div className="flex min-h-screen items-center justify-center bg-bg px-4">
       <div className="w-full max-w-sm">
@@ -90,7 +92,7 @@ export function LoginScreen() {
           </h1>
         </div>
         <div className="rounded-xl border border-border bg-surface p-5 shadow-[var(--shadow-md)]">
-          <LoginPage />
+          {pendingMfa ? <MfaChallengePage /> : <LoginPage />}
           <div className="mt-4 border-t border-border pt-3">
             <HealthPage />
           </div>

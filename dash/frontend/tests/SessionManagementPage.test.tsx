@@ -29,6 +29,9 @@ const session = {
   current: false,
   active: true,
   privileged_until: '2026-07-13T00:15:00Z',
+  mfa_pending: false,
+  mfa_authenticated_at: '2026-07-13T00:00:00Z',
+  authentication_methods: ['password', 'totp'],
 };
 
 const policy = {

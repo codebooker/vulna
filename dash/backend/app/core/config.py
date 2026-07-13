@@ -68,6 +68,9 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 15
     invitation_token_ttl_hours: int = 72
     password_reset_token_ttl_minutes: int = 60
+    webauthn_rp_id: str | None = None
+    webauthn_rp_name: str = "Vulna"
+    webauthn_origin: str | None = None
 
     # Master key for encrypting sensitive evidence (raw scanner output) at rest.
     # When set (VULNA_MASTER_KEY), stored artifacts are encrypted; when unset

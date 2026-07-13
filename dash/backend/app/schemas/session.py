@@ -25,6 +25,9 @@ class SessionRead(BaseModel):
     current: bool = False
     active: bool
     privileged_until: datetime
+    mfa_pending: bool = False
+    mfa_authenticated_at: datetime | None = None
+    authentication_methods: list[str] = Field(default_factory=list)
 
 
 class ReauthenticateRequest(BaseModel):

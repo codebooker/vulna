@@ -6,13 +6,20 @@ import type {
   InvitedUser,
   LifecycleEvent,
   LoginHistoryEvent,
+  MfaPolicy,
+  MfaStatus,
+  MfaVerification,
   PasswordResetIssued,
+  RecoveryCodes as MfaRecoveryCodes,
   Role,
   SiteAccessMode,
   SessionPolicy,
   TokenResponse,
+  TotpSetup,
   UserSession,
   UserSummary,
+  WebAuthnBegin,
+  WebAuthnCredentialSummary,
 } from '../types/auth';
 import type { Experience, ExperienceChange, ExperiencePreview } from '../types/experience';
 import type {
@@ -170,6 +177,100 @@ export const api = {
   },
   me(token: string): Promise<CurrentUser> {
     return request<CurrentUser>('/api/v1/auth/me', { token });
+  },
+  mfaStatus(token: string): Promise<MfaStatus> {
+    return request<MfaStatus>('/api/v1/mfa/status', { token });
+  },
+  beginTotp(token: string): Promise<TotpSetup> {
+    return request<TotpSetup>('/api/v1/mfa/totp/setup', { method: 'POST', token });
+  },
+  confirmTotp(
+    token: string,
+    factorId: string,
+    code: string,
+  ): Promise<{ verification: MfaVerification; recovery_codes: MfaRecoveryCodes }> {
+    return request('/api/v1/mfa/totp/confirm', {
+      method: 'POST',
+      token,
+      body: { factor_id: factorId, code },
+    });
+  },
+  verifyTotp(token: string, code: string): Promise<MfaVerification> {
+    return request<MfaVerification>('/api/v1/mfa/totp/verify', {
+      method: 'POST',
+      token,
+      body: { code },
+    });
+  },
+  verifyRecoveryCode(token: string, code: string): Promise<MfaVerification> {
+    return request<MfaVerification>('/api/v1/mfa/recovery/verify', {
+      method: 'POST',
+      token,
+      body: { code },
+    });
+  },
+  regenerateRecoveryCodes(token: string): Promise<MfaRecoveryCodes> {
+    return request<MfaRecoveryCodes>('/api/v1/mfa/recovery/regenerate', {
+      method: 'POST',
+      token,
+    });
+  },
+  disableTotp(token: string): Promise<void> {
+    return request<void>('/api/v1/mfa/totp', { method: 'DELETE', token });
+  },
+  listWebAuthnCredentials(token: string): Promise<WebAuthnCredentialSummary[]> {
+    return request<WebAuthnCredentialSummary[]>('/api/v1/mfa/webauthn/credentials', { token });
+  },
+  beginWebAuthnRegistration(token: string): Promise<WebAuthnBegin> {
+    return request<WebAuthnBegin>('/api/v1/mfa/webauthn/register/options', {
+      method: 'POST',
+      token,
+    });
+  },
+  finishWebAuthnRegistration(
+    token: string,
+    challengeId: string,
+    credential: Record<string, unknown>,
+    label: string,
+  ): Promise<{
+    credential: WebAuthnCredentialSummary;
+    verification: MfaVerification;
+    recovery_codes: MfaRecoveryCodes | null;
+  }> {
+    return request('/api/v1/mfa/webauthn/register/verify', {
+      method: 'POST',
+      token,
+      body: { challenge_id: challengeId, credential, label },
+    });
+  },
+  beginWebAuthnAuthentication(token: string): Promise<WebAuthnBegin> {
+    return request<WebAuthnBegin>('/api/v1/mfa/webauthn/authenticate/options', {
+      method: 'POST',
+      token,
+    });
+  },
+  finishWebAuthnAuthentication(
+    token: string,
+    challengeId: string,
+    credential: Record<string, unknown>,
+  ): Promise<MfaVerification> {
+    return request<MfaVerification>('/api/v1/mfa/webauthn/authenticate/verify', {
+      method: 'POST',
+      token,
+      body: { challenge_id: challengeId, credential },
+    });
+  },
+  disableWebAuthnCredential(token: string, credentialId: string): Promise<void> {
+    return request<void>(`/api/v1/mfa/webauthn/credentials/${credentialId}`, {
+      method: 'DELETE',
+      token,
+    });
+  },
+  mfaPolicy(token: string): Promise<MfaPolicy> {
+    return request<MfaPolicy>('/api/v1/mfa/policy', { token });
+  },
+  updateMfaPolicy(token: string, payload: Partial<MfaPolicy>): Promise<MfaPolicy> {
+    return request<MfaPolicy>('/api/v1/mfa/policy', { method: 'PATCH', token, body: payload });
   },
   experience(token: string): Promise<Experience> {
     return request<Experience>('/api/v1/organizations/current/experience', { token });

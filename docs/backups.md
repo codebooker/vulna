@@ -49,12 +49,17 @@ ownership**, and refuses to overwrite an existing deployment without `--confirm`
 restoring does **not** require re-enrolling every Scout.
 
 The database dump includes Phase 34 account status, site assignments, lifecycle
-history, still-valid invitation/reset hashes, and Phase 35 session/refresh state.
+history, still-valid invitation/reset hashes, Phase 35 session/refresh state, and
+Phase 36 encrypted TOTP factors, recovery-code hashes, WebAuthn public credentials,
+MFA policy, authentication strength, and used/expired challenge state.
 A restore test should verify
 that an assigned user sees the same sites, a deactivated user remains unable to
 sign in, consumed one-time links remain unusable, revoked sessions remain revoked,
 and a refresh token cannot be reused after restore. Unlike the non-secret
 portability export, backup data is sensitive and must remain encrypted.
+A Phase 36 restore test must additionally verify that a used recovery code remains
+used, WebAuthn sign counters do not move backward, and required-MFA grace state is
+preserved.
 
 ## Destinations
 

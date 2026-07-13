@@ -19,6 +19,19 @@ directly. See also [`threat-model.md`](threat-model.md) and
   reuse revokes the whole session (`app/services/sessions.py`, `tests/test_sessions.py`).
 - [ ] Refresh cookies are HttpOnly and SameSite=Lax, Secure in production, and
   session idle/absolute expiry plus administrator revocation are server-enforced.
+- [ ] TOTP seeds use purpose-bound encryption; recovery codes are independent
+  Argon2 hashes shown once; API/export/notifications never return stored secrets
+  (`app/services/secret_crypto.py`, `tests/test_mfa.py`).
+- [ ] WebAuthn verifies challenge, RP ID, origin, user verification, signature, and
+  sign count through the maintained server library; challenges are owned,
+  five-minute, and single-use. Chromium virtual-authenticator coverage exercises
+  the browser ceremony (`dash/frontend/e2e/webauthn.spec.ts`).
+- [ ] MFA-required sessions cannot access ordinary APIs before completing a factor;
+  recovery codes are one-time, TOTP timecodes reject replay, and factor changes
+  revoke other sessions.
+- [ ] Authentication failures use generic errors and database-backed, hashed
+  account/IP exponential backoff. High-risk scope, pentest, retention, evidence,
+  repair, key/certificate, and restore-adjacent operations require recent step-up.
 - [ ] Assigned-site query filters and detail checks cover every site-bound API;
   frontend visibility is not treated as authorization (`app/auth/site_scope.py`).
 - [ ] Self-deactivation/self-demotion and loss of the last active administrator are

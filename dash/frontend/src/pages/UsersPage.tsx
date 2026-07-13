@@ -130,7 +130,19 @@ export function UsersPage() {
       {
         id: 'mfa',
         header: 'MFA',
-        cell: () => <span className="text-xs text-faint">Not enrolled · Phase 36</span>,
+        cell: (user) => (
+          <Badge
+            tone={
+              user.mfa_status === 'enrolled'
+                ? 'ok'
+                : user.mfa_status === 'required'
+                  ? 'warn'
+                  : 'neutral'
+            }
+          >
+            {label(user.mfa_status)}
+          </Badge>
+        ),
         csvValue: (user) => user.mfa_status,
       },
       {
@@ -517,7 +529,17 @@ function UserDrawer({
                 {label(user.account_status)}
               </Badge>
               <Badge tone="accent">{label(user.authentication_source)}</Badge>
-              <Badge tone="neutral">MFA not enrolled · Phase 36</Badge>
+              <Badge
+                tone={
+                  user.mfa_status === 'enrolled'
+                    ? 'ok'
+                    : user.mfa_status === 'required'
+                      ? 'warn'
+                      : 'neutral'
+                }
+              >
+                MFA {label(user.mfa_status)}
+              </Badge>
             </div>
             <section className="grid gap-3 rounded-lg border border-border p-3 sm:grid-cols-2">
               <Field label="Role" htmlFor="user-role">

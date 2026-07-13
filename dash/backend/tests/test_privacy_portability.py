@@ -125,6 +125,10 @@ async def test_export_is_versioned_checksummed_and_schema_valid(
         "recovery_codes",
         "session_refresh_tokens",
         "user_agent",
+        "totp_factors",
+        "webauthn_credentials",
+        "mfa_recovery_codes",
+        "authentication_throttles",
     ):
         assert banned not in text
 

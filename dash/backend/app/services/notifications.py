@@ -58,11 +58,17 @@ class EventType(StrEnum):
     CERT_EXPIRING = "cert_expiring"
     STORAGE_PRESSURE = "storage_pressure"
     UPDATE_AVAILABLE = "update_available"
+    SECURITY_ALERT = "security_alert"
 
 
 # Events treated as emergencies: they may be delivered even during quiet hours.
 EMERGENCY_EVENTS = frozenset(
-    {EventType.KEV_MATCH, EventType.STORAGE_PRESSURE, EventType.SCOUT_OFFLINE}
+    {
+        EventType.KEV_MATCH,
+        EventType.STORAGE_PRESSURE,
+        EventType.SCOUT_OFFLINE,
+        EventType.SECURITY_ALERT,
+    }
 )
 
 EVENT_CATALOG: dict[str, str] = {
@@ -78,6 +84,7 @@ EVENT_CATALOG: dict[str, str] = {
     EventType.CERT_EXPIRING: "A certificate is expiring",
     EventType.STORAGE_PRESSURE: "Storage is under pressure",
     EventType.UPDATE_AVAILABLE: "An update is available",
+    EventType.SECURITY_ALERT: "An account security event needs attention",
 }
 
 

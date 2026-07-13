@@ -88,6 +88,10 @@ frontend-build: ## Type-check and build the frontend
 frontend-test: ## Run frontend tests
 	cd $(FRONTEND_DIR) && npm run test
 
+.PHONY: frontend-e2e
+frontend-e2e: ## Run browser security-flow tests (requires Playwright Chromium)
+	cd $(FRONTEND_DIR) && npm run test:e2e
+
 .PHONY: frontend-lint
 frontend-lint: ## Lint and format-check the frontend
 	cd $(FRONTEND_DIR) && npm run lint && npm run format:check

@@ -16,6 +16,7 @@ from app.api.v1 import (
     help,
     jobs,
     maintenance,
+    mfa,
     networking,
     networks,
     notifications,
@@ -55,6 +56,7 @@ api_router.include_router(diagnostics.router)
 api_router.include_router(demo.router)
 api_router.include_router(help.router)
 api_router.include_router(maintenance.router)
+api_router.include_router(mfa.router)
 api_router.include_router(notifications.router)
 api_router.include_router(dashboard.search_router)
 api_router.include_router(networking.router)

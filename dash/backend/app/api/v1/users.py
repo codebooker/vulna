@@ -22,6 +22,7 @@ from app.models.enums import (
     SiteAccessMode,
     UserRole,
 )
+from app.models.mfa import TotpFactor, WebAuthnCredential
 from app.models.organization import Organization
 from app.models.session import UserSession
 from app.models.user import User
@@ -44,6 +45,7 @@ from app.schemas.user import (
     UserStatusUpdate,
     UserUpdate,
 )
+from app.services import mfa
 from app.services.account_tokens import AccountTokenPurpose, generate_account_token
 from app.services.audit import record_audit
 from app.services.sessions import (
@@ -76,7 +78,9 @@ async def _get_owned_user(
     return user
 
 
-def _read_user(user: User, site_ids: list[uuid.UUID]) -> UserRead:
+def _read_user(
+    user: User, site_ids: list[uuid.UUID], mfa_status: str = "not_enrolled"
+) -> UserRead:
     return UserRead(
         id=user.id,
         organization_id=user.organization_id,
@@ -88,7 +92,8 @@ def _read_user(user: User, site_ids: list[uuid.UUID]) -> UserRead:
         authentication_source=user.authentication_source,
         site_access_mode=user.site_access_mode,
         site_ids=site_ids,
-        mfa_status="planned",
+        mfa_status=mfa_status,
+        mfa_grace_expires_at=user.mfa_grace_expires_at,
         last_login_at=user.last_login_at,
         invited_at=user.invited_at,
         activated_at=user.activated_at,
@@ -102,7 +107,14 @@ def _read_user(user: User, site_ids: list[uuid.UUID]) -> UserRead:
 
 async def _read_one(session: AsyncSession, user: User) -> UserRead:
     assignments = await assigned_site_ids(session, [user.id])
-    return _read_user(user, assignments[user.id])
+    policy = await mfa.get_policy(session, user.organization_id)
+    enrolled = bool(set(await mfa.methods(session, user)) & {"totp", "webauthn"})
+    mfa_status = (
+        "enrolled"
+        if enrolled
+        else ("required" if mfa.required_for_user(policy, user) else "not_enrolled")
+    )
+    return _read_user(user, assignments[user.id], mfa_status)
 
 
 def _admin_session_read(value: UserSession, privileged_minutes: int) -> SessionRead:
@@ -124,6 +136,9 @@ def _admin_session_read(value: UserSession, privileged_minutes: int) -> SessionR
         active=is_session_active(value),
         privileged_until=aware(value.authenticated_at)
         + timedelta(minutes=privileged_minutes),
+        mfa_pending=value.mfa_pending,
+        mfa_authenticated_at=value.mfa_authenticated_at,
+        authentication_methods=list(value.authentication_methods_json or []),
     )
 
 
@@ -240,8 +255,46 @@ async def list_users(
         ).scalars()
     )
     assignments = await assigned_site_ids(session, [user.id for user in users])
+    policy = await mfa.get_policy(session, admin.organization_id)
+    user_ids = [user.id for user in users]
+    totp_users = set(
+        (
+            await session.execute(
+                select(TotpFactor.user_id).where(
+                    TotpFactor.user_id.in_(user_ids),
+                    TotpFactor.confirmed_at.is_not(None),
+                    TotpFactor.disabled_at.is_(None),
+                )
+            )
+        ).scalars()
+    )
+    webauthn_users = set(
+        (
+            await session.execute(
+                select(WebAuthnCredential.user_id).where(
+                    WebAuthnCredential.user_id.in_(user_ids),
+                    WebAuthnCredential.disabled_at.is_(None),
+                )
+            )
+        ).scalars()
+    )
     return Page[UserRead](
-        items=[_read_user(user, assignments[user.id]) for user in users],
+        items=[
+            _read_user(
+                user,
+                assignments[user.id],
+                (
+                    "enrolled"
+                    if user.id in totp_users or user.id in webauthn_users
+                    else (
+                        "required"
+                        if mfa.required_for_user(policy, user)
+                        else "not_enrolled"
+                    )
+                ),
+            )
+            for user in users
+        ],
         total=total or 0,
         limit=limit,
         offset=offset,
@@ -786,6 +839,7 @@ async def login_history(
         "auth.login_succeeded",
         "auth.login_failed",
         "auth.login_denied_inactive",
+        "auth.mfa_succeeded",
     )
     filters = (
         AuditEvent.organization_id == admin.organization_id,
@@ -813,6 +867,7 @@ async def login_history(
         "auth.login_succeeded": "succeeded",
         "auth.login_failed": "failed",
         "auth.login_denied_inactive": "denied",
+        "auth.mfa_succeeded": "succeeded",
     }
     return Page[LoginHistoryRead](
         items=[

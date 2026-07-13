@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.context import RequestContext, get_request_context
-from app.auth.dependencies import CurrentIdentity, CurrentUser, get_user_by_email
+from app.auth.dependencies import CurrentIdentity, get_user_by_email
 from app.auth.password import hash_password, needs_rehash, verify_password
 from app.auth.tokens import create_access_token
 from app.core.config import Settings, get_settings
@@ -28,6 +28,7 @@ from app.schemas.session import (
     SessionRead,
 )
 from app.schemas.user import AcceptInvitationRequest, CompletePasswordResetRequest
+from app.services import auth_throttle, mfa
 from app.services.account_tokens import (
     AccountTokenPurpose,
     generate_account_token,
@@ -118,6 +119,9 @@ def _session_read(
         active=is_session_active(value),
         privileged_until=aware(value.authenticated_at)
         + timedelta(minutes=privileged_window_minutes),
+        mfa_pending=value.mfa_pending,
+        mfa_authenticated_at=value.mfa_authenticated_at,
+        authentication_methods=list(value.authentication_methods_json or []),
     )
 
 
@@ -135,6 +139,16 @@ async def login(
     generic error is returned whether the email is unknown or the password is
     wrong, to avoid disclosing which accounts exist.
     """
+    retry_after = await auth_throttle.retry_after(
+        session, payload.email, context.source_ip
+    )
+    if retry_after:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Invalid email or password",
+            headers={"Retry-After": str(retry_after)},
+        )
+
     user = await get_user_by_email(session, payload.email)
     invalid = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -142,6 +156,9 @@ async def login(
     )
 
     if user is None or not verify_password(payload.password, user.hashed_password):
+        delay = await auth_throttle.record_failure(
+            session, payload.email, context.source_ip
+        )
         record_audit(
             session,
             action="auth.login_failed",
@@ -155,11 +172,19 @@ async def login(
             request_id=context.request_id,
             metadata={"email": payload.email},
         )
+        if user is not None and delay:
+            await mfa.emit_security_notification(
+                session,
+                user,
+                title="Repeated sign-in failures",
+                summary="Vulna temporarily throttled repeated failed sign-in attempts.",
+            )
         # Persist the audit record even though the request fails with 401.
         await session.commit()
         raise invalid
 
     if not local_login_allowed(user):
+        await auth_throttle.record_failure(session, payload.email, context.source_ip)
         record_audit(
             session,
             action="auth.login_denied_inactive",
@@ -183,6 +208,18 @@ async def login(
     org = await session.get(Organization, user.organization_id)
     if org is None:
         raise invalid
+    policy = await mfa.get_policy(session, user.organization_id)
+    enrolled_methods = await mfa.methods(session, user)
+    strong_methods = [method for method in enrolled_methods if method in {"totp", "webauthn"}]
+    enrollment_required = mfa.required_for_user(policy, user) and not strong_methods
+    if enrollment_required and user.mfa_grace_expires_at is None:
+        user.mfa_grace_expires_at = now + timedelta(days=policy.grace_period_days)
+    grace_expired = bool(
+        enrollment_required
+        and user.mfa_grace_expires_at
+        and aware(user.mfa_grace_expires_at) <= now
+    )
+    mfa_pending = bool(strong_methods) or grace_expired
     user_session, refresh = await create_session(
         session,
         user=user,
@@ -192,11 +229,13 @@ async def login(
         user_agent=context.user_agent,
         device_name=payload.device_name,
         trust_device=payload.trust_device,
+        mfa_pending=mfa_pending,
         now=now,
     )
+    await auth_throttle.reset_success(session, user.email, context.source_ip)
     record_audit(
         session,
-        action="auth.login_succeeded",
+        action="auth.password_verified" if mfa_pending else "auth.login_succeeded",
         actor=user,
         organization_id=user.organization_id,
         target_type="user",
@@ -204,7 +243,7 @@ async def login(
         source_ip=context.source_ip,
         user_agent=context.user_agent,
         request_id=context.request_id,
-        metadata={"session_id": str(user_session.id)},
+        metadata={"session_id": str(user_session.id), "mfa_pending": mfa_pending},
     )
 
     token = create_access_token(
@@ -222,6 +261,13 @@ async def login(
         access_token=token,
         expires_in=ACCESS_TOKEN_MINUTES * 60,
         session_id=user_session.id,
+        mfa_required=mfa_pending,
+        mfa_enrollment_required=enrollment_required,
+        mfa_methods=(
+            strong_methods
+            + (["recovery_code"] if "recovery_code" in enrolled_methods else [])
+        ),
+        mfa_grace_expires_at=user.mfa_grace_expires_at,
     )
 
 
@@ -263,6 +309,7 @@ async def refresh_session(
         or user_session.user_id != stored.user_id
         or user_session.organization_id != stored.organization_id
         or user_session.auth_version != user.auth_version
+        or user_session.mfa_pending
         or not is_session_active(user_session, now=now)
     )
     if replayed or expired or session_invalid:
@@ -285,6 +332,14 @@ async def refresh_session(
             user_agent=context.user_agent,
             request_id=context.request_id,
         )
+        if replayed and user is not None:
+            await mfa.emit_security_notification(
+                session,
+                user,
+                title="Refresh-token reuse detected",
+                summary="Vulna revoked a session after an already-used refresh token reappeared.",
+                severity="critical",
+            )
         # Persist family revocation even though the response is an error.
         await session.commit()
         raise _invalid_refresh(settings)
@@ -649,8 +704,13 @@ async def complete_password_reset(
 
 
 @router.get("/me", response_model=CurrentUserResponse, summary="Current user profile")
-async def read_me(current_user: CurrentUser) -> CurrentUserResponse:
+async def read_me(
+    identity: CurrentIdentity,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> CurrentUserResponse:
     """Return the authenticated user's own profile."""
+    current_user = identity.user
+    enrolled = set(await mfa.methods(session, current_user)) & {"totp", "webauthn"}
     return CurrentUserResponse(
         id=current_user.id,
         email=current_user.email,
@@ -658,4 +718,6 @@ async def read_me(current_user: CurrentUser) -> CurrentUserResponse:
         role=current_user.role,
         organization_id=current_user.organization_id,
         is_active=current_user.is_active,
+        mfa_status="enrolled" if enrolled else "not_enrolled",
+        mfa_grace_expires_at=current_user.mfa_grace_expires_at,
     )

@@ -14,6 +14,9 @@ or reset hashes, recovery codes, keys, tokens, certificates, lifecycle event
 details, or report file bytes.
 Session records, device/IP history, and refresh-token hashes are also excluded.
 They are authentication state, not portable organization content.
+TOTP seeds, recovery-code hashes, WebAuthn credentials/challenges, MFA policy,
+authentication-strength timestamps, and throttle records are likewise excluded;
+they remain only in encrypted full-database backups.
 
 The bundle can be validated **independently**:
 

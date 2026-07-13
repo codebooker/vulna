@@ -20,7 +20,7 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.context import RequestContext, get_request_context
-from app.auth.dependencies import CurrentUser, require_admin
+from app.auth.dependencies import CurrentUser, StepUpIdentity, require_admin
 from app.auth.password import verify_password
 from app.auth.site_scope import optional_site_scope_clause, site_scope_clause
 from app.core.config import Settings, get_settings
@@ -144,6 +144,7 @@ async def retention_preview(
 async def retention_cleanup(
     payload: CleanupRequest,
     admin: Annotated[User, Depends(require_admin)],
+    _step_up: StepUpIdentity,
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> dict[str, Any]:
@@ -248,6 +249,7 @@ async def list_holds(
 async def place_hold(
     payload: HoldRequest,
     admin: Annotated[User, Depends(require_admin)],
+    _step_up: StepUpIdentity,
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> dict[str, Any]:
@@ -292,6 +294,7 @@ async def place_hold(
 async def lift_hold(
     hold_id: uuid.UUID,
     admin: Annotated[User, Depends(require_admin)],
+    _step_up: StepUpIdentity,
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> dict[str, Any]:

@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.context import RequestContext, get_request_context
-from app.auth.dependencies import CurrentUser, require_admin
+from app.auth.dependencies import CurrentUser, StepUpIdentity, require_admin
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
 from app.models.user import User
@@ -83,6 +83,7 @@ async def support_bundle(
 async def repair(
     payload: RepairRequest,
     admin: Annotated[User, Depends(require_admin)],
+    _step_up: StepUpIdentity,
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
     context: Annotated[RequestContext, Depends(get_request_context)],

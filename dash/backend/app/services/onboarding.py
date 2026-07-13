@@ -14,16 +14,15 @@ Security-relevant rules live here as small, unit-testable functions:
 from __future__ import annotations
 
 import ipaddress
-import secrets
 from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.password import hash_password, verify_password
 from app.models.onboarding import ONBOARDING_STEPS, OnboardingState
 from app.models.user import User
+from app.services import mfa
 from app.services import presets as presetsvc
 from app.services.scopes import ScopeValidationError, normalize_cidr, validate_cidr
 
@@ -203,13 +202,6 @@ def scan_summary(
 # --------------------------------------------------------------------------- #
 
 
-def _new_recovery_code() -> str:
-    """Return a readable one-time recovery code (e.g. ``k7f2-9m3q-x84p``)."""
-    alphabet = "abcdefghijkmnpqrstuvwxyz23456789"  # no ambiguous chars
-    groups = ["".join(secrets.choice(alphabet) for _ in range(4)) for _ in range(3)]
-    return "-".join(groups)
-
-
 async def generate_recovery_codes(
     session: AsyncSession, user: User, count: int = RECOVERY_CODE_COUNT
 ) -> list[str]:
@@ -218,12 +210,7 @@ async def generate_recovery_codes(
     The plaintext codes are returned to the caller to show once; only Argon2
     hashes are persisted. Any previously generated codes are replaced.
     """
-    codes = [_new_recovery_code() for _ in range(count)]
-    user.recovery_codes_json = [hash_password(c) for c in codes]
-    user.recovery_codes_generated_at = datetime.now(UTC)
-    session.add(user)
-    await session.flush()
-    return codes
+    return await mfa.generate_recovery_codes(session, user, count)
 
 
 async def verify_and_consume_recovery_code(
@@ -234,16 +221,7 @@ async def verify_and_consume_recovery_code(
     Returns True and removes the matching hash on success; False otherwise. The
     comparison uses the same Argon2 verification as passwords.
     """
-    remaining = list(user.recovery_codes_json or [])
-    normalized = code.strip().lower()
-    for i, hashed in enumerate(remaining):
-        if verify_password(normalized, hashed):
-            del remaining[i]
-            user.recovery_codes_json = remaining
-            session.add(user)
-            await session.flush()
-            return True
-    return False
+    return await mfa.consume_recovery_code(session, user, code)
 
 
 # --------------------------------------------------------------------------- #

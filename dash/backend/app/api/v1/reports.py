@@ -18,7 +18,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.context import RequestContext, get_request_context
-from app.auth.dependencies import CurrentUser
+from app.auth.dependencies import CurrentUser, StepUpIdentity
 from app.auth.site_scope import optional_site_scope_clause, require_site_access
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
@@ -63,6 +63,7 @@ async def _get_owned_report(
 async def create_reports(
     payload: ReportCreate,
     current_user: CurrentUser,
+    _step_up: StepUpIdentity,
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
     context: Annotated[RequestContext, Depends(get_request_context)],
@@ -143,6 +144,7 @@ async def get_report(
 async def download_report(
     report_id: uuid.UUID,
     current_user: CurrentUser,
+    _step_up: StepUpIdentity,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> FileResponse:
     """Stream a report's stored file (organization-scoped authorization)."""

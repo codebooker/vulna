@@ -72,7 +72,7 @@ CAPABILITIES: tuple[dict[str, Any], ...] = (
     {
         "key": "mfa_webauthn",
         "name": "MFA and WebAuthn",
-        "status": "planned",
+        "status": "available",
         "production_ready": False,
     },
     {

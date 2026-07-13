@@ -17,6 +17,16 @@ step is needed for schema changes unless noted.
 
 ## Unreleased (on `main`)
 
+- **MFA and WebAuthn (Phase 36).** The upgrade adds encrypted TOTP factors,
+  independently hashed recovery codes, WebAuthn public credentials and five-minute
+  challenges, organization MFA policy, session authentication strength, and durable
+  hashed account/IP throttling. Existing onboarding recovery-code hashes migrate
+  into per-code records without plaintext exposure and the legacy JSON array is
+  cleared. MFA defaults to optional. When an administrator requires it, unenrolled
+  users receive a seven-day grace period by default. Configure
+  `VULNA_WEBAUTHN_ORIGIN` and `VULNA_WEBAUTHN_RP_ID` when the public origin cannot
+  be inferred. Downgrade removes Phase 36 factor state and cannot recreate the
+  cleared legacy recovery-code array; take and verify an encrypted backup first.
 - **Revocable sessions (Phase 35).** The upgrade creates server-side session and
   hashed refresh-token tables and increments every existing user's authentication
   version. All pre-upgrade stateless access tokens are intentionally rejected, so

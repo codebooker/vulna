@@ -154,6 +154,9 @@ export function SessionManagementPage() {
                       {session.active ? 'Active' : 'Revoked or expired'}
                     </Badge>
                     {session.trusted_until && <Badge tone="neutral">Trusted device</Badge>}
+                    {(session.authentication_methods ?? []).length > 0 && (
+                      <Badge tone="ok">{session.authentication_methods.join(' + ')}</Badge>
+                    )}
                   </div>
                   <p className="mt-1 break-words text-xs text-muted">
                     {session.source_ip || 'Unknown IP'} · Last seen{' '}
