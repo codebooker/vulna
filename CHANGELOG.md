@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 44 connector: CSV inventory
+
+- Administrators can upload bounded UTF-8 CSV inventory files through a one-way
+  API and UI. Source bytes are purpose-encrypted in the database, decrypted only
+  inside connector tests and worker collection, and never returned by APIs or
+  portability exports.
+- Strict parsing limits files to 5 MiB, 10,000 rows, 100 columns, and 16 KiB per
+  cell. Identifier and attribute mappings are validated data and reject
+  secret-shaped columns, connector changes require a new test, and clearing a
+  source retains append-only observations.
+
 ### Added — Phase 44 connector: generic JSON API
 
 - A bounded read-only JSON API importer now supports HTTPS GET collection,

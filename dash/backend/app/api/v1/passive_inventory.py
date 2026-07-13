@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,7 +21,7 @@ from app.auth.dependencies import (
 from app.auth.site_scope import require_site_access, site_scope_clause
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
-from app.models.enums import InventoryAssetState, ReconciliationStatus
+from app.models.enums import InventoryAssetState, PassiveConnectorType, ReconciliationStatus
 from app.models.passive_inventory import (
     AssetInventoryState,
     AssetObservation,
@@ -243,6 +244,135 @@ async def update_connector(
             "changed_fields": sorted(payload.model_fields_set),
             "has_secret": bool(connector.encrypted_secret),
         },
+    )
+    return InventoryConnectorRead.from_model(connector)
+
+
+@router.put("/connectors/{connector_id}/csv", response_model=InventoryConnectorRead)
+async def upload_csv_source(
+    connector_id: uuid.UUID,
+    request: Request,
+    identity: Annotated[
+        AuthenticatedIdentity, Depends(require_step_up_permission("connectors.manage"))
+    ],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    context: Annotated[RequestContext, Depends(get_request_context)],
+    filename: Annotated[str | None, Header(alias="X-File-Name", max_length=255)] = None,
+) -> InventoryConnectorRead:
+    actor = identity.user
+    connector = await _owned_connector(session, connector_id, actor.organization_id)
+    await require_site_access(
+        session,
+        actor,
+        connector.site_id,
+        not_found_detail="Inventory connector not found",
+        permission_key="connectors.manage",
+    )
+    if connector.connector_type != PassiveConnectorType.CSV:
+        raise HTTPException(status_code=409, detail="Source uploads are supported only for CSV")
+    safe_filename = (filename or "inventory.csv").replace("\\", "/").split("/")[-1].strip()
+    if not safe_filename or any(ord(character) < 32 for character in safe_filename):
+        raise HTTPException(status_code=422, detail="CSV filename is invalid")
+    content_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+    if content_type not in {"text/csv", "application/csv", "text/plain"}:
+        raise HTTPException(status_code=415, detail="CSV upload must use a CSV content type")
+    declared = request.headers.get("content-length")
+    if declared:
+        try:
+            declared_bytes = int(declared)
+            if declared_bytes < 0:
+                raise ValueError
+            if declared_bytes > passive_inventory.MAX_CSV_SOURCE_BYTES:
+                raise HTTPException(status_code=413, detail="CSV upload exceeds 5 MiB")
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Invalid Content-Length") from exc
+    chunks: list[bytes] = []
+    received_bytes = 0
+    async for chunk in request.stream():
+        received_bytes += len(chunk)
+        if received_bytes > passive_inventory.MAX_CSV_SOURCE_BYTES:
+            raise HTTPException(status_code=413, detail="CSV upload exceeds 5 MiB")
+        chunks.append(chunk)
+    value = b"".join(chunks)
+    if not value:
+        raise HTTPException(status_code=413, detail="CSV upload must contain 1 byte to 5 MiB")
+    adapter = passive_inventory.ADAPTERS.get(PassiveConnectorType.CSV)
+    if adapter is None:
+        raise HTTPException(status_code=503, detail="CSV adapter is not installed")
+    try:
+        await adapter.test(connector, None, source_data=value)
+        encrypted = passive_inventory.encrypt_source_data(settings, value)
+    except passive_inventory.InventoryConnectorError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    connector.encrypted_source_data = encrypted
+    connector.source_filename = safe_filename[:255]
+    connector.source_sha256 = hashlib.sha256(value).hexdigest()
+    connector.source_size_bytes = len(value)
+    connector.source_uploaded_at = datetime.now(UTC)
+    connector.source_uploaded_by_user_id = actor.id
+    connector.successful_test_at = None
+    connector.last_test_error = None
+    connector.enabled = False
+    record_audit(
+        session,
+        action="inventory_connector.csv_uploaded",
+        actor=actor,
+        organization_id=actor.organization_id,
+        target_type="inventory_connector",
+        target_id=connector.id,
+        source_ip=context.source_ip,
+        user_agent=context.user_agent,
+        request_id=context.request_id,
+        metadata={
+            "filename": connector.source_filename,
+            "sha256": connector.source_sha256,
+            "size_bytes": connector.source_size_bytes,
+        },
+    )
+    return InventoryConnectorRead.from_model(connector)
+
+
+@router.delete("/connectors/{connector_id}/csv", response_model=InventoryConnectorRead)
+async def clear_csv_source(
+    connector_id: uuid.UUID,
+    identity: Annotated[
+        AuthenticatedIdentity, Depends(require_step_up_permission("connectors.manage"))
+    ],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    context: Annotated[RequestContext, Depends(get_request_context)],
+) -> InventoryConnectorRead:
+    actor = identity.user
+    connector = await _owned_connector(session, connector_id, actor.organization_id)
+    await require_site_access(
+        session,
+        actor,
+        connector.site_id,
+        not_found_detail="Inventory connector not found",
+        permission_key="connectors.manage",
+    )
+    if connector.connector_type != PassiveConnectorType.CSV:
+        raise HTTPException(status_code=409, detail="Source uploads are supported only for CSV")
+    connector.encrypted_source_data = None
+    connector.source_filename = None
+    connector.source_sha256 = None
+    connector.source_size_bytes = None
+    connector.source_uploaded_at = None
+    connector.source_uploaded_by_user_id = None
+    connector.successful_test_at = None
+    connector.last_test_error = None
+    connector.enabled = False
+    record_audit(
+        session,
+        action="inventory_connector.csv_cleared",
+        actor=actor,
+        organization_id=actor.organization_id,
+        target_type="inventory_connector",
+        target_id=connector.id,
+        source_ip=context.source_ip,
+        user_agent=context.user_agent,
+        request_id=context.request_id,
+        metadata={},
     )
     return InventoryConnectorRead.from_model(connector)
 

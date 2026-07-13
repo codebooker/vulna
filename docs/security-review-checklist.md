@@ -126,6 +126,10 @@ directly. See also [`threat-model.md`](threat-model.md) and
   payloads contain only run IDs, observations reject secret-shaped attributes, and
   reconciliation auto-merges only unique conflict-free scores at or above 95.
   Every merge has a reversible snapshot and split audit (`tests/test_passive_inventory.py`).
+- [ ] CSV inventory source bytes use their own HKDF purpose and are decrypted only
+  for test/worker collection. APIs and portability expose metadata only; upload
+  changes invalidate qualification, clear retains observations, and parser limits
+  prevent unbounded rows, columns, cells, and files (`tests/test_inventory_csv.py`).
 - [ ] Report export passwords use a separate HKDF purpose, appear only as
   `has_export_password`, never enter task payloads/portability/audit metadata, and
   AES-256 protection is applied only in renderer memory (`tests/test_passive_inventory.py`).

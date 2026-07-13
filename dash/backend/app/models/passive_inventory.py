@@ -60,6 +60,16 @@ class InventoryConnector(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     base_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     config_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
     encrypted_secret: Mapped[str | None] = mapped_column(Text, nullable=True)
+    encrypted_source_data: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    source_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    source_size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source_uploaded_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    source_uploaded_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
     interval_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -75,6 +85,10 @@ class InventoryConnector(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     @property
     def has_secret(self) -> bool:
         return bool(self.encrypted_secret)
+
+    @property
+    def has_source_data(self) -> bool:
+        return bool(self.encrypted_source_data)
 
 
 class ConnectorRun(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):

@@ -2,8 +2,8 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://vulna.dev/schemas/data-map.json",
   "title": "Vulna Data Map",
-  "description": "Machine-readable map of what data Vulna stores, where, its sensitivity, and whether it can leave the deployment (updated through Phase 44 core). Not a JSON Schema for validation; a documented data inventory.",
-  "version": "5",
+  "description": "Machine-readable map of what data Vulna stores, where, its sensitivity, and whether it can leave the deployment (updated through the Phase 44 CSV importer). Not a JSON Schema for validation; a documented data inventory.",
+  "version": "6",
   "leaves_deployment": {
     "intelligence_feeds": {
       "destinations": ["services.nvd.nist.gov", "www.cisa.gov", "epss.cyentia.com"],
@@ -100,6 +100,7 @@
     { "category": "ticket connector secrets", "store": "database (purpose-bound encrypted)", "sensitivity": "critical", "in_export": false },
     { "category": "passive connector metadata, observations, source links, lifecycle, reconciliation snapshots, and aggregate history", "store": "database", "sensitivity": "high", "in_export": "metadata_and_observations" },
     { "category": "passive inventory connector secrets", "store": "database (purpose-bound encrypted)", "sensitivity": "critical", "in_export": false },
+    { "category": "CSV inventory source uploads", "store": "database (purpose-bound encrypted)", "sensitivity": "high", "in_export": "metadata_only" },
     { "category": "report templates, schedules, and comparison history", "store": "database", "sensitivity": "medium", "in_export": true },
     { "category": "report export passwords", "store": "database (purpose-bound encrypted)", "sensitivity": "critical", "in_export": false },
     { "category": "scope-specific analytics cache", "store": "database", "sensitivity": "medium", "in_export": false },

@@ -56,6 +56,7 @@ export function PassiveInventoryPage() {
     baseUrl: '',
     secret: '',
   });
+  const [csvFile, setCsvFile] = useState<File | null>(null);
   const [templateForm, setTemplateForm] = useState({
     name: '',
     siteId: '',
@@ -111,26 +112,68 @@ export function PassiveInventoryPage() {
 
   const createConnector = useCallback(async () => {
     if (!token || !connectorForm.name || !connectorForm.siteId) return;
+    if (connectorForm.type === 'csv' && !csvFile) {
+      setError('Select a CSV file before saving this source.');
+      return;
+    }
     setBusy('connector');
     setError(null);
+    let connectorCreated = false;
     try {
-      await api.createInventoryConnector(token, {
+      const connector = await api.createInventoryConnector(token, {
         site_id: connectorForm.siteId,
         name: connectorForm.name,
         connector_type: connectorForm.type,
-        ...(connectorForm.baseUrl ? { base_url: connectorForm.baseUrl } : {}),
-        ...(connectorForm.secret ? { secret: connectorForm.secret } : {}),
+        ...(connectorForm.type !== 'csv' && connectorForm.baseUrl
+          ? { base_url: connectorForm.baseUrl }
+          : {}),
+        ...(connectorForm.type !== 'csv' && connectorForm.secret
+          ? { secret: connectorForm.secret }
+          : {}),
         interval_minutes: 1440,
       });
+      connectorCreated = true;
+      if (connectorForm.type === 'csv' && csvFile) {
+        await api.uploadInventoryCsv(token, connector.id, csvFile);
+      }
       setConnectorForm((current) => ({ ...current, name: '', baseUrl: '', secret: '' }));
+      setCsvFile(null);
       toast('success', 'Inventory source saved disabled. Test it before enabling collection.');
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Inventory source could not be saved.');
+      const message = err instanceof Error ? err.message : 'Inventory source could not be saved.';
+      setError(
+        connectorCreated
+          ? `The source was created disabled, but its CSV upload failed: ${message} Replace the file from the source row.`
+          : message,
+      );
+      if (connectorCreated) await load();
     } finally {
       setBusy(null);
     }
-  }, [connectorForm, load, toast, token]);
+  }, [connectorForm, csvFile, load, toast, token]);
+
+  const replaceCsv = useCallback(
+    async (connector: InventoryConnector, file: File) => {
+      if (!token) return;
+      if (file.size > 5 * 1024 * 1024) {
+        setError('CSV files cannot exceed 5 MiB.');
+        return;
+      }
+      setBusy(connector.id);
+      setError(null);
+      try {
+        await api.uploadInventoryCsv(token, connector.id, file);
+        toast('success', 'Encrypted CSV source replaced. Test it before enabling collection.');
+        await load();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'CSV source could not be uploaded.');
+      } finally {
+        setBusy(null);
+      }
+    },
+    [load, toast, token],
+  );
 
   const decide = useCallback(
     async (candidate: ReconciliationCandidate, action: 'approve' | 'reject' | 'split') => {
@@ -150,8 +193,14 @@ export function PassiveInventoryPage() {
   );
 
   const actOnConnector = useCallback(
-    async (connector: InventoryConnector, action: 'test' | 'toggle' | 'run') => {
+    async (connector: InventoryConnector, action: 'test' | 'toggle' | 'run' | 'clear_csv') => {
       if (!token) return;
+      if (
+        action === 'clear_csv' &&
+        !window.confirm('Clear this encrypted CSV source? Collected observations are retained.')
+      ) {
+        return;
+      }
       setBusy(connector.id);
       setError(null);
       try {
@@ -164,9 +213,12 @@ export function PassiveInventoryPage() {
             enabled: !connector.enabled,
           });
           toast('success', connector.enabled ? 'Connector disabled.' : 'Connector enabled.');
-        } else {
+        } else if (action === 'run') {
           await api.runInventoryConnector(token, connector.id);
           toast('success', 'Inventory collection queued.');
+        } else {
+          await api.clearInventoryCsv(token, connector.id);
+          toast('success', 'Encrypted CSV source cleared. Existing observations were retained.');
         }
         await load();
       } catch (err) {
@@ -210,6 +262,11 @@ export function PassiveInventoryPage() {
           <div>
             <p className="font-medium text-text">{row.name}</p>
             <p className="text-xs text-muted">{humanize(row.connector_type)}</p>
+            {row.connector_type === 'csv' && row.has_source_data && (
+              <p className="text-xs text-muted">
+                {row.source_filename} · {Math.ceil((row.source_size_bytes ?? 0) / 1024)} KiB
+              </p>
+            )}
           </div>
         ),
       },
@@ -266,11 +323,35 @@ export function PassiveInventoryPage() {
                 <Play size={13} /> Run
               </Button>
             )}
+            {canManageConnectors && row.connector_type === 'csv' && row.has_source_data && (
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => void actOnConnector(row, 'clear_csv')}
+                disabled={busy === row.id}
+              >
+                Clear file
+              </Button>
+            )}
+            {canManageConnectors && row.connector_type === 'csv' && (
+              <Input
+                aria-label={`Replace CSV for ${row.name}`}
+                type="file"
+                accept=".csv,text/csv"
+                className="max-w-48 text-xs"
+                disabled={busy === row.id}
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  event.target.value = '';
+                  if (file) void replaceCsv(row, file);
+                }}
+              />
+            )}
           </div>
         ),
       },
     ],
-    [actOnConnector, busy, canManageConnectors, canRunConnectors],
+    [actOnConnector, busy, canManageConnectors, canRunConnectors, replaceCsv],
   );
 
   const candidateColumns: ColumnDef<ReconciliationCandidate>[] = useMemo(
@@ -409,30 +490,58 @@ export function PassiveInventoryPage() {
                     ))}
                   </Select>
                 </Field>
-                <Field label="HTTPS URL (when required)">
-                  <Input
-                    aria-label="HTTPS URL (when required)"
-                    value={connectorForm.baseUrl}
-                    onChange={(event) =>
-                      setConnectorForm((current) => ({ ...current, baseUrl: event.target.value }))
-                    }
-                  />
-                </Field>
-                <Field label="Secret (optional)">
-                  <Input
-                    aria-label="Secret (optional)"
-                    type="password"
-                    value={connectorForm.secret}
-                    onChange={(event) =>
-                      setConnectorForm((current) => ({
-                        ...current,
-                        secret: event.target.value,
-                      }))
-                    }
-                  />
-                </Field>
+                {connectorForm.type === 'csv' ? (
+                  <Field label="CSV file (5 MiB maximum)">
+                    <Input
+                      aria-label="CSV file (5 MiB maximum)"
+                      type="file"
+                      accept=".csv,text/csv"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0] ?? null;
+                        if (file && file.size > 5 * 1024 * 1024) {
+                          setCsvFile(null);
+                          setError('CSV files cannot exceed 5 MiB.');
+                          event.target.value = '';
+                        } else {
+                          setCsvFile(file);
+                        }
+                      }}
+                    />
+                  </Field>
+                ) : (
+                  <>
+                    <Field label="HTTPS URL (when required)">
+                      <Input
+                        aria-label="HTTPS URL (when required)"
+                        value={connectorForm.baseUrl}
+                        onChange={(event) =>
+                          setConnectorForm((current) => ({
+                            ...current,
+                            baseUrl: event.target.value,
+                          }))
+                        }
+                      />
+                    </Field>
+                    <Field label="Secret (optional)">
+                      <Input
+                        aria-label="Secret (optional)"
+                        type="password"
+                        value={connectorForm.secret}
+                        onChange={(event) =>
+                          setConnectorForm((current) => ({
+                            ...current,
+                            secret: event.target.value,
+                          }))
+                        }
+                      />
+                    </Field>
+                  </>
+                )}
                 <div className="flex items-end">
-                  <Button onClick={() => void createConnector()} disabled={busy === 'connector'}>
+                  <Button
+                    onClick={() => void createConnector()}
+                    disabled={busy === 'connector' || (connectorForm.type === 'csv' && !csvFile)}
+                  >
                     <Plus size={14} /> Save source
                   </Button>
                 </div>

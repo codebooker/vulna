@@ -52,11 +52,14 @@ async def test_generic_api_maps_bounded_items_and_cursor_without_writes() -> Non
         },
     )
     adapter = GenericApiInventoryAdapter(sender=send)
-    tested = await adapter.test(connector, "one-way-secret")
+    tested = await adapter.test(connector, "one-way-secret", source_data=None)
     assert tested == {"status_code": 200, "records_visible": 1, "read_only": True}
 
     observations, cursor = await adapter.collect(
-        connector, "one-way-secret", cursor={"value": "page-1"}
+        connector,
+        "one-way-secret",
+        cursor={"value": "page-1"},
+        source_data=None,
     )
     assert len(observations) == 1
     assert observations[0].source_record_id == "device-1"
@@ -82,10 +85,10 @@ async def test_generic_api_rejects_executable_paths_and_unmapped_identity() -> N
     )
     adapter = GenericApiInventoryAdapter(sender=send)
     with pytest.raises(passive_inventory.InventoryConnectorError, match="without traversal"):
-        await adapter.collect(connector, None, cursor={})
+        await adapter.collect(connector, None, cursor={}, source_data=None)
 
     connector.config_json = {"identifier_fields": ["fqdn=fqdn"]}
     with pytest.raises(
         passive_inventory.InventoryConnectorError, match="no configured identifiers"
     ):
-        await adapter.collect(connector, None, cursor={})
+        await adapter.collect(connector, None, cursor={}, source_data=None)

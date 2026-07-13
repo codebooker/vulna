@@ -19,6 +19,29 @@ bounded attribute object, normalized identifiers, source timestamp, and payload
 hash. Source observations are never overwritten, so operators can explain how the
 current inventory was derived.
 
+### CSV importer
+
+CSV sources use `PUT /api/v1/inventory/connectors/{id}/csv` with a raw UTF-8 file.
+The upload is limited to 5 MiB, 10,000 data rows, 100 unique columns, and 16 KiB
+per cell. Comma, semicolon, tab, and pipe delimiters are supported. The file is
+encrypted in the database with the dedicated `inventory_csv_source` HKDF context;
+it is decrypted only in memory for an administrator test or worker collection.
+Upload and clear operations disable the connector and invalidate its previous
+test. `DELETE` on the same endpoint clears the encrypted source but retains all
+append-only observations and reconciliation history.
+
+Headers matching identifier names such as `hostname`, `fqdn`, `ip_address`,
+`mac_address`, `agent_id`, or `cloud_instance_id` are mapped automatically. For
+explicit mapping, connector configuration accepts `source_id_field`,
+`identifier_fields` entries in `type=column` form, `attribute_fields` entries in
+`target=column` form, and an optional timezone-aware `observed_at_field`. These
+selectors are validated field names, reject secret-shaped columns and targets,
+and are never evaluated as expressions.
+
+API responses and portability exports expose only `has_source_data`, filename,
+SHA-256, byte count, and upload time. They never expose source bytes or ciphertext.
+Task payloads contain only the connector run identifier.
+
 ### Generic JSON API importer
 
 The generic importer performs HTTPS `GET` requests only. Configuration selects a
@@ -79,11 +102,13 @@ presentation aid.
 
 ## Backup and portability
 
-Encrypted database backups retain connector ciphertext, report passwords, task
-history, observations, and reconciliation snapshots. Portability schema v8 exports
+Encrypted database backups retain connector ciphertext, encrypted CSV source data,
+report passwords, task history, observations, and reconciliation snapshots.
+Portability schema v8 exports
 non-secret connector metadata, observations, source links, lifecycle/history,
 aggregate history, reconciliation explanations, and report template/run metadata.
-It excludes connector ciphertext, export passwords, analytics cache entries, task
-payloads, and leases. Restoring usable secrets requires a verified encrypted
-backup. Downgrade removes Phase 44 history and cannot reconstruct source links, so
-verify a backup first.
+For CSV sources this includes only presence, filename, SHA-256, size, and upload
+time. It excludes connector and source ciphertext, export passwords, analytics
+cache entries, task payloads, and leases. Restoring a usable CSV source or secret
+requires a verified encrypted backup. Downgrade removes Phase 44 history and cannot
+reconstruct source links, so verify a backup first.

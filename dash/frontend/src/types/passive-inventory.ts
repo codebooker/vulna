@@ -22,6 +22,11 @@ export interface InventoryConnector {
   base_url: string | null;
   config_json: Record<string, unknown>;
   has_secret: boolean;
+  has_source_data: boolean;
+  source_filename: string | null;
+  source_sha256: string | null;
+  source_size_bytes: number | null;
+  source_uploaded_at: string | null;
   enabled: boolean;
   interval_minutes: number | null;
   next_run_at: string | null;

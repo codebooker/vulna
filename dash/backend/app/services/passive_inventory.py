@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import uuid
@@ -29,6 +30,7 @@ _SECRET_FRAGMENTS = {
     "api_key",
     "authorization",
 }
+MAX_CSV_SOURCE_BYTES = 5 * 1024 * 1024
 
 
 class InventoryConnectorError(ValueError):
@@ -46,7 +48,13 @@ class NormalizedObservation:
 class InventoryAdapter(Protocol):
     """Provider adapters may only test and collect; no mutation method exists."""
 
-    async def test(self, connector: InventoryConnector, secret: str | None) -> dict[str, Any]: ...
+    async def test(
+        self,
+        connector: InventoryConnector,
+        secret: str | None,
+        *,
+        source_data: bytes | None,
+    ) -> dict[str, Any]: ...
 
     async def collect(
         self,
@@ -54,6 +62,7 @@ class InventoryAdapter(Protocol):
         secret: str | None,
         *,
         cursor: dict[str, Any],
+        source_data: bytes | None,
     ) -> tuple[list[NormalizedObservation], dict[str, Any]]: ...
 
 
@@ -65,8 +74,10 @@ def register_adapter(connector_type: PassiveConnectorType, adapter: InventoryAda
 
 
 def register_builtin_adapters() -> None:
+    from app.services.inventory_csv import CsvInventoryAdapter
     from app.services.inventory_generic_api import GenericApiInventoryAdapter
 
+    register_adapter(PassiveConnectorType.CSV, CsvInventoryAdapter())
     register_adapter(PassiveConnectorType.GENERIC_API, GenericApiInventoryAdapter())
 
 
@@ -130,13 +141,36 @@ def decrypt_connector_secret(settings: Settings, ciphertext: str | None) -> str 
     return decrypt_secret(settings.secret_key, SecretPurpose.INVENTORY_CONNECTOR_SECRET, ciphertext)
 
 
+def encrypt_source_data(settings: Settings, value: bytes) -> str:
+    if not settings.secret_key:
+        raise InventoryConnectorError("application secret key is required for source encryption")
+    encoded = base64.b64encode(value).decode("ascii")
+    return encrypt_secret(settings.secret_key, SecretPurpose.INVENTORY_CSV_SOURCE, encoded)
+
+
+def decrypt_source_data(settings: Settings, ciphertext: str | None) -> bytes | None:
+    if ciphertext is None:
+        return None
+    if not settings.secret_key:
+        raise InventoryConnectorError("application secret key is required for source decryption")
+    encoded = decrypt_secret(settings.secret_key, SecretPurpose.INVENTORY_CSV_SOURCE, ciphertext)
+    try:
+        return base64.b64decode(encoded, validate=True)
+    except ValueError as exc:
+        raise InventoryConnectorError("encrypted source data is invalid") from exc
+
+
 async def test_connector(connector: InventoryConnector, settings: Settings) -> dict[str, Any]:
     adapter = ADAPTERS.get(connector.connector_type)
     if adapter is None:
         raise InventoryConnectorError(f"{connector.connector_type.value} adapter is not installed")
     secret = decrypt_connector_secret(settings, connector.encrypted_secret)
     try:
-        result = await adapter.test(connector, secret)
+        result = await adapter.test(
+            connector,
+            secret,
+            source_data=decrypt_source_data(settings, connector.encrypted_source_data),
+        )
         _ensure_secret_absent(result, secret, label="connector test metadata")
         return _bounded_mapping(result, label="connector test metadata")
     except InventoryConnectorError:
@@ -320,6 +354,7 @@ async def execute_connector_task(
             connector,
             connector_secret,
             cursor=run.cursor_json,
+            source_data=decrypt_source_data(settings, connector.encrypted_source_data),
         )
         if len(observations) > 100_000:
             raise InventoryConnectorError("connector run exceeds the 100000-record safety limit")

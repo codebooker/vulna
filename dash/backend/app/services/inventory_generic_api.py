@@ -28,7 +28,14 @@ class GenericApiInventoryAdapter:
     def __init__(self, sender: SendJson = request_json) -> None:
         self._sender = sender
 
-    async def test(self, connector: InventoryConnector, secret: str | None) -> dict[str, Any]:
+    async def test(
+        self,
+        connector: InventoryConnector,
+        secret: str | None,
+        *,
+        source_data: bytes | None,
+    ) -> dict[str, Any]:
+        del source_data
         response = await self._request(connector, secret, cursor={})
         items = _items(response.data, connector.config_json)
         return {
@@ -43,7 +50,9 @@ class GenericApiInventoryAdapter:
         secret: str | None,
         *,
         cursor: dict[str, Any],
+        source_data: bytes | None,
     ) -> tuple[list[NormalizedObservation], dict[str, Any]]:
+        del source_data
         response = await self._request(connector, secret, cursor=cursor)
         config = connector.config_json
         source_field = _field_name(config.get("source_id_field", "id"))

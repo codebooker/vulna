@@ -47,9 +47,11 @@ calculations, exceptions, guidance, and sanitized ticket connector/sync metadata
 Schema v8 adds sanitized passive inventory connector/run metadata, append-only
 observations, source links, lifecycle history, reconciliation explanations and
 snapshots, daily aggregates, and report template/schedule/run metadata. Connector
-ciphertext, report export passwords, analytics cache rows, and task payloads remain
-excluded. Validation accepts v1 through v8; restoring usable vault or connector
-secrets still requires an encrypted backup.
+ciphertext, CSV source bytes and ciphertext, report export passwords, analytics
+cache rows, and task payloads remain excluded. A CSV connector exports only source
+presence, filename, SHA-256, size, and upload time. Validation accepts v1 through
+v8; restoring usable vault, connector secrets, or CSV source data still requires
+an encrypted backup.
 Background task payloads, leases, retries, dead letters, results, and process
 heartbeats are operational state and are excluded from portability exports. They
 remain available only through encrypted database backup/restore.

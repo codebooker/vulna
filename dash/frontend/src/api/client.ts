@@ -164,13 +164,21 @@ interface RequestOptions {
   method?: string;
   token?: string | null;
   body?: unknown;
+  rawBody?: BodyInit;
+  contentType?: string;
+  headers?: Record<string, string>;
 }
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = 'GET', token, body } = options;
-  const headers: Record<string, string> = { Accept: 'application/json' };
+  const { method = 'GET', token, body, rawBody, contentType, headers: extraHeaders } = options;
+  if (body !== undefined && rawBody !== undefined) {
+    throw new Error('API requests cannot include both JSON and raw bodies.');
+  }
+  const headers: Record<string, string> = { Accept: 'application/json', ...extraHeaders };
   if (body !== undefined) {
     headers['Content-Type'] = 'application/json';
+  } else if (rawBody !== undefined && contentType) {
+    headers['Content-Type'] = contentType;
   }
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
@@ -179,7 +187,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   const response = await fetch(`${API_BASE}${path}`, {
     method,
     headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
+    body: rawBody ?? (body !== undefined ? JSON.stringify(body) : undefined),
     credentials: 'include',
   });
 
@@ -1434,6 +1442,24 @@ export const api = {
       token,
       body,
     });
+  },
+  uploadInventoryCsv(token: string, connectorId: string, file: File): Promise<InventoryConnector> {
+    return request<InventoryConnector>(
+      `/api/v1/inventory/connectors/${encodeURIComponent(connectorId)}/csv`,
+      {
+        method: 'PUT',
+        token,
+        rawBody: file,
+        contentType: 'text/csv',
+        headers: { 'X-File-Name': file.name },
+      },
+    );
+  },
+  clearInventoryCsv(token: string, connectorId: string): Promise<InventoryConnector> {
+    return request<InventoryConnector>(
+      `/api/v1/inventory/connectors/${encodeURIComponent(connectorId)}/csv`,
+      { method: 'DELETE', token },
+    );
   },
   testInventoryConnector(
     token: string,

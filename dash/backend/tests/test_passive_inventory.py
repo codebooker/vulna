@@ -43,8 +43,15 @@ pytestmark = pytest.mark.release_gate
 
 
 class FakeInventoryAdapter:
-    async def test(self, connector: InventoryConnector, secret: str | None) -> dict[str, object]:
+    async def test(
+        self,
+        connector: InventoryConnector,
+        secret: str | None,
+        *,
+        source_data: bytes | None,
+    ) -> dict[str, object]:
         assert secret == "inventory-secret-never-returned"
+        assert source_data is None
         return {"source": connector.connector_type.value, "read_only": True}
 
     async def collect(
@@ -53,9 +60,11 @@ class FakeInventoryAdapter:
         secret: str | None,
         *,
         cursor: dict[str, object],
+        source_data: bytes | None,
     ) -> tuple[list[NormalizedObservation], dict[str, object]]:
         assert secret == "inventory-secret-never-returned"
         assert cursor == {}
+        assert source_data is None
         return (
             [
                 NormalizedObservation(
@@ -75,8 +84,13 @@ class FakeInventoryAdapter:
 
 class LeakyInventoryAdapter(FakeInventoryAdapter):
     async def test(
-        self, connector: InventoryConnector, secret: str | None
+        self,
+        connector: InventoryConnector,
+        secret: str | None,
+        *,
+        source_data: bytes | None,
     ) -> dict[str, object]:
+        del connector, source_data
         return {"detail": f"provider echoed {secret}"}
 
 

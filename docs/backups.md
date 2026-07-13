@@ -120,6 +120,12 @@ passwords must decrypt only under their separate purpose and must not appear in
 task payloads, portability, audit metadata, or logs. Restored auto-merge decisions
 must remain reversible without contacting the original source.
 
+CSV source uploads are included only in encrypted database backups. Restore tests
+must verify that source ciphertext decrypts under the CSV-specific purpose, its
+SHA-256 and size metadata still match, and a restored worker can derive the same
+bounded observations. Source bytes and ciphertext must remain absent from
+portability, audit metadata, task payloads, errors, and logs.
+
 Post-Phase-39 background tasks, lease/retry/dead-letter state, and worker heartbeats
 are ordinary PostgreSQL records and are included in the encrypted database backup.
 After restore, start the API/migrations before the scheduler and worker. Leases from

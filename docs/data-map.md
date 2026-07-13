@@ -61,6 +61,7 @@ cross-installation identifier.
 | Ticket connector secrets | database (purpose-bound encrypted) | critical | no |
 | Passive connector metadata, observations, source links, lifecycle, reconciliation snapshots, and aggregate history | database | high | yes or metadata only |
 | Passive inventory connector secrets | database (purpose-bound encrypted) | critical | no |
+| CSV inventory source uploads | database (purpose-bound encrypted) | high | metadata only; never source bytes or ciphertext |
 | Report templates, schedules, and comparison history | database | medium | yes |
 | Report export passwords | database (purpose-bound encrypted) | critical | no |
 | Scope-specific analytics cache | database | medium | no |
@@ -71,7 +72,8 @@ The [export](portability.md) contains only the non-secret categories marked "yes
 or "metadata only". User lifecycle events are backup-only; exported user records
 contain status/source/role/site access metadata but never authentication or
 session material.
-Secrets, keys, evidence, and raw output never appear in an export.
+Secrets, keys, evidence, raw scanner output, and CSV source contents never appear
+in an export.
 
 Passive inventory preserves every bounded source observation before applying an
 identity decision. Exact identifier weights make unique conflict-free scores of 95

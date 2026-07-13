@@ -55,6 +55,11 @@ class InventoryConnectorRead(BaseModel):
     base_url: str | None
     config_json: dict[str, Any]
     has_secret: bool
+    has_source_data: bool
+    source_filename: str | None
+    source_sha256: str | None
+    source_size_bytes: int | None
+    source_uploaded_at: datetime | None
     enabled: bool
     interval_minutes: int | None
     next_run_at: datetime | None

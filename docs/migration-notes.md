@@ -17,6 +17,15 @@ step is needed for schema changes unless noted.
 
 ## Unreleased (on `main`)
 
+- **CSV passive inventory importer (Phase 44).** The additive upgrade stores CSV
+  upload ciphertext and non-secret filename/hash/size/upload metadata on inventory
+  connectors. Existing connectors receive null source fields and remain disabled
+  unless already qualified for another adapter. CSV source bytes use a distinct
+  encryption purpose, stay out of portability, and are included in encrypted
+  database backups. Downgrade preserves connectors and collected observations but
+  permanently removes uploaded CSV source data and its metadata; verify a backup
+  first.
+
 - **Passive inventory and report builder (Phase 44 core).** The additive upgrade
   creates connector/run/observation/source-link records, reconciliation candidates
   and reversible snapshots, inventory lifecycle projections/events, daily

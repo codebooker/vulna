@@ -19,6 +19,11 @@ const connector = {
   base_url: 'https://inventory.example.test',
   config_json: { region: 'us-east-1' },
   has_secret: true,
+  has_source_data: false,
+  source_filename: null,
+  source_sha256: null,
+  source_size_bytes: null,
+  source_uploaded_at: null,
   enabled: false,
   interval_minutes: 60,
   next_run_at: null,
@@ -47,6 +52,7 @@ beforeEach(() => {
             'analytics.read',
             'connectors.read',
             'connectors.manage',
+            'connectors.run',
             'reconciliation.read',
             'reconciliation.manage',
             'report_templates.read',
@@ -64,7 +70,32 @@ beforeEach(() => {
         });
       }
       if (url.endsWith('/api/v1/inventory/connectors') && init?.method === 'POST') {
-        return jsonResponse({ ...connector, id: 'connector-2', name: 'New source' }, 201);
+        return jsonResponse(
+          {
+            ...connector,
+            id: 'connector-2',
+            name: 'New source',
+            connector_type: 'csv',
+            base_url: null,
+            has_secret: false,
+          },
+          201,
+        );
+      }
+      if (url.endsWith('/api/v1/inventory/connectors/connector-2/csv') && init?.method === 'PUT') {
+        return jsonResponse({
+          ...connector,
+          id: 'connector-2',
+          name: 'New source',
+          connector_type: 'csv',
+          base_url: null,
+          has_secret: false,
+          has_source_data: true,
+          source_filename: 'inventory.csv',
+          source_sha256: 'csv-sha256',
+          source_size_bytes: 32,
+          source_uploaded_at: '2026-07-13T00:01:00Z',
+        });
       }
       if (url.endsWith('/api/v1/inventory/connectors')) return jsonResponse([connector]);
       if (url.endsWith('/api/v1/inventory/reconciliation')) {
@@ -116,6 +147,12 @@ it('shows scoped analytics and keeps connector secrets one-way', async () => {
   expect(screen.queryByText('inventory-secret')).not.toBeInTheDocument();
 
   fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'New source' } });
+  const csv = new File(['hostname,ip\nserver-1,192.0.2.10\n'], 'inventory.csv', {
+    type: 'text/csv',
+  });
+  fireEvent.change(screen.getByLabelText('CSV file (5 MiB maximum)'), {
+    target: { files: [csv] },
+  });
   fireEvent.click(screen.getByRole('button', { name: 'Save source' }));
   await waitFor(() =>
     expect(fetch).toHaveBeenCalledWith(
@@ -123,6 +160,19 @@ it('shows scoped analytics and keeps connector secrets one-way', async () => {
       expect.objectContaining({
         method: 'POST',
         body: expect.stringContaining('New source'),
+      }),
+    ),
+  );
+  await waitFor(() =>
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/api/v1/inventory/connectors/connector-2/csv'),
+      expect.objectContaining({
+        method: 'PUT',
+        body: csv,
+        headers: expect.objectContaining({
+          'Content-Type': 'text/csv',
+          'X-File-Name': 'inventory.csv',
+        }),
       }),
     ),
   );
