@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 43 connector: Jira
+
+- Jira Cloud REST v3 and Jira Data Center REST v2 now support project tests,
+  create/update, ADF or plain descriptions, labels, issue types, priority mappings,
+  deterministic-label retry lookup, and workflow-aware verified-close transitions.
+- Basic email/API-token and bearer PAT authentication are supported from the
+  one-way connector secret; Jira response bodies and credentials are never retained.
+
 ### Added — Phase 43 connector: GLPI
 
 - GLPI legacy REST v1 now supports user-token/App-Token session setup and cleanup,

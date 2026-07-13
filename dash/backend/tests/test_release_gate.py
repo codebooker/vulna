@@ -50,6 +50,7 @@ REQUIRED_GATE_MODULES = [
     "test_ticket_github.py",
     "test_ticket_gitlab.py",
     "test_ticket_glpi.py",
+    "test_ticket_jira.py",
 ]
 
 

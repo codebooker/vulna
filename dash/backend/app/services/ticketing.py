@@ -85,10 +85,12 @@ def register_builtin_adapters() -> None:
     from app.services.ticket_adapters.github import GitHubIssuesAdapter
     from app.services.ticket_adapters.gitlab import GitLabIssuesAdapter
     from app.services.ticket_adapters.glpi import GlpiTicketAdapter
+    from app.services.ticket_adapters.jira import JiraIssueAdapter
 
     register_adapter(TicketConnectorType.GITHUB, GitHubIssuesAdapter())
     register_adapter(TicketConnectorType.GITLAB, GitLabIssuesAdapter())
     register_adapter(TicketConnectorType.GLPI, GlpiTicketAdapter())
+    register_adapter(TicketConnectorType.JIRA, JiraIssueAdapter())
 
 
 def validate_public_config(value: dict[str, Any]) -> dict[str, Any]:
