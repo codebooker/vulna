@@ -34,9 +34,11 @@ type Profile struct {
 	ServiceDetection bool // -sV
 }
 
-// SafeDiscoveryProfile returns the default Phase 4 discovery profile.
+// SafeDiscoveryProfile returns the default discovery profile. The top-1,000 ports
+// cover the vast majority of real services (including ones the old top-100 missed,
+// e.g. Redis on 6379) while staying fast per host on a TCP connect scan.
 func SafeDiscoveryProfile() Profile {
-	return Profile{TopPorts: 100, Timing: 3, ServiceDetection: true}
+	return Profile{TopPorts: 1000, Timing: 3, ServiceDetection: true}
 }
 
 func clamp(v, lo, hi int) int {

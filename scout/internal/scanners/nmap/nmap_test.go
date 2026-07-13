@@ -16,7 +16,7 @@ func TestBuildArgsSafeProfile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"-sT", "-Pn", "-sV", "-T3", "--top-ports", "100", "-oX", "/tmp/out.xml", "10.20.0.0/24"} {
+	for _, want := range []string{"-sT", "-Pn", "-sV", "-T3", "--top-ports", "1000", "-oX", "/tmp/out.xml", "10.20.0.0/24"} {
 		if !slices.Contains(args, want) {
 			t.Errorf("args missing %q: %v", want, args)
 		}
