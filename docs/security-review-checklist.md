@@ -194,7 +194,10 @@ directly. See also [`threat-model.md`](threat-model.md) and
 - [ ] `/metrics` exposes aggregate-only data — no finding titles, evidence, IPs, or CVE ids in labels (`tests/test_metrics.py`).
 
 ## Supply chain & release
-- [ ] `pip-audit`, `npm audit --audit-level=high`, and `govulncheck` are clean (the `security` CI job).
+- [ ] `pip-audit` and `npm audit --audit-level=high` are clean, and `govulncheck`
+  reports no reachable dependency function (`security` CI). Module-only findings
+  remain visible but do not masquerade as called symbols
+  (`deploy/security/check_govuln_findings.py`).
 - [ ] `deploy/security/check_go_openpgp.py` rejects the GO-2026-5932-affected
   `golang.org/x/crypto/openpgp` package and subpackages from every CLI and Scout
   build graph for supported operating systems.

@@ -54,6 +54,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Scout credential-envelope HKDF uses Go's standard library, and `x/net` advances
   to v0.55.0 to clear the separately reported package vulnerabilities while the
   required SSH and ChaCha20-Poly1305 packages remain on maintained APIs.
+- The shared `govulncheck` classifier now follows the JSON protocol's function
+  frames: module/version-only findings are reported as uncalled, while any
+  reachable dependency symbol still fails CI. Regression coverage pins this
+  distinction so GO-2026-5932 cannot be mistaken for a reachable call or silently
+  ignored if an affected function enters the graph.
 
 ### Added — Phase 44 connector: UniFi Network
 

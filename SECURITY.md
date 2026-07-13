@@ -77,4 +77,6 @@ audits (`pip-audit`, `npm audit`, `govulncheck`), the backup/restore round-trip,
 and release signing run in the `security` CI workflow. Because
 [GO-2026-5932](https://pkg.go.dev/vuln/GO-2026-5932) has no fixed
 `x/crypto/openpgp` release, CI also proves that the affected OpenPGP package and its
-subpackages are absent from every supported CLI and Scout build graph.
+subpackages are absent from every supported CLI and Scout build graph. The
+`govulncheck` JSON gate fails reachable dependency function traces, while reporting
+module/version-only findings separately; this distinction is regression-tested.

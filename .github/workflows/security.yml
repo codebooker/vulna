@@ -52,44 +52,16 @@ jobs:
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
           "$(go env GOPATH)/bin/govulncheck" -format json ./... > govulncheck.json || true
-          python3 - <<'PY'
-          import json, sys
-          # govulncheck -format json emits a stream of pretty-printed JSON objects.
-          text = open("govulncheck.json").read()
-          dec, i, n = json.JSONDecoder(), 0, len(text)
-          dep, std = set(), set()
-          while i < n:
-              while i < n and text[i] in " \t\r\n":
-                  i += 1
-              if i >= n:
-                  break
-              obj, i = dec.raw_decode(text, i)
-              f = obj.get("finding")
-              if not f:
-                  continue
-              trace = f.get("trace") or []
-              if not trace:      # imported but not called
-                  continue
-              module = trace[0].get("module", "")
-              osv = f.get("osv", "")
-              if module in ("stdlib", "toolchain"):
-                  std.add(osv)
-              else:
-                  dep.add((osv, module))
-          if dep:
-              print("FAIL: called dependency vulnerabilities:", sorted(dep))
-              sys.exit(1)
-          if std:
-              print("NOTE: Go stdlib advisories in the current toolchain "
-                    "(patched by upgrading Go):", sorted(std))
-          print("OK: no called dependency vulnerabilities in Scout.")
-          PY
+          python3 ../deploy/security/check_govuln_findings.py \
+            govulncheck.json --subject Scout
 
   hardening-tests:
     name: hardening-tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Test govulncheck finding classification
+        run: python3 deploy/security/test_check_govuln_findings.py
       - name: Backup/restore smoke test
         run: bash deploy/backup/smoke_test.sh
       - name: Release signing smoke test
