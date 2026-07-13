@@ -38,6 +38,7 @@ REQUIRED_GATE_MODULES = [
     "test_sessions.py",
     "test_mfa.py",
     "test_sso.py",
+    "test_scim.py",
 ]
 
 

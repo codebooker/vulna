@@ -84,6 +84,14 @@ import type {
   SsoPolicyMode,
   SsoStart,
 } from '../types/sso';
+import type {
+  ScimGroupMapping,
+  ScimLogPage,
+  ScimMappingPayload,
+  ScimMappingPreview,
+  ScimToken,
+  ScimTokenIssued,
+} from '../types/scim';
 
 // In development, Vite proxies /api to the backend (see vite.config.ts).
 // In production the frontend is served behind the same reverse proxy as the API.
@@ -295,6 +303,55 @@ export const api = {
       token,
       body: { enabled },
     });
+  },
+
+  // --- SCIM provisioning (Phase 38) ---
+  listScimTokens(token: string): Promise<ScimToken[]> {
+    return request<ScimToken[]>('/api/v1/scim/tokens', { token });
+  },
+  createScimToken(token: string, name: string): Promise<ScimTokenIssued> {
+    return request<ScimTokenIssued>('/api/v1/scim/tokens', {
+      method: 'POST',
+      token,
+      body: { name },
+    });
+  },
+  rotateScimToken(token: string, tokenId: string): Promise<ScimTokenIssued> {
+    return request<ScimTokenIssued>(`/api/v1/scim/tokens/${tokenId}/rotate`, {
+      method: 'POST',
+      token,
+    });
+  },
+  revokeScimToken(token: string, tokenId: string): Promise<void> {
+    return request<void>(`/api/v1/scim/tokens/${tokenId}`, { method: 'DELETE', token });
+  },
+  listScimGroups(token: string): Promise<ScimGroupMapping[]> {
+    return request<ScimGroupMapping[]>('/api/v1/scim/groups', { token });
+  },
+  previewScimGroupMapping(
+    token: string,
+    groupId: string,
+    payload: ScimMappingPayload,
+  ): Promise<ScimMappingPreview> {
+    return request<ScimMappingPreview>(`/api/v1/scim/groups/${groupId}/mapping/preview`, {
+      method: 'POST',
+      token,
+      body: payload,
+    });
+  },
+  updateScimGroupMapping(
+    token: string,
+    groupId: string,
+    payload: ScimMappingPayload,
+  ): Promise<ScimGroupMapping> {
+    return request<ScimGroupMapping>(`/api/v1/scim/groups/${groupId}/mapping`, {
+      method: 'PUT',
+      token,
+      body: payload,
+    });
+  },
+  scimProvisioningLogs(token: string): Promise<ScimLogPage> {
+    return request<ScimLogPage>('/api/v1/scim/logs?limit=50', { token });
   },
   me(token: string): Promise<CurrentUser> {
     return request<CurrentUser>('/api/v1/auth/me', { token });

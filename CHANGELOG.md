@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 38: SCIM 2.0 provisioning
+
+- Organization-specific bearer tokens are displayed once, stored only as SHA-256
+  hashes, expire, rotate with immediate predecessor revocation, and use durable
+  database-backed per-token rate limits.
+- `/scim/v2` now provides Users, Groups, ServiceProviderConfig, ResourceTypes, and
+  Schemas resources with one-based pagination, safe filtering, attribute projection,
+  standard PATCH operations, ETags, SCIM media types, and RFC-shaped errors.
+- SCIM owns only SCIM-created users. Local and JIT accounts remain invisible and
+  immutable to provisioning tokens; deprovisioning deactivates accounts, revokes
+  credentials immediately, and preserves attribution and lifecycle history.
+- Provisioned groups map explicitly to compatibility roles and assigned/all-site
+  access. Administrators preview the affected users before applying a mapping;
+  effective access is recalculated across all memberships and changed sessions are
+  revoked. Asset-group targets remain stored but hidden until Phase 40.
+- The Provisioning page manages one-time tokens, rotation/revocation, group mappings,
+  previews, and sanitized request history. The migration, capability matrix,
+  portability schema v2, backup guidance, OpenAPI, isolation, and release-gate tests
+  are updated.
+
 ### Added — Phase 37: OIDC and SAML single sign-on
 
 - Organization-scoped OIDC and SAML providers now keep encrypted client secrets,

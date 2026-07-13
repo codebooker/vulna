@@ -55,6 +55,10 @@ MFA policy, authentication strength, and used/expired challenge state. Phase 37
 adds identity-provider configuration, purpose-encrypted OIDC client secrets and
 SAML certificates/private keys, external identity links, group mappings, SSO
 policy/test history, and consumed protocol/replay state.
+Phase 38 adds hashed SCIM bearer tokens, provisioned group membership and role/site
+mappings, rate-limit windows, external directory ids, and sanitized provisioning
+history. These records are required to keep a restored connector's old token,
+revocation, ownership, and access decisions intact.
 A restore test should verify
 that an assigned user sees the same sites, a deactivated user remains unable to
 sign in, consumed one-time links remain unusable, revoked sessions remain revoked,
@@ -67,6 +71,10 @@ A Phase 37 restore test must verify that provider secrets still decrypt only for
 their original purpose, disabled providers remain disabled, enforcement retains a
 strong-MFA break-glass user, external subjects stay linked to the same organization,
 and consumed OIDC state or SAML assertion IDs remain unusable.
+A Phase 38 restore test must verify that revoked/rotated SCIM tokens remain unusable,
+active tokens still resolve only their original organization, deprovisioned users
+remain inactive, group-derived role/site access is unchanged, and provisioning
+logs contain no bearer values.
 
 ## Destinations
 

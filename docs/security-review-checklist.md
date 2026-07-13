@@ -47,6 +47,16 @@ directly. See also [`threat-model.md`](threat-model.md) and
   provider and at least one active local administrator with strong MFA. Local, role,
   status, invitation, and factor-removal paths cannot strand enforcement; break-glass
   use is audited and generates a critical security notification.
+- [ ] SCIM tokens are high-entropy, shown once, hashed at rest, expiring, rotatable,
+  immediately revocable, organization-bound, and database-rate-limited
+  (`app/services/scim.py`, `tests/test_scim.py`).
+- [ ] `/scim/v2` exposes only SCIM-owned users for the token organization; local/JIT
+  and cross-organization users are hidden. PATCH paths and filters are parsed from a
+  bounded grammar, deprovisioning preserves history, and every access change revokes
+  affected sessions.
+- [ ] Group mappings are previewed and explicitly confirmed, validate every site's
+  organization, derive least-privilege Viewer/no-site fallback, and cannot demote or
+  deactivate the final active administrator.
 
 ## Probe trust boundary (mTLS)
 - [ ] Caddy terminates mTLS with `client_auth mode require_and_verify` and a trust pool of the internal CA; `mode request` is not used (`deploy/Caddyfile`, ADR 0003 live validation).
@@ -71,6 +81,9 @@ directly. See also [`threat-model.md`](threat-model.md) and
 - [ ] OIDC secrets, OIDC flow material, SAML IdP/SP certificates, and SAML SP keys
   use distinct HKDF contexts; APIs and portability exports expose no reusable
   provider material.
+- [ ] SCIM bearer values and hashes never appear in API reads, logs, audit metadata,
+  notifications, or portability exports; token values exist only in one creation or
+  rotation response.
 - [ ] Untrusted scanner output parsed defensively (defusedxml for XML; malformed lines skipped).
 - [ ] `/metrics` exposes aggregate-only data — no finding titles, evidence, IPs, or CVE ids in labels (`tests/test_metrics.py`).
 

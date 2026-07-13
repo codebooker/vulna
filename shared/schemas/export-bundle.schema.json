@@ -11,6 +11,10 @@
     "organization",
     "users",
     "user_site_assignments",
+    "scim_groups",
+    "scim_group_members",
+    "scim_group_site_mappings",
+    "scim_provisioning_logs",
     "sites",
     "network_scopes",
     "scouts",
@@ -23,7 +27,7 @@
     "checksum"
   ],
   "properties": {
-    "schema_version": { "type": "string", "const": "1" },
+    "schema_version": { "type": "string", "const": "2" },
     "exported_at": { "type": "string" },
     "checksum": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "organization": {
@@ -57,6 +61,7 @@
           "role": { "type": "string" },
           "account_status": { "type": "string" },
           "authentication_source": { "type": "string" },
+          "scim_external_id": { "type": ["string", "null"] },
           "site_access_mode": { "type": "string" },
           "last_login_at": { "type": ["string", "null"] }
         }
@@ -74,6 +79,10 @@
         }
       }
     },
+    "scim_groups": { "type": "array", "items": { "type": "object" } },
+    "scim_group_members": { "type": "array", "items": { "type": "object" } },
+    "scim_group_site_mappings": { "type": "array", "items": { "type": "object" } },
+    "scim_provisioning_logs": { "type": "array", "items": { "type": "object" } },
     "sites": { "type": "array", "items": { "type": "object" } },
     "network_scopes": { "type": "array", "items": { "type": "object" } },
     "scouts": { "type": "array", "items": { "type": "object" } },

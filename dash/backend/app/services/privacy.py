@@ -34,6 +34,7 @@ from app.models.finding import Finding
 from app.models.notification import CHANNEL_EMAIL, CHANNEL_WEBHOOK, NotificationChannel
 from app.models.organization import Organization
 from app.models.scan_job import ScanJob
+from app.models.scim import ScimToken
 from app.models.site import Site
 from app.models.user import User
 
@@ -166,6 +167,14 @@ async def secret_inventory(
             NotificationChannel.encrypted_secret.is_not(None),
         )
     )
+    scim_tokens = await session.scalar(
+        select(func.count())
+        .select_from(ScimToken)
+        .where(
+            ScimToken.organization_id == org.id,
+            ScimToken.revoked_at.is_(None),
+        )
+    )
     return [
         {"name": "Application secret key", "present": settings.secret_key is not None,
          "category": "core", "rotatable": True},
@@ -180,6 +189,9 @@ async def secret_inventory(
         {"name": "Notification channel secrets", "present": bool(channel_secrets),
          "category": "notifications", "rotatable": True,
          "count": int(channel_secrets or 0)},
+        {"name": "SCIM bearer tokens", "present": bool(scim_tokens),
+         "category": "identity", "rotatable": True,
+         "count": int(scim_tokens or 0)},
     ]
 
 

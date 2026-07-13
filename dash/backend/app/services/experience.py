@@ -32,6 +32,7 @@ ADVANCED_ROUTES: tuple[str, ...] = (
     "pentest",
     "feeds",
     "identity",
+    "provisioning",
     "system_health",
 )
 
@@ -82,7 +83,12 @@ CAPABILITIES: tuple[dict[str, Any], ...] = (
         "status": "available",
         "production_ready": False,
     },
-    {"key": "scim", "name": "SCIM provisioning", "status": "planned", "production_ready": False},
+    {
+        "key": "scim",
+        "name": "SCIM provisioning",
+        "status": "available",
+        "production_ready": False,
+    },
     {
         "key": "granular_rbac",
         "name": "Granular RBAC",
@@ -301,9 +307,9 @@ def recommendations(profile: ExperienceProfile, answers: dict[str, Any]) -> list
         result.append(
             {
                 "capability": "Automate provisioning with SCIM",
-                "status": "planned",
-                "reason": "SCIM provisioning arrives in Phase 38.",
-                "route": None,
+                "status": "available",
+                "reason": "SCIM 2.0 users, groups, tokens, and access mappings are available.",
+                "route": "/provisioning",
             }
         )
     if answers.get("ticketing"):

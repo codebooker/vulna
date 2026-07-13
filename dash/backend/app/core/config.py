@@ -76,6 +76,9 @@ class Settings(BaseSettings):
     # configuration requires this value to prevent host-header ambiguity.
     sso_public_base_url: str | None = None
     sso_state_ttl_minutes: int = 10
+    scim_token_ttl_days: int = 365
+    scim_rate_limit_per_minute: int = 300
+    scim_max_page_size: int = 200
 
     # Master key for encrypting sensitive evidence (raw scanner output) at rest.
     # When set (VULNA_MASTER_KEY), stored artifacts are encrypted; when unset
@@ -123,9 +126,7 @@ class Settings(BaseSettings):
     # the probe fingerprint) from any other peer are ignored, so an untrusted peer
     # cannot spoof the source address or TLS/mTLS state. Set to your proxy's exact
     # address behind an existing reverse proxy.
-    trusted_proxies: str = (
-        "127.0.0.1/32,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,fc00::/7"
-    )
+    trusted_proxies: str = "127.0.0.1/32,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,fc00::/7"
 
     # ---- Single-host deployment (Phase 17) ---------------------------------
     # When enabled (set by the single-host Compose profile), first-run bootstrap

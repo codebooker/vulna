@@ -9,7 +9,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, Enum, ForeignKey, Integer, String
+from sqlalchemy import JSON, Boolean, DateTime, Enum, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, validates
 
 from app.db.base import Base
@@ -26,6 +26,11 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     """An authenticated operator of VulnaDash."""
 
     __tablename__ = "users"
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "scim_external_id", name="uq_users_org_scim_external_id"
+        ),
+    )
 
     organization_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("organizations.id", ondelete="CASCADE"),
@@ -89,6 +94,7 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         DateTime(timezone=True), nullable=True
     )
     is_break_glass: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    scim_external_id: Mapped[str | None] = mapped_column(String(512), nullable=True)
     created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
@@ -105,9 +111,7 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     def _sync_compatibility_active(self, _key: str, value: bool) -> bool:
         """Keep direct legacy writes safe while status becomes authoritative."""
         if hasattr(self, "account_status"):
-            self.account_status = (
-                AccountStatus.ACTIVE if value else AccountStatus.DEACTIVATED
-            )
+            self.account_status = AccountStatus.ACTIVE if value else AccountStatus.DEACTIVATED
         return value
 
     def set_account_status(self, value: AccountStatus, *, now: datetime) -> None:

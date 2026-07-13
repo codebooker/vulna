@@ -25,6 +25,7 @@
 5. VulnaScout ↔ scanner child processes (sandboxed, resource-limited).
 6. VulnaScout ↔ assessed targets (policy-enforced scope).
 7. Browser / VulnaDash ↔ operator-configured OIDC or SAML identity provider.
+8. Directory provisioning client ↔ `/scim/v2` (organization bearer token).
 
 ## Threats and controls (STRIDE summary)
 
@@ -65,6 +66,15 @@
 - SSO lockout → enforcement requires a validated, same-administrator-tested,
   enabled provider and preserves an active local strong-MFA break-glass
   administrator; every break-glass use is audited and alerted.
+- SCIM token theft or tenant confusion → high-entropy one-time values, hashes at
+  rest, expiry/rotation/revocation, database rate limiting, token-derived
+  organization ownership, generic cross-tenant 404s, and no local/JIT enumeration.
+- Provisioning privilege escalation → SCIM cannot set roles/sites directly; only an
+  administrator can preview and confirm exact group mappings. Every referenced user
+  and site is rechecked against the token organization, and effective-access changes
+  revoke sessions immediately.
+- SCIM filter/PATCH abuse → bounded input, non-executable parser AST, allowlisted
+  attributes/operators/paths, page caps, no nested groups, and sanitized logs.
 
 ## Required controls (baseline)
 

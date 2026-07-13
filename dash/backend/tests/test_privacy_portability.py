@@ -11,9 +11,7 @@ from app.services import export as export_svc
 from httpx import AsyncClient
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-EXPORT_SCHEMA = json.loads(
-    (REPO_ROOT / "shared/schemas/export-bundle.schema.json").read_text()
-)
+EXPORT_SCHEMA = json.loads((REPO_ROOT / "shared/schemas/export-bundle.schema.json").read_text())
 
 
 # --- privacy ---------------------------------------------------------------- #
@@ -70,7 +68,8 @@ async def test_toggling_privacy_settings_is_explicit_and_audited(
     # A viewer cannot change settings.
     assert (
         await client.post(
-            "/api/v1/privacy/settings", json={"update_check_enabled": False},
+            "/api/v1/privacy/settings",
+            json={"update_check_enabled": False},
             headers=viewer_headers,
         )
     ).status_code == 403
@@ -103,7 +102,7 @@ async def test_export_is_versioned_checksummed_and_schema_valid(
     r = await client.get("/api/v1/portability/export", headers=admin_headers)
     assert r.status_code == 200
     bundle = r.json()
-    assert bundle["schema_version"] == "1"
+    assert bundle["schema_version"] == "2"
     # Independently validatable against the published schema and its checksum.
     jsonschema.Draft202012Validator(EXPORT_SCHEMA).validate(bundle)
     assert bundle["checksum"] == export_svc.checksum(bundle)
@@ -113,6 +112,10 @@ async def test_export_is_versioned_checksummed_and_schema_valid(
     assert bundle["users"][0]["account_status"] == "active"
     assert "authentication_source" in bundle["users"][0]
     assert "user_site_assignments" in bundle
+    assert "scim_groups" in bundle
+    assert "scim_group_members" in bundle
+    assert "scim_group_site_mappings" in bundle
+    assert "scim_provisioning_logs" in bundle
     # No secret material leaks into the export.
     text = json.dumps(bundle).lower()
     for banned in (
@@ -133,13 +136,13 @@ async def test_export_is_versioned_checksummed_and_schema_valid(
         "external_identity_links",
         "sso_protocol_states",
         "saml_replay_records",
+        "scim_tokens",
+        "scim_rate_limit_windows",
     ):
         assert banned not in text
 
 
-async def test_export_requires_admin(
-    client: AsyncClient, viewer_headers: dict[str, str]
-) -> None:
+async def test_export_requires_admin(client: AsyncClient, viewer_headers: dict[str, str]) -> None:
     resp = await client.get("/api/v1/portability/export", headers=viewer_headers)
     assert resp.status_code == 403
 

@@ -17,6 +17,16 @@ step is needed for schema changes unless noted.
 
 ## Unreleased (on `main`)
 
+- **SCIM 2.0 provisioning (Phase 38).** The additive upgrade creates hashed,
+  expiring bearer-token records, provisioned groups and memberships, role/site
+  mappings, sanitized request logs, and database-backed rate-limit windows. Existing
+  users remain local/JIT and are never claimed by SCIM; their effective access does
+  not change. New SCIM users default to Viewer with no assigned sites until an
+  administrator previews and applies group mappings. The portability bundle moves
+  to schema v2 and includes non-secret SCIM users/groups/mappings/history while
+  validation continues to accept v1. Downgrade removes provisioning configuration
+  and external ids but preserves user and lifecycle rows; SCIM-created passwordless
+  users still require SSO after downgrade, so take and verify an encrypted backup.
 - **OIDC and SAML SSO (Phase 37).** The additive upgrade creates organization
   provider, policy, external-link, group-mapping, test-history, short-lived state,
   and SAML replay tables plus a disabled-by-default break-glass flag. Every existing

@@ -81,6 +81,7 @@ VulnaRelay notes.
 | Review or revoke signed-in devices | [sessions](sessions.md) |
 | Set up MFA, passkeys, or recovery codes | [multi-factor authentication](mfa.md) |
 | Configure OIDC, SAML, JIT, or break-glass access | [single sign-on](sso.md) |
+| Provision users and groups from a directory | [SCIM provisioning](scim.md) |
 | Run on small or offline hardware | [low-resource](low-resource.md) |
 | Diagnose a problem | [diagnostics](diagnostics.md) · [troubleshooting](troubleshooting.md) |
 | Choose a dashboard experience | [experience profiles](experience-profiles.md) |

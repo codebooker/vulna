@@ -16,12 +16,13 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import __version__
+from app.api.scim import router as scim_router
 from app.api.v1 import api_router
 from app.core.config import Settings, get_settings
 from app.db.base import Base
@@ -119,6 +120,14 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(api_router)
+    app.include_router(scim_router)
+
+    from app.services.scim import ScimError, error_response, log_failed_request
+
+    @app.exception_handler(ScimError)
+    async def scim_error_handler(request: Request, error: ScimError) -> Response:
+        await log_failed_request(request, error)
+        return error_response(error)
 
     @app.get("/health", response_model=HealthResponse, tags=["system"])
     def health() -> HealthResponse:

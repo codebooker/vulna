@@ -41,6 +41,8 @@ cross-installation identifier.
 | Identity-provider configuration and external subject links | database | high | no |
 | OIDC client secrets, SAML certificates, and SP private keys | database (purpose-bound encrypted) | critical | no |
 | OIDC/SAML state, nonce, request, and replay records | database (hashed/encrypted where secret) | high | no |
+| SCIM user/group/mapping metadata and sanitized history | database | high | yes, metadata only |
+| SCIM bearer tokens and request counters | database (hashed token) | critical | no |
 | Internal CA + signing keys | keys volume | critical | no |
 | Notification / SMTP secrets | database (encrypted) | high | no |
 

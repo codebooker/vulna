@@ -1,7 +1,7 @@
 # Capability status
 
 This matrix is intentionally conservative. “Available” means implemented in the
-current codebase. “Planned” means it is part of Phases 38–44 and must not be
+current codebase. “Planned” means it is part of Phases 39–44 and must not be
 presented as usable. **Production-ready remains false until final release
 qualification passes**, regardless of profile visibility.
 
@@ -14,7 +14,7 @@ qualification passes**, regardless of profile visibility.
 | Revocable sessions | Available (Phase 35) | No |
 | MFA and WebAuthn | Available (Phase 36) | No |
 | OIDC and SAML SSO | Available (Phase 37) | No |
-| SCIM provisioning | Planned (Phase 38) | No |
+| SCIM provisioning | Available (Phase 38) | No |
 | Granular RBAC and service accounts | Planned (Phase 39) | No |
 | Dedicated scheduler and worker | Planned (post-39 gate) | No |
 | Asset groups and ownership | Planned (Phase 40) | No |

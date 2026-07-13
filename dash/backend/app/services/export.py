@@ -33,12 +33,19 @@ from app.models.organization import Organization
 from app.models.probe import Probe
 from app.models.report import Report
 from app.models.risk_acceptance import RiskAcceptance
+from app.models.scim import (
+    ScimGroup,
+    ScimGroupMember,
+    ScimGroupSiteMapping,
+    ScimProvisioningLog,
+)
 from app.models.service import Service
 from app.models.site import Site
 from app.models.user import User
 from app.models.user_lifecycle import UserSiteAssignment
 
-EXPORT_SCHEMA_VERSION = "1"
+EXPORT_SCHEMA_VERSION = "2"
+SUPPORTED_IMPORT_SCHEMA_VERSIONS = {"1", EXPORT_SCHEMA_VERSION}
 CHECKSUM_FIELD = "checksum"
 
 
@@ -76,6 +83,10 @@ async def build_export(
         },
         "users": await _users(session, org_id),
         "user_site_assignments": await _user_site_assignments(session, org_id),
+        "scim_groups": await _scim_groups(session, org_id),
+        "scim_group_members": await _scim_group_members(session, org_id),
+        "scim_group_site_mappings": await _scim_group_site_mappings(session, org_id),
+        "scim_provisioning_logs": await _scim_provisioning_logs(session, org_id),
         "sites": await _sites(session, org_id),
         "network_scopes": await _scopes(session, org_id),
         "scouts": await _scouts(session, org_id),
@@ -101,6 +112,7 @@ async def _users(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, Any
             "role": user.role.value,
             "account_status": user.account_status.value,
             "authentication_source": user.authentication_source.value,
+            "scim_external_id": user.scim_external_id,
             "site_access_mode": user.site_access_mode.value,
             "last_login_at": _iso(user.last_login_at),
         }
@@ -120,6 +132,82 @@ async def _user_site_assignments(
     ).scalars()
     return [
         {"user_id": str(row.user_id), "site_id": str(row.site_id)} for row in rows
+    ]
+
+
+async def _scim_groups(
+    session: AsyncSession, org_id: uuid.UUID
+) -> list[dict[str, Any]]:
+    rows = (
+        await session.execute(select(ScimGroup).where(ScimGroup.organization_id == org_id))
+    ).scalars()
+    return [
+        {
+            "id": str(row.id),
+            "display_name": row.display_name,
+            "external_id": row.external_id,
+            "mapped_role": row.mapped_role.value if row.mapped_role else None,
+            "grants_all_sites": row.grants_all_sites,
+        }
+        for row in rows
+    ]
+
+
+async def _scim_group_members(
+    session: AsyncSession, org_id: uuid.UUID
+) -> list[dict[str, Any]]:
+    rows = (
+        await session.execute(
+            select(ScimGroupMember).where(ScimGroupMember.organization_id == org_id)
+        )
+    ).scalars()
+    return [
+        {"group_id": str(row.group_id), "user_id": str(row.user_id)} for row in rows
+    ]
+
+
+async def _scim_group_site_mappings(
+    session: AsyncSession, org_id: uuid.UUID
+) -> list[dict[str, Any]]:
+    rows = (
+        await session.execute(
+            select(ScimGroupSiteMapping).where(
+                ScimGroupSiteMapping.organization_id == org_id
+            )
+        )
+    ).scalars()
+    return [
+        {"group_id": str(row.group_id), "site_id": str(row.site_id)} for row in rows
+    ]
+
+
+async def _scim_provisioning_logs(
+    session: AsyncSession, org_id: uuid.UUID
+) -> list[dict[str, Any]]:
+    # Token identifiers and source IPs are deliberately excluded. The portable
+    # history is useful without becoming a credential or network-metadata export.
+    rows = (
+        await session.execute(
+            select(ScimProvisioningLog).where(
+                ScimProvisioningLog.organization_id == org_id
+            )
+        )
+    ).scalars()
+    return [
+        {
+            "id": str(row.id),
+            "operation": row.operation,
+            "resource_type": row.resource_type,
+            "resource_id": row.resource_id,
+            "external_id": row.external_id,
+            "status_code": row.status_code,
+            "succeeded": row.succeeded,
+            "detail": row.detail,
+            "request_id": row.request_id,
+            "changes": row.changes_json,
+            "created_at": _iso(row.created_at),
+        }
+        for row in rows
     ]
 
 
@@ -266,9 +354,10 @@ def validate_import(payload: dict[str, Any], *, expected_org_id: uuid.UUID) -> d
     warnings: list[str] = []
 
     version = payload.get("schema_version")
-    if version != EXPORT_SCHEMA_VERSION:
+    if version not in SUPPORTED_IMPORT_SCHEMA_VERSIONS:
         errors.append(
-            f"Unsupported schema_version '{version}'; this build reads '{EXPORT_SCHEMA_VERSION}'."
+            f"Unsupported schema_version '{version}'; this build reads "
+            f"{sorted(SUPPORTED_IMPORT_SCHEMA_VERSIONS)}."
         )
 
     provided = payload.get(CHECKSUM_FIELD)
@@ -297,6 +386,18 @@ def validate_import(payload: dict[str, Any], *, expected_org_id: uuid.UUID) -> d
             warnings.append("A user-site assignment references an unknown user.")
         if assignment.get("site_id") not in site_ids:
             warnings.append("A user-site assignment references an unknown site.")
+
+    group_ids = {group.get("id") for group in payload.get("scim_groups", [])}
+    for membership in payload.get("scim_group_members", []):
+        if membership.get("group_id") not in group_ids:
+            warnings.append("A SCIM membership references an unknown group.")
+        if membership.get("user_id") not in user_ids:
+            warnings.append("A SCIM membership references an unknown user.")
+    for mapping in payload.get("scim_group_site_mappings", []):
+        if mapping.get("group_id") not in group_ids:
+            warnings.append("A SCIM site mapping references an unknown group.")
+        if mapping.get("site_id") not in site_ids:
+            warnings.append("A SCIM site mapping references an unknown site.")
 
     counts = {
         key: len(payload.get(key, []))

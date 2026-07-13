@@ -20,6 +20,7 @@ import {
   SlidersHorizontal,
   UserRoundCog,
   KeyRound,
+  UserRoundPlus,
   Webhook,
   type LucideIcon,
 } from 'lucide-react';
@@ -44,6 +45,7 @@ import { SitesPage } from '../pages/SitesPage';
 import { SystemHealthPage } from '../pages/SystemHealthPage';
 import { UsersPage } from '../pages/UsersPage';
 import { IdentityProvidersPage } from '../pages/IdentityProvidersPage';
+import { ScimProvisioningPage } from '../pages/ScimProvisioningPage';
 import type { Role } from '../types/auth';
 
 export interface RouteDef {
@@ -170,6 +172,14 @@ export const ROUTE_CATALOGUE: RouteSection[] = [
         label: 'Identity & SSO',
         icon: KeyRound,
         Component: IdentityProvidersPage,
+        roles: ['administrator'],
+      },
+      {
+        id: 'provisioning',
+        visibilityKey: 'provisioning',
+        label: 'Provisioning',
+        icon: UserRoundPlus,
+        Component: ScimProvisioningPage,
         roles: ['administrator'],
       },
       {

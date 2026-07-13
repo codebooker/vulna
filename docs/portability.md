@@ -22,6 +22,12 @@ links, group mappings, SSO policy/test history, break-glass flags, protocol stat
 and replay records are also excluded. Moving federation configuration requires an
 encrypted backup/restore so provider trust and anti-replay history cannot be
 separated from the credentials and MFA factors that make enforcement safe.
+Export schema v2 includes SCIM-owned user external ids, provisioned groups,
+membership, role/site mapping metadata, and sanitized provisioning history. It
+excludes bearer-token hashes, token identifiers, source IPs, rate-limit windows,
+and reserved Phase 40 asset-group targets. Schema-v1 bundles remain valid input to
+the validation endpoint; full connector continuity still requires encrypted
+backup/restore.
 
 The bundle can be validated **independently**:
 

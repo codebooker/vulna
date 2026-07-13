@@ -70,6 +70,14 @@ from app.models.rules_of_engagement import RulesOfEngagement
 from app.models.scan_artifact import ScanArtifact
 from app.models.scan_job import ScanJob
 from app.models.scan_schedule import ScanSchedule
+from app.models.scim import (
+    ScimGroup,
+    ScimGroupMember,
+    ScimGroupSiteMapping,
+    ScimProvisioningLog,
+    ScimRateLimitWindow,
+    ScimToken,
+)
 from app.models.service import Service
 from app.models.session import SessionRefreshToken, UserSession
 from app.models.site import Site
@@ -160,6 +168,12 @@ __all__ = [
     "SsoPolicy",
     "SsoPolicyMode",
     "SsoProtocolState",
+    "ScimGroup",
+    "ScimGroupMember",
+    "ScimGroupSiteMapping",
+    "ScimProvisioningLog",
+    "ScimRateLimitWindow",
+    "ScimToken",
     "ThreatIntelEnrichment",
     "TotpFactor",
     "User",
