@@ -22,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   optional purpose-encrypted AES-256 PDF passwords.
 - The additive migration safely backfills existing assets, portability advances to
   schema v8 without connector/export ciphertext, and the capability remains
-  `in_progress` until every Phase 44 provider adapter is qualified.
+  `planned` until every Phase 44 provider adapter is qualified.
 
 ### Added — Phase 43 connector: generic webhook/API
 
