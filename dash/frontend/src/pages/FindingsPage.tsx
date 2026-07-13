@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ShieldAlert } from 'lucide-react';
 import { ApiError, api } from '../api/client';
 import { useAuth } from '../auth/useAuth';
 import { useNav } from '../lib/nav';
-import { useToast } from '../lib/toast';
 import { formatWhenFull, humanize } from '../lib/utils';
 import {
   normalizeSeverity,
@@ -13,47 +11,32 @@ import {
   StatusBadge,
 } from '../components/app/badges';
 import { DataTable, type ColumnDef, type FilterDef } from '../components/app/data-table';
+import { FindingDetailDrawer } from '../components/app/finding-detail-drawer';
 import { PageHeader } from '../components/app/page-header';
-import { Button } from '../components/ui/button';
-import { Field, Textarea } from '../components/ui/input';
-import { Code, CodeBlock, DetailRow } from '../components/ui/misc';
-import { Drawer, Modal } from '../components/ui/overlay';
-import { InlineError } from '../components/ui/states';
-import { Tabs } from '../components/ui/tabs';
 import type { Finding } from '../types/finding';
-
-const DETAIL_TABS = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'assets', label: 'Affected assets' },
-  { id: 'evidence', label: 'Evidence' },
-  { id: 'resolution', label: 'Resolution' },
-  { id: 'references', label: 'References' },
-  { id: 'activity', label: 'Activity' },
-];
 
 /** Findings: a professional data table over the live findings API, with a
  *  tabbed detail drawer and the original one-click workflows. */
 export function FindingsPage() {
-  const { token, user } = useAuth();
-  const { current } = useNav();
-  const { toast } = useToast();
+  const { token } = useAuth();
+  const { current, go } = useNav();
   const [findings, setFindings] = useState<Finding[]>([]);
+  const [assetNames, setAssetNames] = useState<Map<string, string>>(new Map());
   const [selected, setSelected] = useState<Finding | null>(null);
-  const [tab, setTab] = useState('overview');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [fpOpen, setFpOpen] = useState(false);
-  const [fpReason, setFpReason] = useState('');
 
   const load = useCallback(async () => {
     if (!token) return;
     setLoading(true);
     setError(null);
     try {
-      const page = await api.listFindings(token, 500);
+      const [page, assets] = await Promise.all([
+        api.listFindings(token, 500),
+        api.listAssets(token).catch(() => null),
+      ]);
       setFindings(page.items);
+      if (assets) setAssetNames(new Map(assets.items.map((a) => [a.id, a.canonical_name])));
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) return;
       setError(err instanceof Error ? err.message : 'Failed to load findings.');
@@ -66,11 +49,7 @@ export function FindingsPage() {
     void load();
   }, [load]);
 
-  const openDetail = (f: Finding) => {
-    setSelected(f);
-    setTab('overview');
-    setActionError(null);
-  };
+  const openDetail = (f: Finding) => setSelected(f);
 
   // Deep link from elsewhere (e.g. an asset's vulnerabilities): #findings?finding=<id>
   // opens that finding's detail once, without reopening after the user closes it.
@@ -84,47 +63,6 @@ export function FindingsPage() {
       openDetail(match);
     }
   }, [deepFindingId, findings]);
-
-  const act = async (fn: () => Promise<unknown>, success: string) => {
-    if (!token || !selected) return;
-    setBusy(true);
-    setActionError(null);
-    try {
-      await fn();
-      const fresh = await api.getFinding(token, selected.id);
-      setSelected(fresh);
-      await load();
-      toast('success', success);
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Action failed.');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const markFixedAndVerify = () =>
-    act(async () => {
-      if (!token || !selected) return;
-      await api.updateFinding(token, selected.id, { status: 'ready_for_verification' });
-      await api.rescanFinding(token, selected.id);
-    }, 'Re-check queued — the finding closes once verification succeeds.');
-
-  const assignToMe = () =>
-    act(async () => {
-      if (!token || !selected || !user) return;
-      await api.updateFinding(token, selected.id, { status: 'assigned', owner_user_id: user.id });
-    }, 'Finding assigned to you.');
-
-  const submitFalsePositive = () =>
-    act(async () => {
-      if (!token || !selected) return;
-      await api.updateFinding(token, selected.id, {
-        status: 'false_positive',
-        false_positive_reason: fpReason,
-      });
-      setFpOpen(false);
-      setFpReason('');
-    }, 'Marked as false positive.');
 
   const columns: ColumnDef<Finding>[] = useMemo(
     () => [
@@ -335,214 +273,13 @@ export function FindingsPage() {
         defaultSort={{ id: 'severity', dir: 'desc' }}
       />
 
-      {/* Detail drawer */}
-      <Drawer
-        open={selected !== null}
+      <FindingDetailDrawer
+        finding={selected}
         onClose={() => setSelected(null)}
-        size="lg"
-        title={
-          selected ? (
-            <span className="flex items-center gap-2">
-              <ShieldAlert size={15} className="shrink-0 text-accent" aria-hidden />
-              {selected.title}
-            </span>
-          ) : (
-            ''
-          )
-        }
-        description={
-          selected
-            ? `${humanize(selected.severity)} severity · ${selected.scanner_name}`
-            : undefined
-        }
-        footer={
-          selected && (
-            <>
-              <Button variant="ghost" disabled={busy} onClick={() => void assignToMe()}>
-                Assign to me
-              </Button>
-              <Button variant="outline" disabled={busy} onClick={() => setFpOpen(true)}>
-                False positive
-              </Button>
-              <Button variant="primary" loading={busy} onClick={() => void markFixedAndVerify()}>
-                Mark fixed &amp; verify
-              </Button>
-            </>
-          )
-        }
-      >
-        {selected && (
-          <div>
-            {actionError && <InlineError message={actionError} className="mb-3" />}
-            <div className="mb-3 flex flex-wrap items-center gap-1.5">
-              <SeverityBadge severity={selected.severity} />
-              <PriorityBadge priority={selected.priority} />
-              <StatusBadge status={selected.status} />
-              {selected.known_exploited && (
-                <span className="rounded-md border border-sev-critical/30 bg-sev-critical/10 px-1.5 py-px text-[11px] font-semibold text-sev-critical">
-                  Known exploited (KEV)
-                </span>
-              )}
-            </div>
-
-            <Tabs tabs={DETAIL_TABS} value={tab} onChange={setTab} className="mb-4" />
-
-            {tab === 'overview' && (
-              <div className="flex flex-col gap-4">
-                <section>
-                  <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted">
-                    What Vulna observed
-                  </h3>
-                  <p className="text-[13px] leading-relaxed text-text">
-                    {selected.description ?? selected.title}
-                  </p>
-                </section>
-                <section>
-                  <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted">
-                    Why it matters
-                  </h3>
-                  <dl className="divide-y divide-border rounded-lg border border-border px-3">
-                    <DetailRow label="Severity">{humanize(selected.severity)}</DetailRow>
-                    {selected.cvss_score != null && (
-                      <DetailRow label="CVSS">
-                        <RiskIndicator score={selected.cvss_score} />
-                      </DetailRow>
-                    )}
-                    {selected.epss_score != null && (
-                      <DetailRow label="EPSS">{Math.round(selected.epss_score * 100)}%</DetailRow>
-                    )}
-                    <DetailRow label="Priority">
-                      <PriorityBadge priority={selected.priority} />
-                    </DetailRow>
-                    <DetailRow label="Confidence">
-                      {selected.confidence_label} ({selected.confidence}/100)
-                    </DetailRow>
-                  </dl>
-                  <p className="mt-2 text-xs text-muted">{selected.priority_rationale}</p>
-                </section>
-                {selected.cve_ids_json.length > 0 && (
-                  <section>
-                    <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted">
-                      CVEs
-                    </h3>
-                    <div className="flex flex-wrap gap-1.5">
-                      {selected.cve_ids_json.map((cve) => (
-                        <Code key={cve}>{cve}</Code>
-                      ))}
-                    </div>
-                  </section>
-                )}
-              </div>
-            )}
-
-            {tab === 'assets' && (
-              <dl className="divide-y divide-border rounded-lg border border-border px-3">
-                <DetailRow label="Asset">
-                  {selected.asset_id ? <Code>{selected.asset_id}</Code> : '—'}
-                </DetailRow>
-                <DetailRow label="Service">
-                  {selected.service_id ? <Code>{selected.service_id}</Code> : '—'}
-                </DetailRow>
-                <DetailRow label="Site">
-                  <Code>{selected.site_id}</Code>
-                </DetailRow>
-                <DetailRow label="Scanner">{selected.scanner_name}</DetailRow>
-              </dl>
-            )}
-
-            {tab === 'evidence' && (
-              <div>
-                <p className="mb-2 text-xs text-muted">
-                  Raw technical evidence captured by the scanner.
-                </p>
-                <CodeBlock>{JSON.stringify(selected.evidence_json, null, 2)}</CodeBlock>
-              </div>
-            )}
-
-            {tab === 'resolution' && (
-              <div className="flex flex-col gap-4">
-                <section>
-                  <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted">
-                    Practical remediation
-                  </h3>
-                  <p className="text-[13px] leading-relaxed text-text">
-                    {selected.remediation ?? 'No specific remediation recorded.'}
-                  </p>
-                </section>
-                <section>
-                  <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted">
-                    How to verify the fix
-                  </h3>
-                  <p className="text-[13px] leading-relaxed text-muted">
-                    After remediating, use <em className="text-text">Mark fixed &amp; verify</em>.
-                    Vulna re-checks and only closes the finding when the configured verification
-                    succeeds.
-                  </p>
-                </section>
-              </div>
-            )}
-
-            {tab === 'references' && (
-              <div>
-                {selected.references_json.length === 0 ? (
-                  <p className="text-xs text-muted">No references recorded.</p>
-                ) : (
-                  <ul className="flex flex-col gap-1.5">
-                    {selected.references_json.map((r) => (
-                      <li key={r}>
-                        <Code className="break-all">{r}</Code>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            )}
-
-            {tab === 'activity' && (
-              <dl className="divide-y divide-border rounded-lg border border-border px-3">
-                <DetailRow label="Status">
-                  <StatusBadge status={selected.status} />
-                </DetailRow>
-                <DetailRow label="Owner">
-                  {selected.owner_user_id ? <Code>{selected.owner_user_id}</Code> : 'Unassigned'}
-                </DetailRow>
-                <DetailRow label="Validation">{humanize(selected.validation_status)}</DetailRow>
-                <DetailRow label="Last verified">
-                  {formatWhenFull(selected.last_verified_at)}
-                </DetailRow>
-                <DetailRow label="Resolved">{formatWhenFull(selected.resolved_at)}</DetailRow>
-              </dl>
-            )}
-          </div>
-        )}
-      </Drawer>
-
-      {/* False-positive reason modal (replaces window.prompt) */}
-      <Modal
-        open={fpOpen}
-        onClose={() => setFpOpen(false)}
-        title="Mark as false positive"
-        description="Explain why this finding is not a real issue. The reason is stored with the finding."
-        footer={
-          <>
-            <Button variant="ghost" onClick={() => setFpOpen(false)}>
-              Cancel
-            </Button>
-            <Button variant="primary" loading={busy} onClick={() => void submitFalsePositive()}>
-              Confirm
-            </Button>
-          </>
-        }
-      >
-        <Field label="Reason" htmlFor="fp-reason">
-          <Textarea
-            id="fp-reason"
-            value={fpReason}
-            onChange={(e) => setFpReason(e.target.value)}
-            placeholder="e.g. The service is not exposed beyond the management VLAN."
-          />
-        </Field>
-      </Modal>
+        onChanged={load}
+        assetName={selected?.asset_id ? (assetNames.get(selected.asset_id) ?? null) : null}
+        onViewAsset={(id) => go('assets', { asset: id })}
+      />
     </div>
   );
 }

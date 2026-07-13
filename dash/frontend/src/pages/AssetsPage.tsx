@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronRight, Server } from 'lucide-react';
 import { ApiError, api } from '../api/client';
 import { useAuth } from '../auth/useAuth';
@@ -6,6 +6,7 @@ import { useNav } from '../lib/nav';
 import { formatRelative, formatWhenFull, humanize } from '../lib/utils';
 import { normalizeSeverity, SeverityBadge, StatusBadge } from '../components/app/badges';
 import { DataTable, type ColumnDef, type FilterDef } from '../components/app/data-table';
+import { FindingDetailDrawer } from '../components/app/finding-detail-drawer';
 import { PageHeader } from '../components/app/page-header';
 import { Badge } from '../components/ui/badge';
 import { DetailRow } from '../components/ui/misc';
@@ -25,13 +26,14 @@ interface AssetRow extends Asset {
 
 export function AssetsPage() {
   const { token } = useAuth();
-  const { current, go } = useNav();
+  const { current } = useNav();
   const [assets, setAssets] = useState<Asset[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
   const [findings, setFindings] = useState<Finding[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<AssetRow | null>(null);
+  const [selectedFinding, setSelectedFinding] = useState<Finding | null>(null);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -79,6 +81,19 @@ export function AssetsPage() {
       return { ...a, critical: c.critical, high: c.high, findingTotal: c.total };
     });
   }, [assets, findings]);
+
+  // Deep link from the Findings page (#assets?asset=<id>): open that asset's
+  // drawer once, without reopening after the user closes it.
+  const deepAssetId = current.params.asset;
+  const handledAssetLink = useRef<string | null>(null);
+  useEffect(() => {
+    if (!deepAssetId || handledAssetLink.current === deepAssetId) return;
+    const match = rows.find((r) => r.id === deepAssetId);
+    if (match) {
+      handledAssetLink.current = deepAssetId;
+      setSelected(match);
+    }
+  }, [deepAssetId, rows]);
 
   // Open findings for the asset in the drawer, worst severity first.
   const assetFindings = useMemo(() => {
@@ -264,7 +279,7 @@ export function AssetsPage() {
       />
 
       <Drawer
-        open={selected !== null}
+        open={selected !== null && selectedFinding === null}
         onClose={() => setSelected(null)}
         title={
           selected ? (
@@ -311,10 +326,7 @@ export function AssetsPage() {
                     <li key={f.id}>
                       <button
                         type="button"
-                        onClick={() => {
-                          setSelected(null);
-                          go('findings', { finding: f.id });
-                        }}
+                        onClick={() => setSelectedFinding(f)}
                         className="group flex w-full items-center gap-2 rounded-lg border border-border px-3 py-2 text-left transition-colors hover:border-border-strong hover:bg-surface-2"
                         title={`Open “${f.title}”`}
                       >
@@ -336,6 +348,16 @@ export function AssetsPage() {
           </div>
         )}
       </Drawer>
+
+      {/* A vulnerability opens in a slider on this page; the back arrow returns
+          to the asset it was opened from. */}
+      <FindingDetailDrawer
+        finding={selectedFinding}
+        onClose={() => setSelectedFinding(null)}
+        onBack={() => setSelectedFinding(null)}
+        onChanged={load}
+        assetName={selected?.canonical_name ?? null}
+      />
     </div>
   );
 }
