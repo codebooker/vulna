@@ -9,7 +9,7 @@ import type {
   Site,
 } from '../types/inventory';
 import type { Network, NewNetwork } from '../types/network';
-import type { PentestSession, RulesOfEngagement } from '../types/pentest';
+import type { PentestCandidate, PentestSession, RulesOfEngagement } from '../types/pentest';
 import type { Job, NewSchedule, ScanSchedule } from '../types/schedule';
 import type { FeedHealth, SyncResult } from '../types/intelligence';
 import type {
@@ -349,8 +349,8 @@ export const api = {
   pentestModules(token: string): Promise<{ modules: string[] }> {
     return request<{ modules: string[] }>('/api/v1/pentest/allowlisted-modules', { token });
   },
-  pentestCandidates(token: string): Promise<Finding[]> {
-    return request<Finding[]>('/api/v1/pentest/candidates', { token });
+  pentestCandidates(token: string): Promise<PentestCandidate[]> {
+    return request<PentestCandidate[]>('/api/v1/pentest/candidates', { token });
   },
   createPentestSession(
     token: string,
