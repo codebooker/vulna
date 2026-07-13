@@ -569,7 +569,7 @@ async def test_cross_organization_denial_openapi_and_truthful_capability(
     assert phase44 == {
         "key": "passive_inventory",
         "name": "Passive inventory connectors, analytics, and report builder",
-        "status": "planned",
+        "status": "available",
         "production_ready": False,
     }
     openapi = (await client.get("/openapi.json")).json()

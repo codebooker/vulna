@@ -91,6 +91,11 @@ directly. See also [`threat-model.md`](threat-model.md) and
   commands, bounded time/output, pinned SSH host keys or verified WinRM HTTPS, and
   rejects job-supplied command material (`tests/test_authenticated_inventory.py`,
   `scout/internal/scanners/*_inventory`).
+- [ ] Scan progress is monotonic and derived only from completed workflow stages;
+  ETA is absent before measured stage timing exists. Failure fields are bounded and
+  redact authorization/token/password/URL-userinfo/PEM forms before storage;
+  detailed logs require organization/site-scoped `jobs.manage` and every view is
+  audited (`app/services/scan_observability.py`, `tests/test_jobs.py`).
 
 ## Controlled pentest
 - [ ] Module policy is allowlist-only; DoS and exploit categories are categorically blocked; the default pack is auxiliary/validation only, with no exploit lists in the repo (`app/services/pentest_policy.py`, `scout/internal/pentest`).

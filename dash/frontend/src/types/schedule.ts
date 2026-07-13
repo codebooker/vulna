@@ -20,6 +20,37 @@ export interface NewSchedule {
   interval_minutes: number;
 }
 
+export interface JobProgressStats {
+  percent?: number;
+  current_stage?: string;
+  current_plugin?: string;
+  stages_total?: number;
+  stages_completed?: number;
+  stages_run?: number;
+  stages_failed?: number;
+  stages_skipped?: number;
+  target_groups?: number;
+  target_addresses?: number;
+  elapsed_seconds?: number;
+  eta_seconds?: number;
+}
+
+export interface JobFailureLogEntry {
+  code: string;
+  stage: string | null;
+  plugin: string | null;
+  message: string;
+  received_at: string;
+}
+
+export interface JobDiagnostics {
+  job_id: string;
+  status: string;
+  error_code: string | null;
+  error_message: string | null;
+  failures: JobFailureLogEntry[];
+}
+
 /** A one-off (or schedule-spawned) scan job. */
 export interface Job {
   id: string;
@@ -36,5 +67,9 @@ export interface Job {
   error_code: string | null;
   error_message: string | null;
   summary_json: Record<string, unknown>;
+  progress_percent: number;
+  progress_json: JobProgressStats;
+  estimated_completion_at: string | null;
+  last_progress_at: string | null;
   created_at: string;
 }

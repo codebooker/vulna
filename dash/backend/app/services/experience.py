@@ -133,7 +133,13 @@ CAPABILITIES: tuple[dict[str, Any], ...] = (
     {
         "key": "passive_inventory",
         "name": "Passive inventory connectors, analytics, and report builder",
-        "status": "planned",
+        "status": "available",
+        "production_ready": False,
+    },
+    {
+        "key": "scan_observability",
+        "name": "Live scan progress and failure diagnostics",
+        "status": "available",
         "production_ready": False,
     },
 )

@@ -137,6 +137,20 @@ func TestJobRunsToCompletion(t *testing.T) {
 			t.Errorf("missing status %q in %v", want, got)
 		}
 	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	progressReports := 0
+	for _, report := range f.reports {
+		if report.Progress != nil {
+			progressReports++
+			if report.Status != "running" || report.Progress.TargetAddresses != 1 {
+				t.Errorf("unexpected progress report: %+v", report)
+			}
+		}
+	}
+	if progressReports == 0 {
+		t.Error("progress-capable workers must report live stage statistics")
+	}
 }
 
 func TestJobCancellation(t *testing.T) {
@@ -305,13 +319,25 @@ func TestFinalizeReportsFailedOnScannerError(t *testing.T) {
 	if err != nil || running == nil {
 		t.Fatalf("expected a running job: %v", err)
 	}
-	res := executor.Result{JobID: running.JobID, StagesTotal: 1, StagesFailed: 1, Errors: []string{"nmap failed"}}
+	res := executor.Result{
+		JobID: running.JobID, StagesTotal: 1, StagesFailed: 1,
+		Errors: []string{"nmap failed"},
+		Failures: []executor.StageFailure{{
+			Code: "scanner_error", Stage: "discovery", Plugin: "nmap", Message: "nmap failed",
+		}},
+	}
 	_ = a.Finalize(ctx, running, res)
 	if !contains(f.statuses(), "failed") {
 		t.Errorf("a scanner error must report failed, got %v", f.statuses())
 	}
 	if contains(f.statuses(), "completed") {
 		t.Error("a failed scan must not also report completed")
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	last := f.reports[len(f.reports)-1]
+	if len(last.FailureDetails) != 1 || last.FailureDetails[0].Plugin != "nmap" {
+		t.Errorf("expected structured terminal failure details, got %+v", last)
 	}
 }
 

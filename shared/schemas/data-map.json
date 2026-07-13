@@ -2,8 +2,8 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://vulna.dev/schemas/data-map.json",
   "title": "Vulna Data Map",
-  "description": "Machine-readable map of what data Vulna stores, where, its sensitivity, and whether it can leave the deployment (updated through the Phase 44 CSV importer). Not a JSON Schema for validation; a documented data inventory.",
-  "version": "6",
+  "description": "Machine-readable map of what data Vulna stores, where, its sensitivity, and whether it can leave the deployment (updated through scan progress and failure diagnostics). Not a JSON Schema for validation; a documented data inventory.",
+  "version": "7",
   "leaves_deployment": {
     "intelligence_feeds": {
       "destinations": ["services.nvd.nist.gov", "www.cisa.gov", "epss.cyentia.com"],
@@ -71,6 +71,7 @@
     { "category": "risk profiles, immutable score inputs/contributions, remediation units/suggestions, and bounded finding decisions", "store": "database", "sensitivity": "medium", "in_export": true },
     { "category": "SLA policies, immutable deadline calculations, exceptions, history, and structured guidance", "store": "database", "sensitivity": "medium", "in_export": true },
     { "category": "raw scanner output", "store": "database", "sensitivity": "medium", "in_export": false },
+    { "category": "scan progress, ETA, and sanitized structured failure diagnostics", "store": "database", "sensitivity": "high", "in_export": false },
     { "category": "evidence", "store": "reports volume", "sensitivity": "high", "in_export": false },
     { "category": "reports (files)", "store": "reports volume", "sensitivity": "medium", "in_export": "metadata_only" },
     { "category": "audit log", "store": "database", "sensitivity": "medium", "in_export": false },

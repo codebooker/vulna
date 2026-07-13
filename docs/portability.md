@@ -78,6 +78,10 @@ assertions, bearer tokens, and ciphertext are never portable.
 Background task payloads, leases, retries, dead letters, results, and process
 heartbeats are operational state and are excluded from portability exports. They
 remain available only through encrypted database backup/restore.
+Scan-job progress checkpoints, estimates, and detailed failure logs are also
+operational/debugging state and remain backup-only. The existing exported scan and
+finding data is unchanged; moving live progress and operator diagnostics requires
+an encrypted database backup/restore.
 
 The bundle can be validated **independently**:
 

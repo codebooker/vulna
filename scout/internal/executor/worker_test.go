@@ -55,3 +55,32 @@ func TestRunStopsOnCancel(t *testing.T) {
 		t.Fatal("worker did not stop promptly after cancellation")
 	}
 }
+
+func TestRunReportsStageProgressAndBoundedTargetCount(t *testing.T) {
+	job := testJob(2)
+	job.Targets = []string{"192.0.2.1", "198.51.100.0/30"}
+	var reports []Progress
+	worker := NewTestWorker(time.Millisecond)
+	res, err := worker.RunWithProgress(context.Background(), job, func(progress Progress) {
+		reports = append(reports, progress)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StagesRun != 2 || len(reports) != 4 {
+		t.Fatalf("unexpected result/reports: %+v reports=%d", res, len(reports))
+	}
+	last := reports[len(reports)-1]
+	if last.Percent != 99 || last.StagesCompleted != 2 || last.TargetAddresses != 5 {
+		t.Errorf("unexpected final non-terminal progress: %+v", last)
+	}
+	if reports[0].ETASeconds != nil {
+		t.Error("ETA must be absent before a stage provides timing evidence")
+	}
+	if reports[2].ETASeconds == nil {
+		t.Error("ETA should be present after one of two stages finishes")
+	}
+	if got := TargetAddressCount([]string{"2001:db8::/32"}); got != 1_000_000_000 {
+		t.Errorf("large ranges must saturate safely, got %d", got)
+	}
+}

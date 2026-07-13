@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/codebooker/vulna/scout/internal/executor"
 	"github.com/codebooker/vulna/scout/internal/policy"
 )
 
@@ -139,6 +140,35 @@ func TestWorkflowRecordsScannerErrors(t *testing.T) {
 	}
 	if res.StagesRun != 1 || res.StagesFailed != 1 {
 		t.Errorf("expected 1 run / 1 failed, got run=%d failed=%d", res.StagesRun, res.StagesFailed)
+	}
+	if len(res.Failures) != 1 || res.Failures[0].Code != "scanner_error" ||
+		res.Failures[0].Plugin != "nuclei" {
+		t.Errorf("expected structured nuclei failure, got %+v", res.Failures)
+	}
+}
+
+func TestWorkflowReportsHonestStageProgress(t *testing.T) {
+	wf := NewWorkflow(
+		stubScanner{stage: "discovery", name: "nmap", raw: []byte("xml")},
+		stubScanner{stage: "vulnerability", name: "nuclei", raw: []byte("jsonl")},
+	)
+	job := jobWith("nmap", "nuclei")
+	job.Targets = []string{"10.20.0.0/30"}
+	var reports []executor.Progress
+	res, err := wf.RunWithProgress(context.Background(), job, func(progress executor.Progress) {
+		reports = append(reports, progress)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reports) != 4 || res.StagesRun != 2 {
+		t.Fatalf("unexpected progress count/result: reports=%d result=%+v", len(reports), res)
+	}
+	if reports[0].Percent != 0 || reports[1].Percent != 50 || reports[3].Percent != 99 {
+		t.Errorf("percent must follow completed stages, got %+v", reports)
+	}
+	if reports[1].ETASeconds == nil || reports[1].TargetAddresses != 4 {
+		t.Errorf("expected evidence-backed ETA and target stats, got %+v", reports[1])
 	}
 }
 

@@ -32,7 +32,7 @@ from app.models.probe import Probe
 from app.models.scan_job import ScanJob
 from app.models.user import User
 from app.schemas.common import Page
-from app.schemas.job import JobCreate, JobRead
+from app.schemas.job import JobCreate, JobDiagnosticsRead, JobFailureLogEntry, JobRead
 from app.services import authorization, reaper
 from app.services.audit import record_audit
 from app.services.demo import is_demo_mode
@@ -308,6 +308,41 @@ async def get_job(
 ) -> JobRead:
     job = await _get_owned_job(session, job_id, current_user)
     return JobRead.model_validate(job)
+
+
+@router.get(
+    "/{job_id}/diagnostics",
+    response_model=JobDiagnosticsRead,
+    summary="Get sanitized scan failure diagnostics",
+)
+async def get_job_diagnostics(
+    job_id: uuid.UUID,
+    operator: Annotated[User, Depends(_require_operator)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    context: Annotated[RequestContext, Depends(get_request_context)],
+) -> JobDiagnosticsRead:
+    """Return the durable failure log to an operator with site-scoped job access."""
+    job = await _get_owned_job(session, job_id, operator, permission_key="jobs.manage")
+    failures = [JobFailureLogEntry.model_validate(item) for item in job.failure_log_json or []]
+    record_audit(
+        session,
+        action="job.diagnostics_viewed",
+        actor=operator,
+        organization_id=operator.organization_id,
+        target_type="scan_job",
+        target_id=job.id,
+        source_ip=context.source_ip,
+        user_agent=context.user_agent,
+        request_id=context.request_id,
+        metadata={"diagnostic_entries": len(failures)},
+    )
+    return JobDiagnosticsRead(
+        job_id=job.id,
+        status=job.status,
+        error_code=job.error_code,
+        error_message=job.error_message,
+        failures=failures,
+    )
 
 
 @router.post("/{job_id}/cancel", response_model=JobRead, summary="Cancel a scan job")

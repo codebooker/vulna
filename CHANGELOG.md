@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — scan progress and failure diagnostics
+
+- Active scans now show durable stage-based percent complete, current workflow
+  stage, completed/failed/skipped counters, target statistics, and a time estimate
+  once at least one stage supplies real timing evidence. Completion alone moves a
+  successful scan to 100%; failed scans retain their last honest percentage.
+- Scout reports structured stage failures. The API strips control characters and
+  redacts common authorization, token, password, URL-userinfo, and PEM forms before
+  storage. The detailed log is organization/site scoped and restricted to
+  `jobs.manage`; ordinary job reads keep only the sanitized compatibility summary.
+- Existing completed jobs backfill to 100%. Existing active/failed jobs begin at
+  zero because the migration does not invent historical execution progress.
+
 ### Added — Phase 44 remaining inventory providers
 
 - Read-only Proxmox VE and XCP-ng/Xen Orchestra importers collect bounded host

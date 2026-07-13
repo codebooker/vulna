@@ -100,3 +100,19 @@ class ScanJob(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     error_message: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     summary_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    # Progress is Scout-reported, stage-based execution state. Keep the typed
+    # percentage separate for cheap list rendering and retain the bounded,
+    # non-secret counters/current-stage detail in progress_json.
+    progress_percent: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    progress_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    estimated_completion_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_progress_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # Detailed failure diagnostics are intentionally excluded from JobRead and
+    # exposed only through the jobs.manage-protected diagnostics endpoint.
+    failure_log_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON, nullable=False, default=list
+    )

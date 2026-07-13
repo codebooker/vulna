@@ -32,6 +32,7 @@ cross-installation identifier.
 | Risk profiles, immutable score inputs/contributions, remediation units/suggestions, and bounded finding decisions | database | medium | yes |
 | SLA policies, immutable deadline calculations, exceptions, history, and structured guidance | database | medium | yes |
 | Raw scanner output | database | medium | no |
+| Scan progress, ETA, and sanitized structured failure diagnostics | database | high | no |
 | Evidence | reports volume | high | no |
 | Reports (files) | reports volume | medium | metadata only |
 | Audit log | database | medium | no |

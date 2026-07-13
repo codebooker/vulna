@@ -83,6 +83,12 @@ from app.services.nuclei_parser import parse_nuclei_jsonl
 from app.services.policy import build_policy_document
 from app.services.remediation import apply_verification
 from app.services.remote_scout import build_install_commands
+from app.services.scan_observability import (
+    apply_progress,
+    build_failure_log,
+    sanitize_failure_message,
+    sanitize_label,
+)
 from app.services.signing import document_hash, get_signer
 from app.services.software_inventory import SoftwareInventoryError, ingest_inventory
 from app.services.testssl_parser import TestsslParseError, parse_testssl_json
@@ -848,8 +854,27 @@ async def report_job_status(
     job = await session.get(ScanJob, job_id)
     if job is None or job.probe_id != probe.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+    terminal_statuses = {
+        JobStatus.COMPLETED,
+        JobStatus.FAILED,
+        JobStatus.CANCELLED,
+        JobStatus.EXPIRED,
+        JobStatus.REJECTED_BY_PROBE,
+    }
+    if job.status in terminal_statuses:
+        if payload.status == job.status:
+            return Response(status_code=status.HTTP_204_NO_CONTENT)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A terminal scan job cannot return to an active state",
+        )
 
     now = datetime.now(UTC)
+    if payload.progress is not None:
+        try:
+            apply_progress(job, payload.progress, now)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     job.status = payload.status
     if payload.status == JobStatus.ACCEPTED:
         job.accepted_at = now
@@ -862,12 +887,36 @@ async def report_job_status(
         JobStatus.REJECTED_BY_PROBE,
     ):
         job.finished_at = now
+        job.estimated_completion_at = None
+        if payload.status == JobStatus.COMPLETED:
+            job.progress_percent = 100
+            job.last_progress_at = now
         if payload.error_code is not None:
-            job.error_code = payload.error_code
+            job.error_code = sanitize_label(payload.error_code)
         if payload.error_message is not None:
-            job.error_message = payload.error_message
+            job.error_message = sanitize_failure_message(payload.error_message)
         if payload.summary is not None:
             job.summary_json = payload.summary
+        if payload.status in (JobStatus.FAILED, JobStatus.REJECTED_BY_PROBE):
+            job.failure_log_json = build_failure_log(
+                payload.failure_details,
+                now=now,
+                fallback_code=job.error_code,
+                fallback_message=job.error_message,
+            )
+            record_audit(
+                session,
+                action="job.failure_recorded",
+                actor_type=ActorType.PROBE,
+                actor_id=probe.id,
+                organization_id=job.organization_id,
+                target_type="scan_job",
+                target_id=job.id,
+                metadata={
+                    "error_code": job.error_code,
+                    "diagnostic_entries": len(job.failure_log_json),
+                },
+            )
         usage_rows = list(
             (
                 await session.execute(

@@ -198,10 +198,36 @@ func (c *Client) PollJob(ctx context.Context) ([]byte, bool, error) {
 
 // JobStatusReport is a status update a probe sends about a job.
 type JobStatusReport struct {
-	Status       string         `json:"status"`
-	ErrorCode    string         `json:"error_code,omitempty"`
-	ErrorMessage string         `json:"error_message,omitempty"`
-	Summary      map[string]any `json:"summary,omitempty"`
+	Status         string             `json:"status"`
+	ErrorCode      string             `json:"error_code,omitempty"`
+	ErrorMessage   string             `json:"error_message,omitempty"`
+	Summary        map[string]any     `json:"summary,omitempty"`
+	Progress       *JobProgressReport `json:"progress,omitempty"`
+	FailureDetails []JobFailureDetail `json:"failure_details,omitempty"`
+}
+
+// JobProgressReport is the bounded progress payload accepted by the API.
+type JobProgressReport struct {
+	Percent         int    `json:"percent"`
+	CurrentStage    string `json:"current_stage,omitempty"`
+	CurrentPlugin   string `json:"current_plugin,omitempty"`
+	StagesTotal     int    `json:"stages_total"`
+	StagesCompleted int    `json:"stages_completed"`
+	StagesRun       int    `json:"stages_run"`
+	StagesFailed    int    `json:"stages_failed"`
+	StagesSkipped   int    `json:"stages_skipped"`
+	TargetGroups    int    `json:"target_groups"`
+	TargetAddresses int    `json:"target_addresses"`
+	ElapsedSeconds  int    `json:"elapsed_seconds"`
+	ETASeconds      *int   `json:"eta_seconds,omitempty"`
+}
+
+// JobFailureDetail is one stage-specific failure sent for server sanitization.
+type JobFailureDetail struct {
+	Code    string `json:"code"`
+	Stage   string `json:"stage,omitempty"`
+	Plugin  string `json:"plugin,omitempty"`
+	Message string `json:"message"`
 }
 
 // ReportJobStatus reports a job's status back to the orchestrator.

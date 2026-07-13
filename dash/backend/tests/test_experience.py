@@ -25,10 +25,7 @@ async def test_capability_matrix_is_public_and_conservative(client: AsyncClient)
     assert response.status_code == 200
     body = response.json()
     assert body["production_ready"] is False
-    assert {item["status"] for item in body["capabilities"]} == {
-        "available",
-        "planned",
-    }
+    assert {item["status"] for item in body["capabilities"]} == {"available"}
     assert all(item["production_ready"] is False for item in body["capabilities"])
     identity = next(
         item for item in body["capabilities"] if item["key"] == "identity_lifecycle"
@@ -44,6 +41,12 @@ async def test_capability_matrix_is_public_and_conservative(client: AsyncClient)
     assert sso["status"] == "available"
     scim = next(item for item in body["capabilities"] if item["key"] == "scim")
     assert scim["status"] == "available"
+    passive = next(item for item in body["capabilities"] if item["key"] == "passive_inventory")
+    assert passive["status"] == "available"
+    observability = next(
+        item for item in body["capabilities"] if item["key"] == "scan_observability"
+    )
+    assert observability["status"] == "available"
 
 
 async def test_phase33_interfaces_are_in_openapi(client: AsyncClient) -> None:

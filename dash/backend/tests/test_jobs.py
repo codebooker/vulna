@@ -11,13 +11,18 @@ import uuid
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 
-from app.models.enums import JobStatus
+from app.auth.password import hash_password
+from app.models.audit import AuditEvent
+from app.models.enums import JobStatus, UserRole
+from app.models.organization import Organization
 from app.models.scan_job import ScanJob
+from app.models.user import User
 from app.services.signing import get_signer
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tests.conftest import probe_cert_headers
+from tests.conftest import auth_headers, probe_cert_headers
 
 EnrollFactory = Callable[..., Awaitable[dict[str, str]]]
 
@@ -248,3 +253,168 @@ async def test_report_job_status(
     got = await client.get(f"/api/v1/jobs/{job_id}", headers=admin_headers)
     assert got.json()["status"] == "completed"
     assert got.json()["finished_at"] is not None
+
+
+async def test_scan_progress_eta_and_sanitized_operator_failure_log(
+    client: AsyncClient,
+    admin_headers: dict[str, str],
+    viewer_headers: dict[str, str],
+    enroll_probe: EnrollFactory,
+    db_session: AsyncSession,
+) -> None:
+    probe = await _ready_probe(client, admin_headers, enroll_probe)
+    created = await client.post(
+        "/api/v1/jobs",
+        json={"probe_id": probe["probe_id"], "targets": ["10.20.0.5"]},
+        headers=admin_headers,
+    )
+    job_id = created.json()["id"]
+    headers = probe_cert_headers(probe["fingerprint"])
+    await client.post(f"/api/v1/probes/{probe['probe_id']}/jobs/next", headers=headers)
+    await client.post(
+        f"/api/v1/probes/{probe['probe_id']}/jobs/{job_id}/status",
+        json={"status": "accepted"},
+        headers=headers,
+    )
+    progress = {
+        "percent": 33,
+        "current_stage": "vulnerability",
+        "current_plugin": "nuclei",
+        "stages_total": 3,
+        "stages_completed": 1,
+        "stages_run": 1,
+        "stages_failed": 0,
+        "stages_skipped": 0,
+        "target_groups": 1,
+        "target_addresses": 1,
+        "elapsed_seconds": 15,
+        "eta_seconds": 30,
+    }
+    reported = await client.post(
+        f"/api/v1/probes/{probe['probe_id']}/jobs/{job_id}/status",
+        json={"status": "running", "progress": progress},
+        headers=headers,
+    )
+    assert reported.status_code == 204
+
+    got = await client.get(f"/api/v1/jobs/{job_id}", headers=viewer_headers)
+    assert got.status_code == 200
+    body = got.json()
+    assert body["progress_percent"] == 33
+    assert body["progress_json"]["stages_completed"] == 1
+    assert body["estimated_completion_at"] is not None
+    assert "failure_log_json" not in body
+
+    regressed = await client.post(
+        f"/api/v1/probes/{probe['probe_id']}/jobs/{job_id}/status",
+        json={
+            "status": "running",
+            "progress": {
+                **progress,
+                "percent": 0,
+                "stages_completed": 0,
+                "stages_run": 0,
+                "eta_seconds": None,
+            },
+        },
+        headers=headers,
+    )
+    assert regressed.status_code == 409
+
+    failed = await client.post(
+        f"/api/v1/probes/{probe['probe_id']}/jobs/{job_id}/status",
+        json={
+            "status": "failed",
+            "error_code": "scanner error!",
+            "error_message": "nuclei failed password=hunter2 Bearer abc.def",
+            "failure_details": [
+                {
+                    "code": "scanner_error",
+                    "stage": "vulnerability",
+                    "plugin": "nuclei",
+                    "message": (
+                        "request failed Authorization: Bearer very-secret "
+                        "https://admin:password@example.test"
+                    ),
+                }
+            ],
+        },
+        headers=headers,
+    )
+    assert failed.status_code == 204
+
+    ordinary = await client.get(f"/api/v1/jobs/{job_id}", headers=viewer_headers)
+    ordinary_text = ordinary.text
+    assert "hunter2" not in ordinary_text
+    assert "abc.def" not in ordinary_text
+    assert "scanner_error" in ordinary_text
+    denied = await client.get(f"/api/v1/jobs/{job_id}/diagnostics", headers=viewer_headers)
+    assert denied.status_code == 403
+
+    diagnostics = await client.get(f"/api/v1/jobs/{job_id}/diagnostics", headers=admin_headers)
+    assert diagnostics.status_code == 200
+    diagnostic_text = diagnostics.text
+    assert "very-secret" not in diagnostic_text
+    assert "admin:password" not in diagnostic_text
+    assert "REDACTED" in diagnostic_text
+    assert diagnostics.json()["failures"][0]["plugin"] == "nuclei"
+
+    cannot_reopen = await client.post(
+        f"/api/v1/probes/{probe['probe_id']}/jobs/{job_id}/status",
+        json={"status": "running", "progress": progress},
+        headers=headers,
+    )
+    assert cannot_reopen.status_code == 409
+
+    audit_actions = set(
+        (
+            await db_session.execute(
+                select(AuditEvent.action).where(AuditEvent.target_id == job_id)
+            )
+        ).scalars()
+    )
+    assert {"job.failure_recorded", "job.diagnostics_viewed"} <= audit_actions
+
+
+async def test_scan_diagnostics_cannot_cross_organizations(
+    client: AsyncClient,
+    admin_headers: dict[str, str],
+    enroll_probe: EnrollFactory,
+    db_session: AsyncSession,
+) -> None:
+    probe = await _ready_probe(client, admin_headers, enroll_probe)
+    created = await client.post(
+        "/api/v1/jobs",
+        json={"probe_id": probe["probe_id"], "targets": ["10.20.0.5"]},
+        headers=admin_headers,
+    )
+    other_org = Organization(name="Other diagnostics", slug=f"other-{uuid.uuid4().hex[:8]}")
+    db_session.add(other_org)
+    await db_session.flush()
+    other_admin = User(
+        organization_id=other_org.id,
+        email=f"other-{uuid.uuid4().hex[:8]}@example.com",
+        hashed_password=hash_password("password-1234-strong"),
+        role=UserRole.ADMINISTRATOR,
+    )
+    db_session.add(other_admin)
+    await db_session.commit()
+    response = await client.get(
+        f"/api/v1/jobs/{created.json()['id']}/diagnostics",
+        headers=auth_headers(other_admin),
+    )
+    assert response.status_code == 404
+
+
+async def test_scan_observability_contract_is_additive_in_openapi(client: AsyncClient) -> None:
+    schema = (await client.get("/openapi.json")).json()
+    assert "/api/v1/jobs/{job_id}/diagnostics" in schema["paths"]
+    job_read = schema["components"]["schemas"]["JobRead"]["properties"]
+    assert {
+        "progress_percent",
+        "progress_json",
+        "estimated_completion_at",
+        "last_progress_at",
+    } <= job_read.keys()
+    status_update = schema["components"]["schemas"]["JobStatusUpdate"]["properties"]
+    assert {"progress", "failure_details"} <= status_update.keys()

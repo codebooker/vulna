@@ -188,10 +188,30 @@ func (a *Agent) PollAndStart(ctx context.Context) (*RunningJob, error) {
 	_ = a.client.ReportJobStatus(ctx, job.JobID, api.JobStatusReport{Status: "running"})
 	go func() {
 		defer job.ClearCredentials()
-		res, _ := a.worker.Run(jobCtx, job)
+		res, _ := a.runWithProgress(jobCtx, job)
 		done <- res
 	}()
 	return &RunningJob{JobID: job.JobID, cancel: cancel, done: done}, nil
+}
+
+func (a *Agent) runWithProgress(ctx context.Context, job *policy.Job) (executor.Result, error) {
+	progressRunner, ok := a.worker.(executor.ProgressJobRunner)
+	if !ok {
+		return a.worker.Run(ctx, job)
+	}
+	return progressRunner.RunWithProgress(ctx, job, func(progress executor.Progress) {
+		_ = a.client.ReportJobStatus(ctx, job.JobID, api.JobStatusReport{
+			Status: "running",
+			Progress: &api.JobProgressReport{
+				Percent: progress.Percent, CurrentStage: progress.CurrentStage,
+				CurrentPlugin: progress.CurrentPlugin, StagesTotal: progress.StagesTotal,
+				StagesCompleted: progress.StagesCompleted, StagesRun: progress.StagesRun,
+				StagesFailed: progress.StagesFailed, StagesSkipped: progress.StagesSkipped,
+				TargetGroups: progress.TargetGroups, TargetAddresses: progress.TargetAddresses,
+				ElapsedSeconds: progress.ElapsedSeconds, ETASeconds: progress.ETASeconds,
+			},
+		})
+	})
 }
 
 // Finalize delivers each stage's scanner output and reports the terminal status.
@@ -236,6 +256,13 @@ func (a *Agent) Finalize(ctx context.Context, running *RunningJob, res executor.
 	// output is still uploaded above.
 	status := "completed"
 	errCode, errMsg := "", ""
+	failureDetails := make([]api.JobFailureDetail, 0, len(res.Failures)+1)
+	for _, failure := range res.Failures {
+		failureDetails = append(failureDetails, api.JobFailureDetail{
+			Code: failure.Code, Stage: failure.Stage,
+			Plugin: failure.Plugin, Message: failure.Message,
+		})
+	}
 	switch {
 	case res.Cancelled:
 		status = "cancelled"
@@ -248,11 +275,17 @@ func (a *Agent) Finalize(ctx context.Context, running *RunningJob, res executor.
 		if len(res.Errors) > 0 {
 			errMsg += ": " + strings.Join(res.Errors, "; ")
 		}
+		if len(failureDetails) == 0 {
+			failureDetails = append(failureDetails, api.JobFailureDetail{
+				Code: errCode, Message: errMsg,
+			})
+		}
 	}
 	return a.client.ReportJobStatus(ctx, running.JobID, api.JobStatusReport{
-		Status:       status,
-		ErrorCode:    errCode,
-		ErrorMessage: errMsg,
+		Status:         status,
+		ErrorCode:      errCode,
+		ErrorMessage:   errMsg,
+		FailureDetails: failureDetails,
 		Summary: map[string]any{
 			"stages_run":     res.StagesRun,
 			"stages_total":   res.StagesTotal,

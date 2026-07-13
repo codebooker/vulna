@@ -17,6 +17,16 @@ step is needed for schema changes unless noted.
 
 ## Unreleased (on `main`)
 
+- **Scan progress and failure diagnostics.** The additive upgrade adds bounded
+  stage progress, an estimated-completion timestamp, and sanitized structured
+  failures to scan jobs. Existing completed scans backfill to 100%; every other
+  historical scan stays at zero because no trustworthy checkpoint exists. No
+  operator action is required and a Scout that has not upgraded continues using
+  the compatible status payload without progress. Downgrade preserves the scan job
+  and summary error but permanently removes detailed progress and diagnostic
+  history; export anything needed for an incident and verify an encrypted backup
+  first.
+
 - **Remaining Phase 44 passive inventory providers.** No schema migration is
   required for Proxmox VE, XCP-ng/Xen Orchestra, AWS, Microsoft Azure, or Google
   Cloud. Public origins/scopes/bounds use the existing connector configuration and

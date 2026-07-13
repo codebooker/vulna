@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.models.enums import CredentialProtocol, JobMode, JobStatus, WebScanProfile
 
@@ -58,9 +58,56 @@ class JobRead(BaseModel):
     error_code: str | None
     error_message: str | None
     summary_json: dict[str, Any]
+    progress_percent: int
+    progress_json: dict[str, Any]
+    estimated_completion_at: datetime | None
+    last_progress_at: datetime | None
     credential_protocols_json: list[str]
     created_at: datetime
     updated_at: datetime
+
+
+class JobProgressUpdate(BaseModel):
+    """Bounded, non-secret execution statistics reported by a Scout."""
+
+    percent: int = Field(ge=0, le=99)
+    current_stage: str | None = Field(default=None, max_length=128)
+    current_plugin: str | None = Field(default=None, max_length=128)
+    stages_total: int = Field(ge=0, le=10_000)
+    stages_completed: int = Field(ge=0, le=10_000)
+    stages_run: int = Field(ge=0, le=10_000)
+    stages_failed: int = Field(ge=0, le=10_000)
+    stages_skipped: int = Field(ge=0, le=10_000)
+    target_groups: int = Field(ge=0, le=1_000_000)
+    target_addresses: int = Field(ge=0, le=1_000_000_000)
+    elapsed_seconds: int = Field(ge=0, le=31_536_000)
+    eta_seconds: int | None = Field(default=None, ge=0, le=31_536_000)
+
+    @model_validator(mode="after")
+    def validate_counters(self) -> JobProgressUpdate:
+        if (self.current_stage is None) != (self.current_plugin is None):
+            raise ValueError("current_stage and current_plugin must be reported together")
+        if self.stages_completed != self.stages_run + self.stages_failed + self.stages_skipped:
+            raise ValueError("stages_completed must equal run + failed + skipped")
+        if self.stages_completed > self.stages_total:
+            raise ValueError("stages_completed cannot exceed stages_total")
+        expected_percent = (
+            min(99, self.stages_completed * 100 // self.stages_total) if self.stages_total else 0
+        )
+        if self.percent != expected_percent:
+            raise ValueError("percent must match completed workflow stages")
+        if self.eta_seconds is not None and not (0 < self.stages_completed < self.stages_total):
+            raise ValueError("eta_seconds requires a partially completed workflow")
+        return self
+
+
+class JobFailureDetail(BaseModel):
+    """One structured Scout failure entry; the API sanitizes it before storage."""
+
+    code: str = Field(min_length=1, max_length=64)
+    stage: str | None = Field(default=None, max_length=128)
+    plugin: str | None = Field(default=None, max_length=128)
+    message: str = Field(min_length=1, max_length=2048)
 
 
 class JobStatusUpdate(BaseModel):
@@ -70,6 +117,37 @@ class JobStatusUpdate(BaseModel):
     error_code: str | None = Field(default=None, max_length=64)
     error_message: str | None = Field(default=None, max_length=2048)
     summary: dict[str, Any] | None = None
+    progress: JobProgressUpdate | None = None
+    failure_details: list[JobFailureDetail] = Field(default_factory=list, max_length=50)
+
+    @model_validator(mode="after")
+    def validate_status_payload(self) -> JobStatusUpdate:
+        if self.progress is not None and self.status != JobStatus.RUNNING:
+            raise ValueError("progress may only be reported while a job is running")
+        if self.failure_details and self.status not in (
+            JobStatus.FAILED,
+            JobStatus.REJECTED_BY_PROBE,
+        ):
+            raise ValueError("failure_details require a failed or rejected job")
+        return self
+
+
+class JobFailureLogEntry(BaseModel):
+    code: str
+    stage: str | None = None
+    plugin: str | None = None
+    message: str
+    received_at: datetime
+
+
+class JobDiagnosticsRead(BaseModel):
+    """Operator-only, sanitized scan failure diagnostics."""
+
+    job_id: uuid.UUID
+    status: JobStatus
+    error_code: str | None
+    error_message: str | None
+    failures: list[JobFailureLogEntry]
 
 
 class ResultIngestSummary(BaseModel):

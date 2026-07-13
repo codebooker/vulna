@@ -22,5 +22,6 @@ qualification passes**, regardless of profile visibility.
 | Authenticated scanning and software inventory | Available (Phase 42) | No |
 | SLAs and ticketing | Available (Phase 43) | No |
 | Passive inventory, analytics, and report builder | Available (Phase 44; core, analytics, report builder, reconciliation, and all roadmap importers qualified) | No |
+| Live scan progress and failure diagnostics | Available (post-Phase 44) | No |
 
 This page and the API capability list must be updated in each subsequent phase.

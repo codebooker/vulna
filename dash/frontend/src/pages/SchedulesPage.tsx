@@ -13,9 +13,10 @@ import { Field, Input, Select } from '../components/ui/input';
 import { ConfirmDialog, Modal } from '../components/ui/overlay';
 import { EmptyState, InlineError } from '../components/ui/states';
 import { Tabs } from '../components/ui/tabs';
+import { Progress } from '../components/ui/misc';
 import type { Network } from '../types/network';
 import type { ProbeSummary } from '../types/onboarding';
-import type { Job, ScanSchedule } from '../types/schedule';
+import type { Job, JobDiagnostics, ScanSchedule } from '../types/schedule';
 
 const PRESETS: { label: string; minutes: number }[] = [
   { label: 'Every 6 hours', minutes: 360 },
@@ -32,6 +33,31 @@ function intervalLabel(minutes: number): string {
   if (minutes % 1440 === 0) return `Every ${minutes / 1440} days`;
   if (minutes % 60 === 0) return `Every ${minutes / 60} hours`;
   return `Every ${minutes} minutes`;
+}
+
+function remainingLabel(estimatedAt: string | null): string | null {
+  if (!estimatedAt) return null;
+  const seconds = Math.round((new Date(estimatedAt).getTime() - Date.now()) / 1000);
+  if (seconds <= 0) return 'estimate elapsed; scan still running';
+  if (seconds < 60) return 'less than a minute remaining';
+  const minutes = Math.ceil(seconds / 60);
+  if (minutes < 60) return `about ${minutes} min remaining`;
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return `about ${hours}h${remainder ? ` ${remainder}m` : ''} remaining`;
+}
+
+function elapsedLabel(job: Job): string {
+  const reported = job.progress_json?.elapsed_seconds ?? 0;
+  const sinceReport =
+    ACTIVE_STATES.includes(job.status) && job.last_progress_at
+      ? Math.max(0, Math.round((Date.now() - new Date(job.last_progress_at).getTime()) / 1000))
+      : 0;
+  const seconds = reported + sinceReport;
+  if (seconds < 60) return `${seconds}s elapsed`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m elapsed`;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m elapsed`;
 }
 
 /** Scans: one-off scan jobs (Running / Completed / Failed) and recurring
@@ -52,8 +78,15 @@ export function ScansPage() {
   const [scanOpen, setScanOpen] = useState(false);
   const [toDelete, setToDelete] = useState<ScanSchedule | null>(null);
   const [busy, setBusy] = useState(false);
+  const [diagnosticJob, setDiagnosticJob] = useState<Job | null>(null);
+  const [diagnostics, setDiagnostics] = useState<JobDiagnostics | null>(null);
+  const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
+  const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null);
 
-  const isOperator = user?.role === 'administrator' || user?.role === 'security_operator';
+  const isOperator =
+    user?.permissions !== undefined
+      ? user.permissions.includes('jobs.manage')
+      : user?.role === 'administrator' || user?.role === 'security_operator';
 
   const load = useCallback(
     async (silent = false) => {
@@ -140,6 +173,24 @@ export function ScansPage() {
     [token, go, toast],
   );
 
+  const showDiagnostics = useCallback(
+    async (job: Job) => {
+      if (!token) return;
+      setDiagnosticJob(job);
+      setDiagnostics(null);
+      setDiagnosticsError(null);
+      setDiagnosticsLoading(true);
+      try {
+        setDiagnostics(await api.jobDiagnostics(token, job.id));
+      } catch (err) {
+        setDiagnosticsError(err instanceof Error ? err.message : 'Failed to load the failure log.');
+      } finally {
+        setDiagnosticsLoading(false);
+      }
+    },
+    [token],
+  );
+
   const runningJobs = jobs.filter((j) => ACTIVE_STATES.includes(j.status));
   const completedJobs = jobs.filter((j) => j.status === 'completed');
   const failedJobs = jobs.filter((j) => FAILED_STATES.includes(j.status));
@@ -186,6 +237,50 @@ export function ScansPage() {
         cell: (j) => <StatusBadge status={j.status} />,
         sortValue: (j) => j.status,
         csvValue: (j) => j.status,
+      },
+      {
+        id: 'progress',
+        header: 'Progress',
+        cell: (j) => {
+          const stats = j.progress_json ?? {};
+          const completed = stats.stages_completed ?? 0;
+          const total = stats.stages_total ?? 0;
+          const remaining = remainingLabel(j.estimated_completion_at);
+          return (
+            <div className="w-52" aria-label={`Scan ${j.progress_percent}% complete`}>
+              <div className="mb-1 flex items-center justify-between gap-2 text-[11px]">
+                <span className="font-medium text-text">{j.progress_percent}%</span>
+                <span className="truncate text-muted">
+                  {stats.current_stage ? humanize(stats.current_stage) : humanize(j.status)}
+                </span>
+              </div>
+              <Progress
+                value={j.progress_percent}
+                tone={j.status === 'failed' ? 'bad' : j.status === 'completed' ? 'ok' : 'accent'}
+                label={`Scan progress: ${j.progress_percent}%`}
+              />
+              <div className="mt-1 text-[10px] leading-4 text-muted">
+                <div>
+                  {total > 0 ? `${completed} of ${total} stages` : 'Waiting for stage data'}
+                </div>
+                <div>
+                  {stats.target_addresses ?? j.requested_targets_json.length} address
+                  {(stats.target_addresses ?? j.requested_targets_json.length) === 1
+                    ? ''
+                    : 'es'} · {elapsedLabel(j)}
+                </div>
+                {remaining && <div>{remaining}</div>}
+                {(stats.stages_failed ?? 0) + (stats.stages_skipped ?? 0) > 0 && (
+                  <div className="text-warn">
+                    {stats.stages_failed ?? 0} failed · {stats.stages_skipped ?? 0} skipped
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        },
+        sortValue: (j) => j.progress_percent,
+        csvValue: (j) => `${j.progress_percent}%`,
       },
       {
         id: 'started',
@@ -245,11 +340,31 @@ export function ScansPage() {
                 <FileText size={12} aria-hidden /> Report
               </Button>
             </span>
+          ) : FAILED_STATES.includes(j.status) ? (
+            <span className="flex items-center justify-end" onClick={(e) => e.stopPropagation()}>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={diagnosticsLoading && diagnosticJob?.id === j.id}
+                onClick={() => void showDiagnostics(j)}
+              >
+                Failure log
+              </Button>
+            </span>
           ) : null,
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [probeName, isOperator, busy, token, generateReport],
+    [
+      probeName,
+      isOperator,
+      busy,
+      token,
+      generateReport,
+      diagnosticsLoading,
+      diagnosticJob?.id,
+      showDiagnostics,
+    ],
   );
 
   const scheduleColumns: ColumnDef<ScanSchedule>[] = useMemo(
@@ -504,6 +619,48 @@ export function ScansPage() {
           }
         }}
       />
+
+      <Modal
+        open={diagnosticJob !== null}
+        onClose={() => setDiagnosticJob(null)}
+        title="Scan failure log"
+        description={
+          diagnosticJob
+            ? `Sanitized diagnostics for ${diagnosticJob.requested_targets_json.join(', ')}`
+            : undefined
+        }
+        wide
+      >
+        {diagnosticsLoading ? (
+          <p className="text-sm text-muted">Loading failure details…</p>
+        ) : diagnosticsError ? (
+          <InlineError message={diagnosticsError} />
+        ) : diagnostics?.failures.length ? (
+          <div className="space-y-3">
+            {diagnostics.failures.map((failure, index) => (
+              <section
+                key={`${failure.received_at}-${index}`}
+                className="rounded-lg border border-border bg-surface-2 p-3"
+              >
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <span className="font-mono font-medium text-bad">{failure.code}</span>
+                  {failure.stage && <span className="text-muted">Stage: {failure.stage}</span>}
+                  {failure.plugin && <span className="text-muted">Scanner: {failure.plugin}</span>}
+                  <span className="ml-auto text-faint">{formatWhen(failure.received_at)}</span>
+                </div>
+                <p className="mt-2 break-words font-mono text-xs leading-relaxed text-text">
+                  {failure.message}
+                </p>
+              </section>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-muted">
+            No structured Scout diagnostic was recorded for this scan. The summary error is{' '}
+            {diagnosticJob?.error_message ?? 'unavailable'}.
+          </p>
+        )}
+      </Modal>
     </div>
   );
 }

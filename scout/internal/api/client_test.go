@@ -158,11 +158,23 @@ func TestReportJobStatus(t *testing.T) {
 	}))
 	defer srv.Close()
 	c := newClient(srv.URL, "p1", srv.Client())
-	err := c.ReportJobStatus(context.Background(), "j1", JobStatusReport{Status: "completed"})
+	eta := 30
+	err := c.ReportJobStatus(context.Background(), "j1", JobStatusReport{
+		Status: "running",
+		Progress: &JobProgressReport{
+			Percent: 50, CurrentStage: "vulnerability", CurrentPlugin: "nuclei",
+			StagesTotal: 2, StagesCompleted: 1, StagesRun: 1,
+			TargetGroups: 1, TargetAddresses: 256, ElapsedSeconds: 30, ETASeconds: &eta,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Status != "completed" {
+	if got.Status != "running" {
 		t.Errorf("status not received: %q", got.Status)
+	}
+	if got.Progress == nil || got.Progress.Percent != 50 || got.Progress.ETASeconds == nil ||
+		*got.Progress.ETASeconds != 30 {
+		t.Errorf("progress not received: %+v", got.Progress)
 	}
 }

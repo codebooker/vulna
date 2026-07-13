@@ -43,7 +43,7 @@ import type {
 } from '../types/inventory';
 import type { Network, NewNetwork } from '../types/network';
 import type { PentestCandidate, PentestSession, RulesOfEngagement } from '../types/pentest';
-import type { Job, NewSchedule, ScanSchedule } from '../types/schedule';
+import type { Job, JobDiagnostics, NewSchedule, ScanSchedule } from '../types/schedule';
 import type { FeedHealth, SyncResult } from '../types/intelligence';
 import type {
   ComponentHealth,
@@ -1282,6 +1282,9 @@ export const api = {
   },
   cancelJob(token: string, id: string): Promise<Job> {
     return request<Job>(`/api/v1/jobs/${id}/cancel`, { method: 'POST', token });
+  },
+  jobDiagnostics(token: string, id: string): Promise<JobDiagnostics> {
+    return request<JobDiagnostics>(`/api/v1/jobs/${id}/diagnostics`, { token });
   },
 
   // --- Update center (Phase 24, display only) ---

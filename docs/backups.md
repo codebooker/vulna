@@ -175,6 +175,13 @@ SHA-256 and size metadata still match, and a restored worker can derive the same
 bounded observations. Source bytes and ciphertext must remain absent from
 portability, audit metadata, task payloads, errors, and logs.
 
+Scan-job progress checkpoints, absolute estimates, and sanitized structured failure
+logs are included in encrypted database backups. A restore must preserve the last
+monotonic percentage, stage counters, server receipt timestamps, and operator-only
+diagnostics without contacting a Scout or restarting a scan. These operational
+records are excluded from portability exports. Recheck that ordinary `jobs.read`
+callers still cannot fetch the detailed failure log after restore.
+
 Post-Phase-39 background tasks, lease/retry/dead-letter state, and worker heartbeats
 are ordinary PostgreSQL records and are included in the encrypted database backup.
 After restore, start the API/migrations before the scheduler and worker. Leases from
