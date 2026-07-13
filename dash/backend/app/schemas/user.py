@@ -33,6 +33,7 @@ class UserRead(BaseModel):
     site_ids: list[uuid.UUID] = Field(default_factory=list)
     mfa_status: Literal["not_enrolled", "enrolled", "required"] = "not_enrolled"
     mfa_grace_expires_at: datetime | None = None
+    is_break_glass: bool = False
     last_login_at: datetime | None
     invited_at: datetime | None
     activated_at: datetime | None

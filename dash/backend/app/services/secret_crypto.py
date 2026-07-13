@@ -12,10 +12,20 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 class SecretPurpose(StrEnum):
     TOTP_SEED = "totp_seed"
+    OIDC_CLIENT_SECRET = "oidc_client_secret"  # noqa: S105 - purpose label
+    OIDC_FLOW_SECRET = "oidc_flow_secret"  # noqa: S105 - purpose label
+    SAML_IDP_CERTIFICATE = "saml_idp_certificate"
+    SAML_SP_CERTIFICATE = "saml_sp_certificate"
+    SAML_SP_PRIVATE_KEY = "saml_sp_private_key"
 
 
 _CONTEXT = {
     SecretPurpose.TOTP_SEED: b"vulna-totp-seed-encryption-v1",
+    SecretPurpose.OIDC_CLIENT_SECRET: b"vulna-oidc-client-secret-encryption-v1",
+    SecretPurpose.OIDC_FLOW_SECRET: b"vulna-oidc-flow-secret-encryption-v1",
+    SecretPurpose.SAML_IDP_CERTIFICATE: b"vulna-saml-idp-certificate-encryption-v1",
+    SecretPurpose.SAML_SP_CERTIFICATE: b"vulna-saml-sp-certificate-encryption-v1",
+    SecretPurpose.SAML_SP_PRIVATE_KEY: b"vulna-saml-sp-private-key-encryption-v1",
 }
 
 

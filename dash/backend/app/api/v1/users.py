@@ -45,7 +45,7 @@ from app.schemas.user import (
     UserStatusUpdate,
     UserUpdate,
 )
-from app.services import mfa
+from app.services import mfa, sso
 from app.services.account_tokens import AccountTokenPurpose, generate_account_token
 from app.services.audit import record_audit
 from app.services.sessions import (
@@ -94,6 +94,7 @@ def _read_user(
         site_ids=site_ids,
         mfa_status=mfa_status,
         mfa_grace_expires_at=user.mfa_grace_expires_at,
+        is_break_glass=user.is_break_glass,
         last_login_at=user.last_login_at,
         invited_at=user.invited_at,
         activated_at=user.activated_at,
@@ -191,6 +192,13 @@ async def _transition_status(
     previous = user.account_status
     if new_status == previous:
         return
+    if new_status != AccountStatus.ACTIVE:
+        try:
+            await sso.ensure_break_glass_eligibility_can_be_removed(session, user)
+        except sso.SsoError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+            ) from exc
     if user.id == actor.id and new_status != AccountStatus.ACTIVE:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -445,6 +453,13 @@ async def update_user(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="The last active administrator cannot lose that role",
             )
+        if changes["role"] != UserRole.ADMINISTRATOR:
+            try:
+                await sso.ensure_break_glass_eligibility_can_be_removed(session, user)
+            except sso.SsoError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+                ) from exc
         previous_role = user.role
         user.role = changes.pop("role")
         user.auth_version += 1
@@ -607,6 +622,10 @@ async def issue_invitation(
             status_code=status.HTTP_409_CONFLICT,
             detail="The last active administrator cannot be returned to invited state",
         )
+    try:
+        await sso.ensure_break_glass_eligibility_can_be_removed(session, user)
+    except sso.SsoError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     now = utcnow()
     previous = user.account_status
     await revoke_pending_credentials(session, user, now=now)

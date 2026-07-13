@@ -37,6 +37,7 @@ REQUIRED_GATE_MODULES = [
     "test_user_lifecycle.py",
     "test_sessions.py",
     "test_mfa.py",
+    "test_sso.py",
 ]
 
 

@@ -7,9 +7,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1
 WORKDIR /app
 
-# curl is used only by the container health check.
+# curl is used by the container health check.  The OneLogin SAML toolkit uses
+# xmlsec for strict XML-signature and optional assertion-encryption handling.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl \
+    && apt-get install -y --no-install-recommends curl xmlsec1 \
     && rm -rf /var/lib/apt/lists/*
 
 # ---- Dependencies ----

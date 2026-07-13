@@ -19,6 +19,8 @@ export interface CurrentUser {
   is_active: boolean;
   mfa_status: 'not_enrolled' | 'enrolled' | 'required';
   mfa_grace_expires_at: string | null;
+  authentication_source: AuthenticationSource;
+  is_break_glass: boolean;
 }
 
 export interface TokenResponse {

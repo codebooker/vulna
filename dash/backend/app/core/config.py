@@ -71,6 +71,11 @@ class Settings(BaseSettings):
     webauthn_rp_id: str | None = None
     webauthn_rp_name: str = "Vulna"
     webauthn_origin: str | None = None
+    # Public HTTPS origin used for OIDC redirect URIs and SAML SP metadata.
+    # Development falls back to the incoming request origin; production SSO
+    # configuration requires this value to prevent host-header ambiguity.
+    sso_public_base_url: str | None = None
+    sso_state_ttl_minutes: int = 10
 
     # Master key for encrypting sensitive evidence (raw scanner output) at rest.
     # When set (VULNA_MASTER_KEY), stored artifacts are encrypted; when unset

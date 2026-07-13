@@ -12,6 +12,7 @@ deployment. The machine-readable version is
 | SMTP / webhooks | operator-configured | selected notification fields only | per channel |
 | Telemetry | operator-configured (none by default) | aggregate counts only | `telemetry_enabled` (off) |
 | Update checks | none | — | the app never contacts a release server |
+| OIDC / SAML sign-in | operator-configured identity provider | identity protocol messages only | per provider; off by default |
 
 Telemetry, when enabled, **never** contains IP addresses, hostnames, usernames,
 findings, CVEs tied to assets, evidence, credentials, report contents, or a stable
@@ -37,6 +38,9 @@ cross-installation identifier.
 | Recovery codes | database (one Argon2 hash per code) | critical | no |
 | WebAuthn credentials/challenges | database (public keys and short-lived challenge state) | high | no |
 | Authentication throttle state | database (hashed account/IP keys) | high | no |
+| Identity-provider configuration and external subject links | database | high | no |
+| OIDC client secrets, SAML certificates, and SP private keys | database (purpose-bound encrypted) | critical | no |
+| OIDC/SAML state, nonce, request, and replay records | database (hashed/encrypted where secret) | high | no |
 | Internal CA + signing keys | keys volume | critical | no |
 | Notification / SMTP secrets | database (encrypted) | high | no |
 

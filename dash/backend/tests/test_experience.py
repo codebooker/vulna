@@ -40,6 +40,8 @@ async def test_capability_matrix_is_public_and_conservative(client: AsyncClient)
     assert sessions["status"] == "available"
     mfa = next(item for item in body["capabilities"] if item["key"] == "mfa_webauthn")
     assert mfa["status"] == "available"
+    sso = next(item for item in body["capabilities"] if item["key"] == "enterprise_sso")
+    assert sso["status"] == "available"
 
 
 async def test_phase33_interfaces_are_in_openapi(client: AsyncClient) -> None:

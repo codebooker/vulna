@@ -129,6 +129,10 @@ async def test_export_is_versioned_checksummed_and_schema_valid(
         "webauthn_credentials",
         "mfa_recovery_codes",
         "authentication_throttles",
+        "identity_providers",
+        "external_identity_links",
+        "sso_protocol_states",
+        "saml_replay_records",
     ):
         assert banned not in text
 

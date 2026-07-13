@@ -75,6 +75,15 @@ import type { EnrollmentCommand } from '../types/remote';
 import type { Report } from '../types/report';
 import type { HealthResponse, SystemInfoResponse } from '../types/system';
 import type { UpdateCenter } from '../types/update';
+import type {
+  GroupMapping,
+  IdentityProvider,
+  IdentityProviderCreate,
+  PublicIdentityProvider,
+  SsoPolicy,
+  SsoPolicyMode,
+  SsoStart,
+} from '../types/sso';
 
 // In development, Vite proxies /api to the backend (see vite.config.ts).
 // In production the frontend is served behind the same reverse proxy as the API.
@@ -140,6 +149,16 @@ export const api = {
       body: { email, password, trust_device: trustDevice },
     });
   },
+  publicIdentityProviders(organization?: string): Promise<PublicIdentityProvider[]> {
+    const query = organization ? `?organization=${encodeURIComponent(organization)}` : '';
+    return request<PublicIdentityProvider[]>(`/api/v1/sso/providers${query}`);
+  },
+  startSso(providerId: string, returnPath = '/#overview'): Promise<SsoStart> {
+    return request<SsoStart>(`/api/v1/sso/providers/${providerId}/start`, {
+      method: 'POST',
+      body: { return_path: returnPath },
+    });
+  },
   refreshAccess(): Promise<TokenResponse> {
     return request<TokenResponse>('/api/v1/auth/refresh', { method: 'POST' });
   },
@@ -173,6 +192,108 @@ export const api = {
       method: 'PATCH',
       token,
       body: payload,
+    });
+  },
+
+  // --- Identity federation (Phase 37) ---
+  listIdentityProviders(token: string): Promise<IdentityProvider[]> {
+    return request<IdentityProvider[]>('/api/v1/identity/providers', { token });
+  },
+  createIdentityProvider(
+    token: string,
+    payload: IdentityProviderCreate,
+  ): Promise<IdentityProvider> {
+    return request<IdentityProvider>('/api/v1/identity/providers', {
+      method: 'POST',
+      token,
+      body: payload,
+    });
+  },
+  updateIdentityProvider(
+    token: string,
+    providerId: string,
+    payload: Record<string, unknown>,
+  ): Promise<IdentityProvider> {
+    return request<IdentityProvider>(`/api/v1/identity/providers/${providerId}`, {
+      method: 'PATCH',
+      token,
+      body: payload,
+    });
+  },
+  validateIdentityProvider(token: string, providerId: string): Promise<IdentityProvider> {
+    return request<IdentityProvider>(`/api/v1/identity/providers/${providerId}/validate`, {
+      method: 'POST',
+      token,
+    });
+  },
+  importSamlMetadata(
+    token: string,
+    providerId: string,
+    metadataXml: string,
+  ): Promise<IdentityProvider> {
+    return request<IdentityProvider>(`/api/v1/identity/providers/${providerId}/saml-metadata`, {
+      method: 'POST',
+      token,
+      body: { metadata_xml: metadataXml },
+    });
+  },
+  testIdentityProvider(
+    token: string,
+    providerId: string,
+    returnPath = '/#identity',
+  ): Promise<SsoStart> {
+    return request<SsoStart>(`/api/v1/identity/providers/${providerId}/test`, {
+      method: 'POST',
+      token,
+      body: { return_path: returnPath },
+    });
+  },
+  enableIdentityProvider(
+    token: string,
+    providerId: string,
+    enabled: boolean,
+  ): Promise<IdentityProvider> {
+    return request<IdentityProvider>(`/api/v1/identity/providers/${providerId}/enabled`, {
+      method: 'PUT',
+      token,
+      body: { enabled },
+    });
+  },
+  identityGroupMappings(token: string, providerId: string): Promise<GroupMapping[]> {
+    return request<GroupMapping[]>(`/api/v1/identity/providers/${providerId}/group-mappings`, {
+      token,
+    });
+  },
+  replaceIdentityGroupMappings(
+    token: string,
+    providerId: string,
+    mappings: Array<Omit<GroupMapping, 'id'>>,
+  ): Promise<GroupMapping[]> {
+    return request<GroupMapping[]>(`/api/v1/identity/providers/${providerId}/group-mappings`, {
+      method: 'PUT',
+      token,
+      body: mappings,
+    });
+  },
+  ssoPolicy(token: string): Promise<SsoPolicy> {
+    return request<SsoPolicy>('/api/v1/identity/policy', { token });
+  },
+  updateSsoPolicy(
+    token: string,
+    mode: SsoPolicyMode,
+    providerId: string | null,
+  ): Promise<SsoPolicy> {
+    return request<SsoPolicy>('/api/v1/identity/policy', {
+      method: 'PUT',
+      token,
+      body: { mode, identity_provider_id: providerId },
+    });
+  },
+  setBreakGlass(token: string, userId: string, enabled: boolean): Promise<SsoPolicy> {
+    return request<SsoPolicy>(`/api/v1/identity/break-glass/${userId}`, {
+      method: 'PUT',
+      token,
+      body: { enabled },
     });
   },
   me(token: string): Promise<CurrentUser> {

@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 37: OIDC and SAML single sign-on
+
+- Organization-scoped OIDC and SAML providers now keep encrypted client secrets,
+  IdP/SP certificates and SP keys in separate HKDF contexts. APIs expose only
+  `has_secret`/certificate metadata; provider material remains backup-only.
+- OIDC uses Authorization Code with PKCE S256 and durable, single-use state/nonce
+  records. Discovery, token, and JWKS destinations are HTTPS-validated and IP-pinned;
+  ID-token signature, issuer, audience, expiry, nonce, authorized-party, and access-
+  token binding checks use Authlib's maintained OIDC implementation.
+- SAML uses the OneLogin toolkit and containerized xmlsec in strict mode. Authn
+  requests and SP metadata are signed, assertions must be signed and may be required
+  encrypted, metadata import rejects DTD/entities, request IDs are checked, response/
+  assertion IDs reject replay, and two signing certificates support rollover.
+- Verified-email JIT provisioning creates passwordless external accounts and stable
+  subject links. Exact group mappings can assign compatibility roles and Phase 34
+  sites; conflicting role mappings fail closed.
+- SSO enforcement cannot be enabled until provider validation, a successful same-
+  administrator test login, provider enablement, and an active local administrator
+  with strong MFA are all present. Break-glass use raises a critical alert, and user,
+  role, invitation, or MFA changes cannot remove the final recovery path.
+- The Identity & SSO page and login choices preserve local break-glass sign-in, while
+  the migration, capability matrix, OpenAPI, isolation, replay, portability, backup,
+  and release-gate coverage are updated.
+
 ### Added — Phase 36: MFA, WebAuthn, and step-up authentication
 
 - Authenticator-app TOTP seeds are purpose-bound encrypted, recovery codes are

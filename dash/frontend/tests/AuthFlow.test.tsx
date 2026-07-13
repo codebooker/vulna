@@ -22,7 +22,8 @@ const adminUser = {
 function installFetchMock({
   refreshSession = false,
   mfaSession = false,
-}: { refreshSession?: boolean; mfaSession?: boolean } = {}) {
+  ssoProviders = false,
+}: { refreshSession?: boolean; mfaSession?: boolean; ssoProviders?: boolean } = {}) {
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     const method = init?.method ?? 'GET';
@@ -44,6 +45,13 @@ function installFetchMock({
         environment: 'test',
         api_version: 'v1',
       });
+    }
+    if (url.endsWith('/api/v1/sso/providers')) {
+      return jsonResponse(
+        ssoProviders
+          ? [{ id: 'idp-1', name: 'Company SSO', slug: 'company', protocol: 'oidc' }]
+          : [],
+      );
     }
     if (url.endsWith('/api/v1/auth/login') && method === 'POST') {
       const creds = JSON.parse(String(init?.body)) as { password: string };
@@ -140,6 +148,14 @@ describe('Authentication flow', () => {
     await waitFor(() =>
       expect(screen.getByRole('heading', { name: 'Sign in' })).toBeInTheDocument(),
     );
+  });
+
+  it('offers enabled organization SSO without hiding local break-glass sign-in', async () => {
+    vi.restoreAllMocks();
+    installFetchMock({ ssoProviders: true });
+    renderApp();
+    expect(await screen.findByRole('button', { name: 'Sign in with Company SSO' })).toBeVisible();
+    expect(screen.getByLabelText('Password')).toBeVisible();
   });
 
   it('restores a session from the HttpOnly refresh cookie without browser storage', async () => {

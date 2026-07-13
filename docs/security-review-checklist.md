@@ -36,6 +36,17 @@ directly. See also [`threat-model.md`](threat-model.md) and
   frontend visibility is not treated as authorization (`app/auth/site_scope.py`).
 - [ ] Self-deactivation/self-demotion and loss of the last active administrator are
   refused; deactivation preserves historical attribution.
+- [ ] OIDC uses code + PKCE S256 with durable single-use state/nonce; discovery,
+  token, and JWKS URLs are HTTPS-validated and IP-pinned, and signed ID tokens verify
+  exact issuer/audience/nonce/expiry/authorized-party/access-token binding
+  (`app/services/sso.py`, `tests/test_sso.py`).
+- [ ] SAML strict mode requires signed assertions, checks InResponseTo, rejects
+  replayed response/assertion IDs, rejects DTD/entities, supports optional encrypted
+  assertions and signing-certificate rollover, and uses xmlsec in the API container.
+- [ ] SSO enforcement requires a validated, same-administrator-tested, enabled
+  provider and at least one active local administrator with strong MFA. Local, role,
+  status, invitation, and factor-removal paths cannot strand enforcement; break-glass
+  use is audited and generates a critical security notification.
 
 ## Probe trust boundary (mTLS)
 - [ ] Caddy terminates mTLS with `client_auth mode require_and_verify` and a trust pool of the internal CA; `mode request` is not used (`deploy/Caddyfile`, ADR 0003 live validation).
@@ -57,6 +68,9 @@ directly. See also [`threat-model.md`](threat-model.md) and
 
 ## Secrets & data handling
 - [ ] No secrets in the repository or git history; keys live in the data dir, never in packages (grep for tokens/keys).
+- [ ] OIDC secrets, OIDC flow material, SAML IdP/SP certificates, and SAML SP keys
+  use distinct HKDF contexts; APIs and portability exports expose no reusable
+  provider material.
 - [ ] Untrusted scanner output parsed defensively (defusedxml for XML; malformed lines skipped).
 - [ ] `/metrics` exposes aggregate-only data — no finding titles, evidence, IPs, or CVE ids in labels (`tests/test_metrics.py`).
 

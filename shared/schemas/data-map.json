@@ -23,6 +23,13 @@
       "contains_org_data": "selected_notification_fields",
       "toggle": "per_channel"
     },
+    "identity_provider": {
+      "destinations": ["operator-configured OIDC or SAML provider"],
+      "direction": "outbound_and_browser_redirect",
+      "contains_org_data": "identity protocol messages only",
+      "toggle": "per_provider",
+      "default": "off"
+    },
     "telemetry": {
       "destinations": ["operator-configured, none by default"],
       "direction": "outbound",
@@ -58,6 +65,9 @@
     { "category": "MFA recovery codes", "store": "database (one Argon2 hash per code)", "sensitivity": "critical", "in_export": false },
     { "category": "WebAuthn public credentials and short-lived challenges", "store": "database", "sensitivity": "high", "in_export": false },
     { "category": "authentication throttle state", "store": "database (hashed account/IP keys)", "sensitivity": "high", "in_export": false },
+    { "category": "identity provider configuration and external subject links", "store": "database", "sensitivity": "high", "in_export": false },
+    { "category": "OIDC client secrets and SAML certificates/private keys", "store": "database (purpose-bound encrypted)", "sensitivity": "critical", "in_export": false },
+    { "category": "OIDC/SAML state, nonce, request, and replay records", "store": "database (hashed/encrypted where secret)", "sensitivity": "high", "in_export": false },
     { "category": "internal CA + signing keys", "store": "keys volume", "sensitivity": "critical", "in_export": false },
     { "category": "notification/SMTP secrets", "store": "database (encrypted)", "sensitivity": "high", "in_export": false }
   ]

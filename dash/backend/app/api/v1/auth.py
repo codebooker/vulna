@@ -16,7 +16,7 @@ from app.auth.password import hash_password, needs_rehash, verify_password
 from app.auth.tokens import create_access_token
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
-from app.models.enums import AccountStatus, ActorType
+from app.models.enums import AccountStatus, ActorType, SsoPolicyMode
 from app.models.organization import Organization
 from app.models.session import SessionRefreshToken, UserSession
 from app.models.user import User
@@ -28,7 +28,7 @@ from app.schemas.session import (
     SessionRead,
 )
 from app.schemas.user import AcceptInvitationRequest, CompletePasswordResetRequest
-from app.services import auth_throttle, mfa
+from app.services import auth_throttle, mfa, sso
 from app.services.account_tokens import (
     AccountTokenPurpose,
     generate_account_token,
@@ -183,11 +183,19 @@ async def login(
         await session.commit()
         raise invalid
 
-    if not local_login_allowed(user):
+    local_account_allowed = local_login_allowed(user)
+    sso_policy_allowed = (
+        await sso.local_login_permitted(session, user) if local_account_allowed else False
+    )
+    if not local_account_allowed or not sso_policy_allowed:
         await auth_throttle.record_failure(session, payload.email, context.source_ip)
         record_audit(
             session,
-            action="auth.login_denied_inactive",
+            action=(
+                "auth.login_denied_sso_enforced"
+                if local_account_allowed
+                else "auth.login_denied_inactive"
+            ),
             actor=user,
             organization_id=user.organization_id,
             target_type="user",
@@ -245,6 +253,26 @@ async def login(
         request_id=context.request_id,
         metadata={"session_id": str(user_session.id), "mfa_pending": mfa_pending},
     )
+    sso_policy = await sso.get_policy(session, user.organization_id)
+    if sso_policy.mode == SsoPolicyMode.ENFORCED and user.is_break_glass:
+        record_audit(
+            session,
+            action="auth.break_glass_login",
+            actor=user,
+            organization_id=user.organization_id,
+            target_type="session",
+            target_id=user_session.id,
+            source_ip=context.source_ip,
+            user_agent=context.user_agent,
+            request_id=context.request_id,
+        )
+        await mfa.emit_security_notification(
+            session,
+            user,
+            title="Break-glass sign-in used",
+            summary="A protected local administrator signed in while SSO enforcement was active.",
+            severity="critical",
+        )
 
     token = create_access_token(
         settings,
@@ -720,4 +748,6 @@ async def read_me(
         is_active=current_user.is_active,
         mfa_status="enrolled" if enrolled else "not_enrolled",
         mfa_grace_expires_at=current_user.mfa_grace_expires_at,
+        authentication_source=current_user.authentication_source.value,
+        is_break_glass=current_user.is_break_glass,
     )

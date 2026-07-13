@@ -47,6 +47,21 @@ class AuthenticationSource(StrEnum):
     SCIM = "scim"
 
 
+class IdentityProviderProtocol(StrEnum):
+    """Supported organization identity-provider protocols."""
+
+    OIDC = "oidc"
+    SAML = "saml"
+
+
+class SsoPolicyMode(StrEnum):
+    """Local/SSO sign-in policy; enforced mode always keeps break-glass."""
+
+    DISABLED = "disabled"
+    OPTIONAL = "optional"
+    ENFORCED = "enforced"
+
+
 class SiteAccessMode(StrEnum):
     """Compatibility scope used until Phase 39 migrates it to grants."""
 

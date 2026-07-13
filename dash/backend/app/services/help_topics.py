@@ -78,6 +78,11 @@ HELP_TOPICS: dict[str, HelpTopic] = {
         "Email and signed-webhook alerts.",
         "docs/notifications.md",
     ),
+    "sso": HelpTopic(
+        "sso", "Single sign-on",
+        "Configure, test, and safely enforce OIDC or SAML sign-in.",
+        "docs/sso.md",
+    ),
     "diagnostics": HelpTopic(
         "diagnostics", "Diagnostics (Vulna Doctor)",
         "Find which component is failing.",

@@ -37,7 +37,7 @@ from app.schemas.mfa import (
     WebAuthnRegistrationFinish,
     WebAuthnRegistrationRead,
 )
-from app.services import auth_throttle, mfa
+from app.services import auth_throttle, mfa, sso
 from app.services import webauthn as webauthn_service
 from app.services.audit import record_audit
 from app.services.sessions import ACCESS_TOKEN_MINUTES, aware, session_policy
@@ -330,6 +330,13 @@ async def disable_totp(
             status_code=409,
             detail="Enroll another strong factor before removing required MFA",
         )
+    if not await mfa.active_webauthn(session, identity.user):
+        try:
+            await sso.ensure_break_glass_eligibility_can_be_removed(
+                session, identity.user
+            )
+        except sso.SsoError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
     factor.disabled_at = datetime.now(UTC)
     await mfa.revoke_other_sessions_for_mfa_change(session, identity.user, user_session)
     record_audit(
@@ -563,6 +570,13 @@ async def disable_webauthn_credential(
             status_code=409,
             detail="Enroll another strong factor before removing required MFA",
         )
+    if await mfa.active_totp(session, identity.user) is None and not other_webauthn:
+        try:
+            await sso.ensure_break_glass_eligibility_can_be_removed(
+                session, identity.user
+            )
+        except sso.SsoError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
     credential.disabled_at = datetime.now(UTC)
     await mfa.revoke_other_sessions_for_mfa_change(session, identity.user, user_session)
     record_audit(

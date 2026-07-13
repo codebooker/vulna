@@ -21,6 +21,7 @@ from app.models.enums import (
     FindingStatus,
     FindingType,
     IdentifierType,
+    IdentityProviderProtocol,
     JobMode,
     JobStatus,
     MatchConfidence,
@@ -35,6 +36,7 @@ from app.models.enums import (
     ServiceTransport,
     Severity,
     SiteAccessMode,
+    SsoPolicyMode,
     UserRole,
     ValidationStatus,
     WebScanProfile,
@@ -71,6 +73,15 @@ from app.models.scan_schedule import ScanSchedule
 from app.models.service import Service
 from app.models.session import SessionRefreshToken, UserSession
 from app.models.site import Site
+from app.models.sso import (
+    ExternalIdentityLink,
+    IdentityGroupMapping,
+    IdentityProvider,
+    IdentityProviderTest,
+    SamlReplayRecord,
+    SsoPolicy,
+    SsoProtocolState,
+)
 from app.models.user import User
 from app.models.user_lifecycle import (
     PasswordResetToken,
@@ -94,6 +105,7 @@ __all__ = [
     "ChangeEventType",
     "CveRecord",
     "EnrollmentToken",
+    "ExternalIdentityLink",
     "FeedHealth",
     "FeedSource",
     "FeedStatus",
@@ -102,6 +114,10 @@ __all__ = [
     "FindingStatus",
     "FindingType",
     "IdentifierType",
+    "IdentityGroupMapping",
+    "IdentityProvider",
+    "IdentityProviderProtocol",
+    "IdentityProviderTest",
     "JobMode",
     "JobStatus",
     "MatchConfidence",
@@ -133,6 +149,7 @@ __all__ = [
     "ScanArtifact",
     "ScanJob",
     "ScanSchedule",
+    "SamlReplayRecord",
     "Service",
     "ServiceState",
     "ServiceTransport",
@@ -140,6 +157,9 @@ __all__ = [
     "Severity",
     "Site",
     "SiteAccessMode",
+    "SsoPolicy",
+    "SsoPolicyMode",
+    "SsoProtocolState",
     "ThreatIntelEnrichment",
     "TotpFactor",
     "User",

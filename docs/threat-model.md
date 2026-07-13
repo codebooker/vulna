@@ -24,6 +24,7 @@
 4. VulnaDash ↔ PostgreSQL / Redis (internal network).
 5. VulnaScout ↔ scanner child processes (sandboxed, resource-limited).
 6. VulnaScout ↔ assessed targets (policy-enforced scope).
+7. Browser / VulnaDash ↔ operator-configured OIDC or SAML identity provider.
 
 ## Threats and controls (STRIDE summary)
 
@@ -52,6 +53,18 @@
   execution time; restrict redirects.
 - Malicious update package → signed release manifests, checksums, rollback.
 - CVE feed poisoning → validate feed sources and record provenance.
+- Identity-provider SSRF or DNS rebinding → HTTPS-only discovery/token/JWKS
+  endpoints, address-class validation, and connection IP pinning; private IdPs
+  require an explicit exception that never permits loopback/link-local/metadata.
+- OIDC callback forgery or token substitution → random hashed state, encrypted
+  nonce/PKCE verifier, single-use expiry, signed ID-token verification, and exact
+  issuer/audience/nonce/request binding.
+- SAML wrapping/replay or unsolicited assertion → OneLogin+xmlsec strict mode,
+  signed assertions, `InResponseTo`, audience/destination/time validation, safe XML
+  metadata parsing, and durable hashed message/assertion replay records.
+- SSO lockout → enforcement requires a validated, same-administrator-tested,
+  enabled provider and preserves an active local strong-MFA break-glass
+  administrator; every break-glass use is audited and alerted.
 
 ## Required controls (baseline)
 

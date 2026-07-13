@@ -30,6 +30,8 @@ class TokenResponse(BaseModel):
     mfa_enrollment_required: bool = False
     mfa_methods: list[str] = Field(default_factory=list)
     mfa_grace_expires_at: datetime | None = None
+    authentication_source: str = "local"
+    is_break_glass: bool = False
 
 
 class CurrentUserResponse(BaseModel):

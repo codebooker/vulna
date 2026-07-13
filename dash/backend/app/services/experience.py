@@ -31,6 +31,7 @@ ADVANCED_ROUTES: tuple[str, ...] = (
     "presets",
     "pentest",
     "feeds",
+    "identity",
     "system_health",
 )
 
@@ -78,7 +79,7 @@ CAPABILITIES: tuple[dict[str, Any], ...] = (
     {
         "key": "enterprise_sso",
         "name": "OIDC and SAML SSO",
-        "status": "planned",
+        "status": "available",
         "production_ready": False,
     },
     {"key": "scim", "name": "SCIM provisioning", "status": "planned", "production_ready": False},
@@ -291,9 +292,9 @@ def recommendations(profile: ExperienceProfile, answers: dict[str, Any]) -> list
         result.append(
             {
                 "capability": "Configure enterprise SSO",
-                "status": "planned",
-                "reason": "The selected identity-provider integration arrives in Phase 37.",
-                "route": None,
+                "status": "available",
+                "reason": "OIDC and SAML are available with test-before-enable safeguards.",
+                "route": "/identity",
             }
         )
     if answers.get("scim"):

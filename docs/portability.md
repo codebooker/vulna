@@ -17,6 +17,11 @@ They are authentication state, not portable organization content.
 TOTP seeds, recovery-code hashes, WebAuthn credentials/challenges, MFA policy,
 authentication-strength timestamps, and throttle records are likewise excluded;
 they remain only in encrypted full-database backups.
+Identity-provider configuration, encrypted OIDC/SAML material, external subject
+links, group mappings, SSO policy/test history, break-glass flags, protocol state,
+and replay records are also excluded. Moving federation configuration requires an
+encrypted backup/restore so provider trust and anti-replay history cannot be
+separated from the credentials and MFA factors that make enforcement safe.
 
 The bundle can be validated **independently**:
 

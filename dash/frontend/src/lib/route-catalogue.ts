@@ -19,6 +19,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   UserRoundCog,
+  KeyRound,
   Webhook,
   type LucideIcon,
 } from 'lucide-react';
@@ -42,6 +43,7 @@ import { SettingsPage } from '../pages/SettingsPage';
 import { SitesPage } from '../pages/SitesPage';
 import { SystemHealthPage } from '../pages/SystemHealthPage';
 import { UsersPage } from '../pages/UsersPage';
+import { IdentityProvidersPage } from '../pages/IdentityProvidersPage';
 import type { Role } from '../types/auth';
 
 export interface RouteDef {
@@ -160,6 +162,14 @@ export const ROUTE_CATALOGUE: RouteSection[] = [
         label: 'Users',
         icon: UserRoundCog,
         Component: UsersPage,
+        roles: ['administrator'],
+      },
+      {
+        id: 'identity',
+        visibilityKey: 'identity',
+        label: 'Identity & SSO',
+        icon: KeyRound,
+        Component: IdentityProvidersPage,
         roles: ['administrator'],
       },
       {

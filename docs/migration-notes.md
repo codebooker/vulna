@@ -17,6 +17,16 @@ step is needed for schema changes unless noted.
 
 ## Unreleased (on `main`)
 
+- **OIDC and SAML SSO (Phase 37).** The additive upgrade creates organization
+  provider, policy, external-link, group-mapping, test-history, short-lived state,
+  and SAML replay tables plus a disabled-by-default break-glass flag. Every existing
+  organization receives an SSO policy in `disabled` mode, so local sign-in behavior
+  does not change. Set `VULNA_SSO_PUBLIC_BASE_URL` to the public HTTPS origin before
+  configuring callbacks. Enforcement remains unavailable until an administrator
+  validates and tests a provider, enables it, and protects a local strong-MFA
+  administrator. Downgrade deletes federation configuration and links but preserves
+  local users/history; take and verify an encrypted backup first because encrypted
+  provider material cannot fit the Phase 36 schema.
 - **MFA and WebAuthn (Phase 36).** The upgrade adds encrypted TOTP factors,
   independently hashed recovery codes, WebAuthn public credentials and five-minute
   challenges, organization MFA policy, session authentication strength, and durable
