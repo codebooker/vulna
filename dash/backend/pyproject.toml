@@ -30,6 +30,8 @@ dependencies = [
     "Authlib>=1.7,<2.0",
     "python3-saml>=1.16,<2.0",
     "defusedxml>=0.7,<0.8",
+    # Phase 44: asynchronous, TSIG-authenticated authoritative zone transfers.
+    "dnspython>=2.8,<3.0",
     # Runtime HTTP client for VulnaWatch feed syncs (Phase 7).
     "httpx>=0.28,<1.0",
     # Pure-Python PDF generation for reports (Phase 8) — no system libraries,

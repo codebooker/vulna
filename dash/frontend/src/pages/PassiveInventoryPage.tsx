@@ -58,6 +58,9 @@ export function PassiveInventoryPage() {
     secret: '',
     allowPrivate: false,
     legacyControlAgent: false,
+    dnsZones: '',
+    tsigName: '',
+    allowUnsigned: false,
   });
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [templateForm, setTemplateForm] = useState({
@@ -115,6 +118,10 @@ export function PassiveInventoryPage() {
 
   const createConnector = useCallback(async () => {
     if (!token || !connectorForm.name || !connectorForm.siteId) return;
+    const dnsZones = connectorForm.dnsZones
+      .split(/[\n,]/)
+      .map((zone) => zone.trim())
+      .filter(Boolean);
     if (connectorForm.type === 'csv' && !csvFile) {
       setError('Select a CSV file before saving this source.');
       return;
@@ -126,6 +133,19 @@ export function PassiveInventoryPage() {
       setError('Kea DHCP sources require an HTTPS URL, username, and password.');
       return;
     }
+    if (
+      connectorForm.type === 'dns' &&
+      (!connectorForm.baseUrl ||
+        dnsZones.length === 0 ||
+        (!connectorForm.allowUnsigned && (!connectorForm.tsigName || !connectorForm.secret)) ||
+        ((connectorForm.tsigName || connectorForm.secret) &&
+          (!connectorForm.tsigName || !connectorForm.secret)))
+    ) {
+      setError(
+        'DNS sources require a server, at least one zone, and either a TSIG key name with base64 secret or explicit unsigned AXFR.',
+      );
+      return;
+    }
     setBusy('connector');
     setError(null);
     let connectorCreated = false;
@@ -134,7 +154,7 @@ export function PassiveInventoryPage() {
         site_id: connectorForm.siteId,
         name: connectorForm.name,
         connector_type: connectorForm.type,
-        ...(connectorForm.type !== 'csv' && connectorForm.baseUrl
+        ...(connectorForm.type !== 'csv' && connectorForm.type !== 'dns' && connectorForm.baseUrl
           ? { base_url: connectorForm.baseUrl }
           : {}),
         ...(connectorForm.type !== 'csv' && connectorForm.secret
@@ -146,6 +166,22 @@ export function PassiveInventoryPage() {
                 username: connectorForm.username,
                 allow_private: connectorForm.allowPrivate,
                 legacy_control_agent: connectorForm.legacyControlAgent,
+              },
+            }
+          : {}),
+        ...(connectorForm.type === 'dns'
+          ? {
+              config: {
+                server: connectorForm.baseUrl,
+                zones: dnsZones,
+                allow_private: connectorForm.allowPrivate,
+                allow_unsigned: connectorForm.allowUnsigned,
+                ...(connectorForm.tsigName
+                  ? {
+                      tsig_name: connectorForm.tsigName,
+                      tsig_algorithm: 'hmac-sha256',
+                    }
+                  : {}),
               },
             }
           : {}),
@@ -161,6 +197,11 @@ export function PassiveInventoryPage() {
         baseUrl: '',
         username: '',
         secret: '',
+        allowPrivate: false,
+        legacyControlAgent: false,
+        dnsZones: '',
+        tsigName: '',
+        allowUnsigned: false,
       }));
       setCsvFile(null);
       toast('success', 'Inventory source saved disabled. Test it before enabling collection.');
@@ -535,9 +576,19 @@ export function PassiveInventoryPage() {
                   </Field>
                 ) : (
                   <>
-                    <Field label="HTTPS URL (when required)">
+                    <Field
+                      label={
+                        connectorForm.type === 'dns'
+                          ? 'Authoritative DNS server'
+                          : 'HTTPS URL (when required)'
+                      }
+                    >
                       <Input
-                        aria-label="HTTPS URL (when required)"
+                        aria-label={
+                          connectorForm.type === 'dns'
+                            ? 'Authoritative DNS server'
+                            : 'HTTPS URL (when required)'
+                        }
                         value={connectorForm.baseUrl}
                         onChange={(event) =>
                           setConnectorForm((current) => ({
@@ -561,21 +612,6 @@ export function PassiveInventoryPage() {
                             }
                           />
                         </Field>
-                        <Field label="Private network URL">
-                          <Select
-                            aria-label="Private network URL"
-                            value={connectorForm.allowPrivate ? 'yes' : 'no'}
-                            onChange={(event) =>
-                              setConnectorForm((current) => ({
-                                ...current,
-                                allowPrivate: event.target.value === 'yes',
-                              }))
-                            }
-                          >
-                            <option value="no">No</option>
-                            <option value="yes">Yes, explicitly allow</option>
-                          </Select>
-                        </Field>
                         <Field label="Legacy Control Agent">
                           <Select
                             aria-label="Legacy Control Agent"
@@ -593,12 +629,94 @@ export function PassiveInventoryPage() {
                         </Field>
                       </>
                     )}
+                    {(connectorForm.type === 'dhcp' || connectorForm.type === 'dns') && (
+                      <Field
+                        label={
+                          connectorForm.type === 'dns'
+                            ? 'Private network server'
+                            : 'Private network URL'
+                        }
+                      >
+                        <Select
+                          aria-label={
+                            connectorForm.type === 'dns'
+                              ? 'Private network server'
+                              : 'Private network URL'
+                          }
+                          value={connectorForm.allowPrivate ? 'yes' : 'no'}
+                          onChange={(event) =>
+                            setConnectorForm((current) => ({
+                              ...current,
+                              allowPrivate: event.target.value === 'yes',
+                            }))
+                          }
+                        >
+                          <option value="no">No</option>
+                          <option value="yes">Yes, explicitly allow</option>
+                        </Select>
+                      </Field>
+                    )}
+                    {connectorForm.type === 'dns' && (
+                      <>
+                        <Field label="Authoritative zones">
+                          <Input
+                            aria-label="Authoritative zones"
+                            placeholder="example.com, 2.0.192.in-addr.arpa"
+                            value={connectorForm.dnsZones}
+                            onChange={(event) =>
+                              setConnectorForm((current) => ({
+                                ...current,
+                                dnsZones: event.target.value,
+                              }))
+                            }
+                          />
+                        </Field>
+                        <Field label="TSIG key name">
+                          <Input
+                            aria-label="TSIG key name"
+                            placeholder="vulna-transfer.example.com."
+                            value={connectorForm.tsigName}
+                            onChange={(event) =>
+                              setConnectorForm((current) => ({
+                                ...current,
+                                tsigName: event.target.value,
+                              }))
+                            }
+                          />
+                        </Field>
+                        <Field label="Unsigned AXFR">
+                          <Select
+                            aria-label="Unsigned AXFR"
+                            value={connectorForm.allowUnsigned ? 'yes' : 'no'}
+                            onChange={(event) =>
+                              setConnectorForm((current) => ({
+                                ...current,
+                                allowUnsigned: event.target.value === 'yes',
+                              }))
+                            }
+                          >
+                            <option value="no">No, require TSIG</option>
+                            <option value="yes">Yes, explicitly allow</option>
+                          </Select>
+                        </Field>
+                      </>
+                    )}
                     <Field
-                      label={connectorForm.type === 'dhcp' ? 'Kea password' : 'Secret (optional)'}
+                      label={
+                        connectorForm.type === 'dhcp'
+                          ? 'Kea password'
+                          : connectorForm.type === 'dns'
+                            ? 'TSIG secret (base64)'
+                            : 'Secret (optional)'
+                      }
                     >
                       <Input
                         aria-label={
-                          connectorForm.type === 'dhcp' ? 'Kea password' : 'Secret (optional)'
+                          connectorForm.type === 'dhcp'
+                            ? 'Kea password'
+                            : connectorForm.type === 'dns'
+                              ? 'TSIG secret (base64)'
+                              : 'Secret (optional)'
                         }
                         type="password"
                         value={connectorForm.secret}
@@ -621,7 +739,14 @@ export function PassiveInventoryPage() {
                       (connectorForm.type === 'dhcp' &&
                         (!connectorForm.baseUrl ||
                           !connectorForm.username ||
-                          !connectorForm.secret))
+                          !connectorForm.secret)) ||
+                      (connectorForm.type === 'dns' &&
+                        (!connectorForm.baseUrl ||
+                          !connectorForm.dnsZones.trim() ||
+                          (!connectorForm.allowUnsigned &&
+                            (!connectorForm.tsigName || !connectorForm.secret)) ||
+                          (Boolean(connectorForm.tsigName || connectorForm.secret) &&
+                            (!connectorForm.tsigName || !connectorForm.secret))))
                     }
                   >
                     <Plus size={14} /> Save source

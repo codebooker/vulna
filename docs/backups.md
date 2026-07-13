@@ -120,6 +120,14 @@ passwords must decrypt only under their separate purpose and must not appear in
 task payloads, portability, audit metadata, or logs. Restored auto-merge decisions
 must remain reversible without contacting the original source.
 
+The same Phase 44 restore must preserve authoritative DNS public configuration and
+decrypt its TSIG value only under the inventory-connector purpose. A restored DNS
+connector remains disabled or retains its prior tested/enabled state exactly; its
+secret must remain absent from portability, task payloads, test metadata, cursors,
+audit metadata, and errors. Collection after restore must reproduce bounded
+observations without contacting any destination until an operator explicitly runs
+or schedules it.
+
 CSV source uploads are included only in encrypted database backups. Restore tests
 must verify that source ciphertext decrypts under the CSV-specific purpose, its
 SHA-256 and size metadata still match, and a restored worker can derive the same

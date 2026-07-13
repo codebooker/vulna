@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 44 connector: authoritative DNS
+
+- A read-only authoritative DNS importer now transfers up to 20 explicit zones
+  with AXFR over TCP and maps bounded A, AAAA, PTR, and CNAME records into
+  append-only IP and FQDN observations.
+- TSIG with HMAC-SHA-256 or HMAC-SHA-512 is required by default; unsigned AXFR
+  and private destinations require separate explicit opt-ins. Destination DNS is
+  resolved and pinned once, transfer time and all record counts are bounded while
+  receiving, and the one-way TSIG secret never enters results, cursors, or exports.
+
 ### Added — Phase 44 connector: Kea DHCP
 
 - A read-only Kea DHCPv4 importer now sends only the fixed, paginated

@@ -56,6 +56,7 @@ REQUIRED_GATE_MODULES = [
     "test_inventory_generic_api.py",
     "test_inventory_csv.py",
     "test_inventory_dhcp.py",
+    "test_inventory_dns.py",
     "test_phase44_migration.py",
     "test_phase44_csv_migration.py",
 ]

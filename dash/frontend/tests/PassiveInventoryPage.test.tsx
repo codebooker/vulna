@@ -211,6 +211,46 @@ it('shows scoped analytics and keeps connector secrets one-way', async () => {
     });
   });
 
+  fireEvent.change(screen.getByLabelText('Type'), { target: { value: 'dns' } });
+  fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'DNS inventory' } });
+  fireEvent.change(screen.getByLabelText('Authoritative DNS server'), {
+    target: { value: 'dns.internal.test' },
+  });
+  fireEvent.change(screen.getByLabelText('Authoritative zones'), {
+    target: { value: 'example.test, 2.0.192.in-addr.arpa' },
+  });
+  fireEvent.change(screen.getByLabelText('TSIG key name'), {
+    target: { value: 'vulna-transfer.example.test.' },
+  });
+  fireEvent.change(screen.getByLabelText('TSIG secret (base64)'), {
+    target: { value: 'c3VwZXItc2VjcmV0' },
+  });
+  fireEvent.change(screen.getByLabelText('Private network server'), {
+    target: { value: 'yes' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save source' }));
+  await waitFor(() => {
+    const dnsCall = vi.mocked(fetch).mock.calls.find(([, init]) => {
+      if (init?.method !== 'POST' || typeof init.body !== 'string') return false;
+      return (JSON.parse(init.body) as { connector_type?: string }).connector_type === 'dns';
+    });
+    expect(dnsCall).toBeDefined();
+    const payload = JSON.parse(String(dnsCall?.[1]?.body)) as Record<string, unknown>;
+    expect(payload).toMatchObject({
+      connector_type: 'dns',
+      secret: 'c3VwZXItc2VjcmV0',
+      config: {
+        server: 'dns.internal.test',
+        zones: ['example.test', '2.0.192.in-addr.arpa'],
+        allow_private: true,
+        allow_unsigned: false,
+        tsig_name: 'vulna-transfer.example.test.',
+        tsig_algorithm: 'hmac-sha256',
+      },
+    });
+    expect(payload).not.toHaveProperty('base_url');
+  });
+
   fireEvent.click(screen.getByRole('tab', { name: /Reconciliation/ }));
   expect(await screen.findByText('75')).toBeInTheDocument();
   expect(screen.getByText('1 exact identifier match(es)')).toBeInTheDocument();

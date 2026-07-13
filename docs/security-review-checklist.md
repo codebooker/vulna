@@ -134,6 +134,12 @@ directly. See also [`threat-model.md`](threat-model.md) and
   advances cursors, pins the validated HTTPS destination, requires explicit
   private/unauthenticated exceptions, and never retains its Basic authentication
   header or provider body (`tests/test_inventory_dhcp.py`).
+- [ ] Authoritative DNS exposes AXFR over fixed TCP port 53 only for explicit
+  non-root zones, pins one SSRF-validated destination, requires strong TSIG by
+  default, bounds zone/time/record work while receiving, and stores only A, AAAA,
+  PTR, and CNAME observations. Unsigned and private access are separate explicit
+  exceptions; the TSIG value never enters results, cursors, exports, or errors
+  (`tests/test_inventory_dns.py`).
 - [ ] Report export passwords use a separate HKDF purpose, appear only as
   `has_export_password`, never enter task payloads/portability/audit metadata, and
   AES-256 protection is applied only in renderer memory (`tests/test_passive_inventory.py`).

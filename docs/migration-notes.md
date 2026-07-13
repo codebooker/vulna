@@ -17,6 +17,13 @@ step is needed for schema changes unless noted.
 
 ## Unreleased (on `main`)
 
+- **Authoritative DNS passive inventory importer (Phase 44).** No schema migration
+  is required. DNS server, explicit zone names, safety limits, and public TSIG
+  metadata use the existing connector configuration; TSIG key material uses the
+  existing purpose-encrypted one-way secret. Existing sources are unchanged and no
+  connector is enabled automatically. Portability contains only public
+  configuration and `has_secret`; full continuity requires an encrypted backup.
+
 - **CSV passive inventory importer (Phase 44).** The additive upgrade stores CSV
   upload ciphertext and non-secret filename/hash/size/upload metadata on inventory
   connectors. Existing connectors receive null source fields and remain disabled

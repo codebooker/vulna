@@ -50,8 +50,9 @@ snapshots, daily aggregates, and report template/schedule/run metadata. Connecto
 ciphertext, CSV source bytes and ciphertext, report export passwords, analytics
 cache rows, and task payloads remain excluded. A CSV connector exports only source
 presence, filename, SHA-256, size, and upload time. Validation accepts v1 through
-v8; restoring usable vault, connector secrets, or CSV source data still requires
-an encrypted backup.
+v8. DNS connectors export only their server, explicit zones, public TSIG metadata,
+and `has_secret`; they never export the TSIG value or ciphertext. Restoring usable
+vault, connector secrets, or CSV source data still requires an encrypted backup.
 Background task payloads, leases, retries, dead letters, results, and process
 heartbeats are operational state and are excluded from portability exports. They
 remain available only through encrypted database backup/restore.

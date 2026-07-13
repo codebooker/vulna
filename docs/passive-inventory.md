@@ -19,6 +19,38 @@ bounded attribute object, normalized identifiers, source timestamp, and payload
 hash. Source observations are never overwritten, so operators can explain how the
 current inventory was derived.
 
+### Authoritative DNS importer
+
+The DNS source performs AXFR only for an explicit list of authoritative zones. It
+does not expose arbitrary DNS questions, dynamic updates, or a configurable
+operation. Transfers use TCP port 53 through dnspython's asynchronous
+`inbound_xfr` API; the older generator API is not used. See the official
+[dnspython asynchronous query documentation](https://dnspython.readthedocs.io/en/stable/async-query.html).
+
+Configure `server` as a hostname or IP address and `zones` as 1–20 exact non-root
+zone names. The destination is resolved once through the shared SSRF validator and
+the transfer connects to that pinned address. Private destinations require
+`allow_private=true`; loopback, link-local, multicast, unspecified, reserved, and
+cloud-metadata destinations remain blocked. Port 53 is fixed so connector data
+cannot create a general outbound socket surface.
+
+TSIG is required by default. Store the base64 TSIG value as the connector's
+one-way secret and set the public `tsig_name`; `tsig_algorithm` accepts only
+`hmac-sha256` or `hmac-sha512`. A source without TSIG requires the separate,
+visible `allow_unsigned=true` exception. TSIG authenticates and integrity-protects
+the transfer but ordinary DNS over TCP is not encrypted, so operators should use a
+trusted network path for sensitive zone data.
+
+Transfers default to a ten-second message timeout, a thirty-second lifetime per
+zone, and a 10,000-record total across all configured zones. The configurable
+limits can only be lowered or raised within fixed ceilings. The transaction aborts
+as soon as the total is exceeded, before an oversized zone is materialized. Only
+A, AAAA, PTR, and CNAME data becomes an observation; SOA, NS, MX, TXT, and DNSSEC
+records count toward the safety limit but are not stored as assets. Wildcard owners
+also remain policy data rather than becoming synthetic assets. Zone data has no
+source timestamp, so all records from one collection share the worker's
+timezone-aware observation time.
+
 ### Kea DHCP importer
 
 The DHCP source supports Kea's HTTPS REST control channel and sends only the
@@ -132,7 +164,9 @@ Portability schema v8 exports
 non-secret connector metadata, observations, source links, lifecycle/history,
 aggregate history, reconciliation explanations, and report template/run metadata.
 For CSV sources this includes only presence, filename, SHA-256, size, and upload
-time. It excludes connector and source ciphertext, export passwords, analytics
+time. DNS connectors export the server, explicit zones, public TSIG metadata, and
+`has_secret`, but never the TSIG value or ciphertext. It excludes connector and
+source ciphertext, export passwords, analytics
 cache entries, task payloads, and leases. Restoring a usable CSV source or secret
 requires a verified encrypted backup. Downgrade removes Phase 44 history and cannot
 reconstruct source links, so verify a backup first.
