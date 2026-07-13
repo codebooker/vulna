@@ -5,6 +5,7 @@ package scanners
 import (
 	"context"
 	"fmt"
+	"math"
 	"net/netip"
 	"strings"
 	"time"
@@ -38,6 +39,20 @@ type Scanner interface {
 	Name() string
 	// Run executes the scan and returns its raw output.
 	Run(ctx context.Context, job *policy.Job) ([]byte, error)
+}
+
+// Streamer is an optional capability: a scanner that can deliver results
+// incrementally (e.g. per host) through sink as they are produced, and report
+// how many hosts have completed. RunStreaming prefers it over Run so a single
+// subnet fills in host-by-host instead of all at once when it finishes.
+type Streamer interface {
+	Scanner
+	Stream(
+		ctx context.Context,
+		job *policy.Job,
+		sink func(raw []byte) error,
+		progress func(hostsDone int),
+	) error
 }
 
 // Workflow runs a job's workflow by dispatching each stage's plugin to the
@@ -166,7 +181,9 @@ func (w *Workflow) RunStreaming(
 	failed := make([]bool, len(runnable))
 
 	emit := func(stage, plugin string) {
-		reportStreamingProgress(report, job, res, ran, failed, started, stage, plugin, completed, totalUnits)
+		reportStreamingProgress(
+			report, job, res, ran, failed, started, stage, plugin, float64(completed), totalUnits,
+		)
 	}
 	emit("", "")
 
@@ -179,7 +196,51 @@ func (w *Workflow) RunStreaming(
 				res.Cancelled = true
 				return res, ctx.Err()
 			}
-			raw, err := st.scanner.Run(ctx, &chunkJob)
+
+			// deliver sends one raw batch to the sink, carrying it in the Result if
+			// the sink (e.g. a full durable queue) rejects it, so Finalize still
+			// delivers it. With no sink it is collected for end-of-job delivery.
+			deliver := func(raw []byte) {
+				if len(raw) == 0 {
+					return
+				}
+				out := executor.StageOutput{
+					Stage: st.scanner.Stage(), Scanner: st.scanner.Name(), Raw: raw,
+				}
+				if sink == nil {
+					res.Outputs = append(res.Outputs, out)
+				} else if serr := sink(out); serr != nil {
+					res.Outputs = append(res.Outputs, out)
+				}
+			}
+
+			var err error
+			if streamer, ok := st.scanner.(Streamer); ok && sink != nil {
+				// Per-host streaming: emit each host as it completes and advance the
+				// bar fractionally within this stage, so a single subnet visibly
+				// fills in instead of sitting at 0% until it finishes.
+				total := executor.TargetAddressCount(chunk)
+				base := completed
+				err = streamer.Stream(ctx, &chunkJob,
+					func(raw []byte) error { deliver(raw); return nil },
+					func(hostsDone int) {
+						frac := 0.0
+						if total > 0 {
+							frac = math.Min(1, float64(hostsDone)/float64(total))
+						}
+						reportStreamingProgress(
+							report, job, res, ran, failed, started, st.stage, st.plugin,
+							float64(base)+frac, totalUnits,
+						)
+					},
+				)
+			} else {
+				var raw []byte
+				if raw, err = st.scanner.Run(ctx, &chunkJob); err == nil {
+					deliver(raw)
+				}
+			}
+
 			if ctx.Err() != nil {
 				res.Cancelled = true
 				return res, ctx.Err()
@@ -194,19 +255,8 @@ func (w *Workflow) RunStreaming(
 					})
 					failed[si] = true
 				}
-				emit(st.stage, st.plugin)
-				continue
-			}
-			ran[si] = true
-			if len(raw) > 0 {
-				out := executor.StageOutput{Stage: st.scanner.Stage(), Scanner: st.scanner.Name(), Raw: raw}
-				if sink == nil {
-					res.Outputs = append(res.Outputs, out)
-				} else if serr := sink(out); serr != nil {
-					// The sink (e.g. a full durable queue) rejected the batch; carry
-					// it so Finalize still delivers it.
-					res.Outputs = append(res.Outputs, out)
-				}
+			} else {
+				ran[si] = true
 			}
 			emit(st.stage, st.plugin)
 		}
@@ -268,7 +318,8 @@ func reportStreamingProgress(
 	ran, failed []bool,
 	started time.Time,
 	stage, plugin string,
-	completed, totalUnits int,
+	completedUnits float64,
+	totalUnits int,
 ) {
 	if report == nil {
 		return
@@ -284,15 +335,18 @@ func reportStreamingProgress(
 	}
 	percent := 0
 	if totalUnits > 0 {
-		percent = completed * 100 / totalUnits
+		percent = int(completedUnits * 100 / float64(totalUnits))
 		if percent >= 100 {
 			percent = 99
+		}
+		if percent < 0 {
+			percent = 0
 		}
 	}
 	elapsed := time.Since(started)
 	var eta *int
-	if completed > 0 && completed < totalUnits {
-		estimate := int(elapsed.Seconds() * float64(totalUnits-completed) / float64(completed))
+	if completedUnits > 0 && completedUnits < float64(totalUnits) {
+		estimate := int(elapsed.Seconds() * (float64(totalUnits) - completedUnits) / completedUnits)
 		eta = &estimate
 	}
 	report(executor.Progress{
