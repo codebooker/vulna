@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 44 connector: Kea DHCP
+
+- A read-only Kea DHCPv4 importer now sends only the fixed, paginated
+  `lease4-get-page` command over HTTPS and maps bounded active leases into IP,
+  MAC, hostname, lease-lifetime, and subnet observations.
+- Basic-auth passwords remain one-way connector secrets, private destinations
+  require an explicit opt-in and DNS pinning, unauthenticated access is refused
+  by default, and current direct-daemon plus legacy Control Agent routing are
+  supported without exposing an arbitrary Kea command surface.
+
 ### Added — Phase 44 connector: CSV inventory
 
 - Administrators can upload bounded UTF-8 CSV inventory files through a one-way

@@ -130,6 +130,10 @@ directly. See also [`threat-model.md`](threat-model.md) and
   for test/worker collection. APIs and portability expose metadata only; upload
   changes invalidate qualification, clear retains observations, and parser limits
   prevent unbounded rows, columns, cells, and files (`tests/test_inventory_csv.py`).
+- [ ] Kea DHCP uses only the fixed read-only `lease4-get-page` command, bounds and
+  advances cursors, pins the validated HTTPS destination, requires explicit
+  private/unauthenticated exceptions, and never retains its Basic authentication
+  header or provider body (`tests/test_inventory_dhcp.py`).
 - [ ] Report export passwords use a separate HKDF purpose, appear only as
   `has_export_password`, never enter task payloads/portability/audit metadata, and
   AES-256 protection is applied only in renderer memory (`tests/test_passive_inventory.py`).

@@ -19,6 +19,30 @@ bounded attribute object, normalized identifiers, source timestamp, and payload
 hash. Source observations are never overwritten, so operators can explain how the
 current inventory was derived.
 
+### Kea DHCP importer
+
+The DHCP source supports Kea's HTTPS REST control channel and sends only the
+documented read-only `lease4-get-page` command. The command name and DHCPv4
+service target are code-defined; connector configuration cannot supply a Kea
+command. Newer direct-daemon endpoints are the default, while
+`legacy_control_agent=true` adds the fixed `dhcp4` service route used by older
+Control Agent deployments.
+
+Configure the exact HTTPS control URL, a public `username`, and the password as
+the connector's one-way secret. Basic authentication is refused without both
+parts. `allow_unauthenticated=true` is an explicit API-only exception for an
+already protected endpoint, and `allow_private=true` is required before the
+DNS-pinned transport can contact a private address. Kea recommends protecting
+remote administration with TLS and access controls; see the
+[Kea security guidance](https://kea.readthedocs.io/en/latest/arm/security.html).
+
+Pages default to 500 and are capped at 1,000 leases and a 1 MiB response. The
+worker validates that each cursor advances, normalizes IPv4, MAC, and hostname
+identifiers, and uses Kea's client-last-transaction time as the source timestamp.
+Only active state-zero leases are collected by default; `include_inactive=true`
+is an explicit API configuration option. The adapter stores bounded lease and
+subnet metadata, never the provider response body or authentication header.
+
 ### CSV importer
 
 CSV sources use `PUT /api/v1/inventory/connectors/{id}/csv` with a raw UTF-8 file.

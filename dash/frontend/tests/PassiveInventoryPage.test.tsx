@@ -177,6 +177,40 @@ it('shows scoped analytics and keeps connector secrets one-way', async () => {
     ),
   );
 
+  fireEvent.change(screen.getByLabelText('Type'), { target: { value: 'dhcp' } });
+  fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Kea leases' } });
+  fireEvent.change(screen.getByLabelText('HTTPS URL (when required)'), {
+    target: { value: 'https://kea.internal.test:8000/' },
+  });
+  fireEvent.change(screen.getByLabelText('Kea username'), {
+    target: { value: 'vulna-reader' },
+  });
+  fireEvent.change(screen.getByLabelText('Kea password'), {
+    target: { value: 'kea-password' },
+  });
+  fireEvent.change(screen.getByLabelText('Private network URL'), {
+    target: { value: 'yes' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save source' }));
+  await waitFor(() => {
+    const dhcpCall = vi.mocked(fetch).mock.calls.find(([, init]) => {
+      if (init?.method !== 'POST' || typeof init.body !== 'string') return false;
+      return (JSON.parse(init.body) as { connector_type?: string }).connector_type === 'dhcp';
+    });
+    expect(dhcpCall).toBeDefined();
+    const payload = JSON.parse(String(dhcpCall?.[1]?.body)) as Record<string, unknown>;
+    expect(payload).toMatchObject({
+      connector_type: 'dhcp',
+      base_url: 'https://kea.internal.test:8000/',
+      secret: 'kea-password',
+      config: {
+        username: 'vulna-reader',
+        allow_private: true,
+        legacy_control_agent: false,
+      },
+    });
+  });
+
   fireEvent.click(screen.getByRole('tab', { name: /Reconciliation/ }));
   expect(await screen.findByText('75')).toBeInTheDocument();
   expect(screen.getByText('1 exact identifier match(es)')).toBeInTheDocument();

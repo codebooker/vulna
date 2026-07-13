@@ -118,6 +118,7 @@ class GenericApiInventoryAdapter:
                 headers=headers,
                 timeout_seconds=timeout_seconds,
                 allow_private=bool(config.get("allow_private", False)),
+                user_agent="Vulna-Inventory-Connector/1",
             )
         except TicketHttpError as exc:
             safe = str(exc).replace("ticket provider", "inventory provider")

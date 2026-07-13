@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -32,6 +33,7 @@ async def request_json(
     json_body: dict[str, Any] | None = None,
     timeout_seconds: int = 15,
     allow_private: bool = False,
+    user_agent: str = "Vulna-Ticket-Connector/1",
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> JsonResponse:
     """Send one HTTPS request after validation and connection-IP pinning."""
@@ -43,9 +45,9 @@ async def request_json(
     pinned_url = notifications.pin_url_to_ip(url, ip)
     request_headers = {
         **headers,
-        "Host": host,
+        "Host": urlsplit(url).netloc,
         "Accept": headers.get("Accept", "application/json"),
-        "User-Agent": "Vulna-Ticket-Connector/1",
+        "User-Agent": user_agent,
     }
     try:
         async with httpx.AsyncClient(

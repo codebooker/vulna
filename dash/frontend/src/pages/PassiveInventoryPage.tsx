@@ -54,7 +54,10 @@ export function PassiveInventoryPage() {
     siteId: '',
     type: 'csv' as PassiveConnectorType,
     baseUrl: '',
+    username: '',
     secret: '',
+    allowPrivate: false,
+    legacyControlAgent: false,
   });
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [templateForm, setTemplateForm] = useState({
@@ -116,6 +119,13 @@ export function PassiveInventoryPage() {
       setError('Select a CSV file before saving this source.');
       return;
     }
+    if (
+      connectorForm.type === 'dhcp' &&
+      (!connectorForm.baseUrl || !connectorForm.username || !connectorForm.secret)
+    ) {
+      setError('Kea DHCP sources require an HTTPS URL, username, and password.');
+      return;
+    }
     setBusy('connector');
     setError(null);
     let connectorCreated = false;
@@ -130,13 +140,28 @@ export function PassiveInventoryPage() {
         ...(connectorForm.type !== 'csv' && connectorForm.secret
           ? { secret: connectorForm.secret }
           : {}),
+        ...(connectorForm.type === 'dhcp'
+          ? {
+              config: {
+                username: connectorForm.username,
+                allow_private: connectorForm.allowPrivate,
+                legacy_control_agent: connectorForm.legacyControlAgent,
+              },
+            }
+          : {}),
         interval_minutes: 1440,
       });
       connectorCreated = true;
       if (connectorForm.type === 'csv' && csvFile) {
         await api.uploadInventoryCsv(token, connector.id, csvFile);
       }
-      setConnectorForm((current) => ({ ...current, name: '', baseUrl: '', secret: '' }));
+      setConnectorForm((current) => ({
+        ...current,
+        name: '',
+        baseUrl: '',
+        username: '',
+        secret: '',
+      }));
       setCsvFile(null);
       toast('success', 'Inventory source saved disabled. Test it before enabling collection.');
       await load();
@@ -522,9 +547,59 @@ export function PassiveInventoryPage() {
                         }
                       />
                     </Field>
-                    <Field label="Secret (optional)">
+                    {connectorForm.type === 'dhcp' && (
+                      <>
+                        <Field label="Kea username">
+                          <Input
+                            aria-label="Kea username"
+                            value={connectorForm.username}
+                            onChange={(event) =>
+                              setConnectorForm((current) => ({
+                                ...current,
+                                username: event.target.value,
+                              }))
+                            }
+                          />
+                        </Field>
+                        <Field label="Private network URL">
+                          <Select
+                            aria-label="Private network URL"
+                            value={connectorForm.allowPrivate ? 'yes' : 'no'}
+                            onChange={(event) =>
+                              setConnectorForm((current) => ({
+                                ...current,
+                                allowPrivate: event.target.value === 'yes',
+                              }))
+                            }
+                          >
+                            <option value="no">No</option>
+                            <option value="yes">Yes, explicitly allow</option>
+                          </Select>
+                        </Field>
+                        <Field label="Legacy Control Agent">
+                          <Select
+                            aria-label="Legacy Control Agent"
+                            value={connectorForm.legacyControlAgent ? 'yes' : 'no'}
+                            onChange={(event) =>
+                              setConnectorForm((current) => ({
+                                ...current,
+                                legacyControlAgent: event.target.value === 'yes',
+                              }))
+                            }
+                          >
+                            <option value="no">No, direct daemon</option>
+                            <option value="yes">Yes, route to dhcp4</option>
+                          </Select>
+                        </Field>
+                      </>
+                    )}
+                    <Field
+                      label={connectorForm.type === 'dhcp' ? 'Kea password' : 'Secret (optional)'}
+                    >
                       <Input
-                        aria-label="Secret (optional)"
+                        aria-label={
+                          connectorForm.type === 'dhcp' ? 'Kea password' : 'Secret (optional)'
+                        }
                         type="password"
                         value={connectorForm.secret}
                         onChange={(event) =>
@@ -540,7 +615,14 @@ export function PassiveInventoryPage() {
                 <div className="flex items-end">
                   <Button
                     onClick={() => void createConnector()}
-                    disabled={busy === 'connector' || (connectorForm.type === 'csv' && !csvFile)}
+                    disabled={
+                      busy === 'connector' ||
+                      (connectorForm.type === 'csv' && !csvFile) ||
+                      (connectorForm.type === 'dhcp' &&
+                        (!connectorForm.baseUrl ||
+                          !connectorForm.username ||
+                          !connectorForm.secret))
+                    }
                   >
                     <Plus size={14} /> Save source
                   </Button>
