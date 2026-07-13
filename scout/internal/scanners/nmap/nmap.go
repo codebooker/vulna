@@ -208,24 +208,10 @@ func (w *Worker) Run(ctx context.Context, job *policy.Job) ([]byte, error) {
 	_ = outFile.Close()
 	defer func() { _ = os.Remove(outPath) }()
 
-	profile := w.Profile
-	if job.Limits.MaxPacketsPerSecond > 0 {
-		profile.MaxRate = job.Limits.MaxPacketsPerSecond
-		// Hold a floor at half the operator-approved ceiling so the scan never
-		// drops to a crawl on dead space, while the ceiling still bounds the load.
-		profile.MinRate = profile.MaxRate / 2
-	}
+	profile, timeout := w.planRun(job)
 	args, err := BuildArgs(profile, outPath, job.Targets)
 	if err != nil {
 		return nil, err
-	}
-
-	// Bound the run by the policy-approved duration when present, so a large but
-	// legitimate scan (several /24s) isn't killed by the fixed fallback timeout.
-	// The rate floor and --host-timeout keep it from wasting that budget idling.
-	timeout := w.timeout()
-	if secs := job.Limits.MaxDurationSeconds; secs > 0 {
-		timeout = time.Duration(secs) * time.Second
 	}
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -244,4 +230,143 @@ func (w *Worker) Run(ctx context.Context, job *policy.Job) ([]byte, error) {
 		)
 	}
 	return xml, nil
+}
+
+// planRun derives the effective profile (with the job's packet-rate limit and a
+// floor at half the ceiling) and the run timeout (bounded by the policy-approved
+// duration when present). Shared by Run and Stream.
+func (w *Worker) planRun(job *policy.Job) (Profile, time.Duration) {
+	profile := w.Profile
+	if job.Limits.MaxPacketsPerSecond > 0 {
+		profile.MaxRate = job.Limits.MaxPacketsPerSecond
+		// Hold a floor at half the operator-approved ceiling so the scan never
+		// drops to a crawl on dead space, while the ceiling still bounds the load.
+		profile.MinRate = profile.MaxRate / 2
+	}
+	timeout := w.timeout()
+	if secs := job.Limits.MaxDurationSeconds; secs > 0 {
+		timeout = time.Duration(secs) * time.Second
+	}
+	return profile, timeout
+}
+
+// streamFlushInterval is how often Stream harvests newly-completed hosts from
+// nmap's growing XML output.
+const streamFlushInterval = 2 * time.Second
+
+// hostStartRE matches the opening tag of an nmap <host> element specifically —
+// the trailing space or '>' excludes <hostnames>, <hostscript>, and <hosthint>.
+var hostStartRE = regexp.MustCompile(`<host[ >]`)
+
+// Stream runs the scan like Run but delivers results incrementally: nmap writes
+// its XML to a file as it completes each host, and Stream harvests newly-finished
+// <host> elements every streamFlushInterval and emits each batch through sink
+// (wrapped as a minimal nmaprun document the backend ingests). progress, if set,
+// is called with the cumulative number of hosts completed. This lets assets and
+// findings surface host-by-host during a scan instead of only at the end.
+func (w *Worker) Stream(
+	ctx context.Context,
+	job *policy.Job,
+	sink func([]byte) error,
+	progress func(hostsDone int),
+) error {
+	outFile, err := os.CreateTemp("", "vulnascout-nmap-*.xml")
+	if err != nil {
+		return fmt.Errorf("create temp output: %w", err)
+	}
+	outPath := outFile.Name()
+	_ = outFile.Close()
+	defer func() { _ = os.Remove(outPath) }()
+
+	profile, timeout := w.planRun(job)
+	args, err := BuildArgs(profile, outPath, job.Targets)
+	if err != nil {
+		return err
+	}
+	runCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	cmd := exec.CommandContext(runCtx, w.binary(), args...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("start nmap: %w", err)
+	}
+
+	emitted := 0
+	flush := func() {
+		data, rerr := os.ReadFile(outPath)
+		if rerr != nil {
+			return
+		}
+		hosts := extractCompleteHosts(data)
+		if len(hosts) > emitted {
+			_ = sink(wrapHosts(hosts[emitted:]))
+			emitted = len(hosts)
+			if progress != nil {
+				progress(emitted)
+			}
+		}
+	}
+
+	ticker := time.NewTicker(streamFlushInterval)
+	defer ticker.Stop()
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	for {
+		select {
+		case <-ctx.Done():
+			<-done // the cancelled runCtx kills nmap; reap it before returning
+			return ctx.Err()
+		case runErr := <-done:
+			flush() // deliver any hosts finished since the last tick
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			data, _ := os.ReadFile(outPath)
+			if len(data) == 0 {
+				return fmt.Errorf(
+					"nmap produced no output: %v: %s", runErr, strings.TrimSpace(stderr.String()),
+				)
+			}
+			return nil
+		case <-ticker.C:
+			flush()
+		}
+	}
+}
+
+// extractCompleteHosts returns each fully-written <host>...</host> block in xml,
+// in order. A partially-written trailing host (no closing tag yet) is skipped
+// until its next appearance, so callers never emit a truncated element.
+func extractCompleteHosts(xml []byte) [][]byte {
+	var out [][]byte
+	offset := 0
+	for {
+		loc := hostStartRE.FindIndex(xml[offset:])
+		if loc == nil {
+			break
+		}
+		start := offset + loc[0]
+		rel := bytes.Index(xml[start:], []byte("</host>"))
+		if rel < 0 {
+			break // trailing host still being written
+		}
+		end := start + rel + len("</host>")
+		out = append(out, xml[start:end])
+		offset = end
+	}
+	return out
+}
+
+// wrapHosts assembles a minimal, valid nmaprun document around a batch of host
+// elements so the backend's parser ingests them like any other scan result.
+func wrapHosts(hosts [][]byte) []byte {
+	var b bytes.Buffer
+	b.WriteString("<?xml version=\"1.0\"?>\n<nmaprun>\n")
+	for _, h := range hosts {
+		b.Write(h)
+		b.WriteByte('\n')
+	}
+	b.WriteString("</nmaprun>\n")
+	return b.Bytes()
 }

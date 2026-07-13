@@ -1,6 +1,7 @@
 package scanners
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"testing"
@@ -257,5 +258,70 @@ func TestRunStreamingFailsStageOnScannerError(t *testing.T) {
 	}
 	if len(res.Failures) != 1 {
 		t.Errorf("expected a single stage failure across chunks, got %d: %+v", len(res.Failures), res.Failures)
+	}
+}
+
+// streamingStub is a Scanner that also implements Streamer, emitting one batch
+// per host so a test can prove RunStreaming prefers per-host delivery.
+type streamingStub struct {
+	stage, name string
+	hosts       [][]byte
+}
+
+func (s streamingStub) Stage() string { return s.stage }
+func (s streamingStub) Name() string  { return s.name }
+func (s streamingStub) Run(context.Context, *policy.Job) ([]byte, error) {
+	return bytes.Join(s.hosts, nil), nil
+}
+func (s streamingStub) Stream(
+	_ context.Context, _ *policy.Job, sink func([]byte) error, progress func(int),
+) error {
+	for i, h := range s.hosts {
+		if err := sink(h); err != nil {
+			return err
+		}
+		progress(i + 1)
+	}
+	return nil
+}
+
+func TestRunStreamingUsesStreamerForPerHostDelivery(t *testing.T) {
+	hosts := [][]byte{[]byte("h1"), []byte("h2"), []byte("h3")}
+	wf := NewWorkflow(streamingStub{stage: "discovery", name: "nmap", hosts: hosts})
+	job := jobWith("nmap")
+	job.Targets = []string{"10.0.0.0/24"} // single chunk
+
+	var sunk [][]byte
+	res, err := wf.RunStreaming(context.Background(), job, nil, func(o executor.StageOutput) error {
+		sunk = append(sunk, o.Raw)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sunk) != 3 {
+		t.Errorf("expected 3 per-host emissions, got %d: %v", len(sunk), sunk)
+	}
+	if len(res.Outputs) != 0 {
+		t.Errorf("streamed output must not also be carried in the Result: %+v", res.Outputs)
+	}
+	if res.StagesRun != 1 || res.StagesTotal != 1 {
+		t.Errorf("unexpected stage counts: %+v", res)
+	}
+}
+
+// Without a sink (the collect path), a Streamer must fall back to Run so callers
+// that don't stream still get the whole output in the Result.
+func TestRunStreamingStreamerFallsBackWithoutSink(t *testing.T) {
+	wf := NewWorkflow(streamingStub{stage: "discovery", name: "nmap", hosts: [][]byte{[]byte("h1")}})
+	job := jobWith("nmap")
+	job.Targets = []string{"10.0.0.0/24"}
+
+	res, err := wf.RunStreaming(context.Background(), job, nil, nil) // nil sink
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Outputs) != 1 || res.StagesRun != 1 {
+		t.Errorf("expected the whole output collected via Run fallback: %+v", res)
 	}
 }
