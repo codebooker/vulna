@@ -41,18 +41,14 @@ ARTIFACTS: dict[ReportType, _Spec] = {
     ReportType.TECHNICAL_PDF: _Spec(
         ReportFormat.PDF, "pdf", pdf.technical_pdf, pdf.TEMPLATE_VERSION
     ),
-    ReportType.PENTEST_PDF: _Spec(
-        ReportFormat.PDF, "pdf", pdf.pentest_pdf, pdf.TEMPLATE_VERSION
-    ),
+    ReportType.PENTEST_PDF: _Spec(ReportFormat.PDF, "pdf", pdf.pentest_pdf, pdf.TEMPLATE_VERSION),
     ReportType.FULL_SPECTRUM_PDF: _Spec(
         ReportFormat.PDF, "pdf", pdf.full_spectrum_pdf, pdf.TEMPLATE_VERSION
     ),
     ReportType.FINDINGS_CSV: _Spec(ReportFormat.CSV, "csv", exporters.findings_csv, "1"),
     ReportType.ASSETS_CSV: _Spec(ReportFormat.CSV, "csv", exporters.assets_csv, "1"),
     ReportType.SERVICES_CSV: _Spec(ReportFormat.CSV, "csv", exporters.services_csv, "1"),
-    ReportType.CVE_EXPOSURE_CSV: _Spec(
-        ReportFormat.CSV, "csv", exporters.cve_exposure_csv, "1"
-    ),
+    ReportType.CVE_EXPOSURE_CSV: _Spec(ReportFormat.CSV, "csv", exporters.cve_exposure_csv, "1"),
     ReportType.JSON_BUNDLE: _Spec(
         ReportFormat.JSON, "json", exporters.json_bundle, str(exporters.BUNDLE_VERSION)
     ),
@@ -68,9 +64,15 @@ async def generate_reports(
     settings: Settings,
     now: datetime,
     report_ids: dict[ReportType, uuid.UUID] | None = None,
+    asset_filter_ids: set[uuid.UUID] | None = None,
 ) -> list[Report]:
     """Render and store the requested report artifacts for a scan job."""
-    snapshot = await build_snapshot(session, scan_job=scan_job, now=now)
+    snapshot = await build_snapshot(
+        session,
+        scan_job=scan_job,
+        now=now,
+        asset_filter_ids=asset_filter_ids,
+    )
     reports_dir = Path(settings.reports_dir)
     reports_dir.mkdir(parents=True, exist_ok=True)
     expires_at = now + timedelta(days=settings.report_ttl_days)
@@ -98,6 +100,11 @@ async def generate_reports(
                 "snapshot_version": snapshot.get("schema_version"),
                 "snapshot_generated_at": snapshot.get("generated_at"),
                 "finding_count": snapshot.get("summary", {}).get("finding_count", 0),
+                "asset_filter_ids": (
+                    sorted(str(value) for value in asset_filter_ids)
+                    if asset_filter_ids is not None
+                    else None
+                ),
             },
         )
         try:

@@ -5,8 +5,10 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from app.models.asset_context import AssetGroup
 from app.models.enums import (
     AccountStatus,
+    AssetGroupType,
     AuthenticationSource,
     SiteAccessMode,
     UserRole,
@@ -376,22 +378,49 @@ async def test_provisioning_logs_are_sanitized_and_failures_are_recorded(
     assert stored and all(token not in str(value.changes_json) for value in stored)
 
 
-async def test_asset_group_targets_exist_but_are_not_exposed_before_phase40(
+async def test_asset_group_mapping_targets_are_exposed_and_validated_in_phase40(
     client: AsyncClient,
     admin_headers: dict[str, str],
     organization: Organization,
     db_session: AsyncSession,
 ) -> None:
+    asset_group = AssetGroup(
+        organization_id=organization.id,
+        name="Production assets",
+        group_type=AssetGroupType.STATIC,
+        priority=10,
+    )
+    db_session.add(asset_group)
+    await db_session.flush()
     group = ScimGroup(
         organization_id=organization.id,
         display_name="Future Assets",
-        asset_group_targets_json=[{"asset_group_id": str(uuid.uuid4())}],
+        asset_group_targets_json=[{"asset_group_id": str(asset_group.id)}],
     )
     db_session.add(group)
     await db_session.commit()
     admin_view = await client.get("/api/v1/scim/groups", headers=admin_headers)
     assert admin_view.status_code == 200
-    assert "asset_group" not in admin_view.text.lower()
+    mapping = next(value for value in admin_view.json() if value["id"] == str(group.id))
+    assert mapping["asset_group_ids"] == [str(asset_group.id)]
+    exported = await client.get("/api/v1/portability/export", headers=admin_headers)
+    assert exported.status_code == 200
+    exported_group = next(
+        value for value in exported.json()["scim_groups"] if value["id"] == str(group.id)
+    )
+    assert exported_group["asset_group_ids"] == [str(asset_group.id)]
+
+    invalid = await client.put(
+        f"/api/v1/scim/groups/{group.id}/mapping",
+        json={"asset_group_ids": [str(uuid.uuid4())]},
+        headers=admin_headers,
+    )
+    assert invalid.status_code == 422
+    deleted = await client.delete(f"/api/v1/asset-groups/{asset_group.id}", headers=admin_headers)
+    assert deleted.status_code == 204
+    after_delete = await client.get("/api/v1/scim/groups", headers=admin_headers)
+    cleaned_mapping = next(value for value in after_delete.json() if value["id"] == str(group.id))
+    assert cleaned_mapping["asset_group_ids"] == []
 
 
 async def test_scim_openapi_and_capability_status_are_additive(

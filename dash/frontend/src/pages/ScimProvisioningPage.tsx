@@ -10,7 +10,7 @@ import { Field, Input, Select } from '../components/ui/input';
 import { CardSkeleton, EmptyState, InlineError } from '../components/ui/states';
 import { useToast } from '../lib/toast';
 import type { Role } from '../types/auth';
-import type { Site } from '../types/inventory';
+import type { AssetGroup, Site } from '../types/inventory';
 import type {
   ScimGroupMapping,
   ScimMappingPayload,
@@ -42,6 +42,7 @@ function initialMapping(group: ScimGroupMapping): ScimMappingPayload {
     role: group.role,
     grants_all_sites: group.grants_all_sites,
     site_ids: group.site_ids,
+    asset_group_ids: group.asset_group_ids,
   };
 }
 
@@ -52,6 +53,7 @@ export function ScimProvisioningPage() {
   const [groups, setGroups] = useState<ScimGroupMapping[]>([]);
   const [logs, setLogs] = useState<ScimProvisioningLog[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
+  const [assetGroups, setAssetGroups] = useState<AssetGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -62,6 +64,7 @@ export function ScimProvisioningPage() {
     role: null,
     grants_all_sites: false,
     site_ids: [],
+    asset_group_ids: [],
   });
   const [preview, setPreview] = useState<ScimMappingPreview | null>(null);
 
@@ -72,16 +75,18 @@ export function ScimProvisioningPage() {
     setLoading(true);
     setError(null);
     try {
-      const [tokenRows, groupRows, logPage, sitePage] = await Promise.all([
+      const [tokenRows, groupRows, logPage, sitePage, assetGroupPage] = await Promise.all([
         api.listScimTokens(token),
         api.listScimGroups(token),
         api.scimProvisioningLogs(token),
         api.listSites(token),
+        api.listAssetGroups(token),
       ]);
       setTokens(tokenRows);
       setGroups(groupRows);
       setLogs(logPage.items);
       setSites(sitePage.items);
+      setAssetGroups(assetGroupPage.items);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'SCIM settings could not be loaded.');
     } finally {
@@ -184,6 +189,16 @@ export function ScimProvisioningPage() {
       site_ids: current.site_ids.includes(siteId)
         ? current.site_ids.filter((value) => value !== siteId)
         : [...current.site_ids, siteId],
+    }));
+  };
+
+  const toggleAssetGroup = (assetGroupId: string) => {
+    setPreview(null);
+    setMapping((current) => ({
+      ...current,
+      asset_group_ids: current.asset_group_ids.includes(assetGroupId)
+        ? current.asset_group_ids.filter((value) => value !== assetGroupId)
+        : [...current.asset_group_ids, assetGroupId],
     }));
   };
 
@@ -343,7 +358,8 @@ export function ScimProvisioningPage() {
                         {group.role ? label(group.role) : 'Viewer fallback'} ·{' '}
                         {group.grants_all_sites
                           ? 'all sites'
-                          : `${group.site_ids.length} assigned sites`}
+                          : `${group.site_ids.length} assigned sites`}{' '}
+                        · {group.asset_group_ids.length} asset groups
                       </p>
                     </div>
                     <Button variant="secondary" size="sm" onClick={() => openMapping(group)}>
@@ -401,6 +417,26 @@ export function ScimProvisioningPage() {
                               {site.name}
                             </label>
                           ))}
+                        </div>
+                      )}
+                      {assetGroups.length > 0 && (
+                        <div>
+                          <p className="mb-2 text-xs font-medium text-muted">Asset-group targets</p>
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            {assetGroups.map((assetGroup) => (
+                              <label
+                                key={assetGroup.id}
+                                className="flex items-center gap-2 text-xs text-muted"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={mapping.asset_group_ids.includes(assetGroup.id)}
+                                  onChange={() => toggleAssetGroup(assetGroup.id)}
+                                />
+                                {assetGroup.name}
+                              </label>
+                            ))}
+                          </div>
                         </div>
                       )}
                       {preview && preview.group_id === group.id && (

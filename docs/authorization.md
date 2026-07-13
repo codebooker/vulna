@@ -65,7 +65,7 @@ authorization or background behavior.
 ## Backup and portability
 
 Encrypted backups preserve roles, grants, service principals, token hashes,
-revocation, IP restrictions, and authorization versions. The non-secret portability
-schema v3 exports role/grant/service metadata and API-token lifecycle metadata, but
-never token hashes or values. Restoring automation credentials therefore requires a
-verified encrypted backup, not a portability import.
+revocation, IP restrictions, and authorization versions. Authorization metadata was
+introduced in portability schema v3 and remains present in the current schema v4,
+but token hashes and values are never exported. Restoring automation credentials
+requires a verified encrypted backup, not a portability import.

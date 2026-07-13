@@ -3,6 +3,7 @@
 from fastapi import APIRouter
 
 from app.api.v1 import (
+    asset_context,
     assets,
     audit,
     auth,
@@ -73,6 +74,12 @@ api_router.include_router(presets.router)
 api_router.include_router(privacy.router)
 api_router.include_router(portability.router)
 api_router.include_router(resources.router)
+# Phase 40 collection/subresource paths must be registered before the legacy
+# `/assets/{asset_id}` route so names such as `/assets/bulk` remain addressable.
+api_router.include_router(asset_context.asset_router)
+api_router.include_router(asset_context.tag_router)
+api_router.include_router(asset_context.group_router)
+api_router.include_router(asset_context.department_router)
 api_router.include_router(assets.router)
 api_router.include_router(changes.router)
 api_router.include_router(findings.router)

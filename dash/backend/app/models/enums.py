@@ -176,6 +176,69 @@ class AssetStatus(StrEnum):
     INACTIVE = "inactive"
 
 
+class AssetEnvironment(StrEnum):
+    """Operator-supplied deployment environment for an asset."""
+
+    UNKNOWN = "unknown"
+    PRODUCTION = "production"
+    STAGING = "staging"
+    DEVELOPMENT = "development"
+    TEST = "test"
+
+
+class AssetCriticality(StrEnum):
+    """Business impact classification; unknown is the neutral default."""
+
+    UNKNOWN = "unknown"
+    LOW = "low"
+    MODERATE = "moderate"
+    HIGH = "high"
+    MISSION_CRITICAL = "mission_critical"
+
+
+class DataClassification(StrEnum):
+    """Sensitivity of data handled by an asset."""
+
+    UNKNOWN = "unknown"
+    PUBLIC = "public"
+    INTERNAL = "internal"
+    CONFIDENTIAL = "confidential"
+    RESTRICTED = "restricted"
+
+
+class AssetGroupType(StrEnum):
+    """Whether membership is curated or evaluated from a safe rule tree."""
+
+    STATIC = "static"
+    DYNAMIC = "dynamic"
+
+
+class AssetTagSource(StrEnum):
+    """Provenance for a normalized asset-tag assignment."""
+
+    MIGRATED = "migrated"
+    MANUAL = "manual"
+    DISCOVERY = "discovery"
+
+
+class AssetMembershipSource(StrEnum):
+    """Provenance for a materialized asset-group membership."""
+
+    STATIC = "static"
+    DYNAMIC = "dynamic"
+
+
+class OwnershipSource(StrEnum):
+    """The winning level in the deterministic ownership precedence chain."""
+
+    EXPLICIT_FINDING = "explicit_finding"
+    EXPLICIT_ASSET = "explicit_asset"
+    GROUP = "group"
+    SITE = "site"
+    DEPARTMENT = "department"
+    UNASSIGNED = "unassigned"
+
+
 class IdentifierType(StrEnum):
     """Types of stable asset identifier (build plan Section 9.11)."""
 

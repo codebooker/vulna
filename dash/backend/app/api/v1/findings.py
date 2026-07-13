@@ -20,7 +20,7 @@ from app.auth.dependencies import CurrentUser, require_permission
 from app.auth.site_scope import can_access_site, site_scope_clause
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
-from app.models.asset import AssetIdentifier
+from app.models.asset import Asset, AssetIdentifier
 from app.models.enums import (
     FindingStatus,
     FindingType,
@@ -45,7 +45,7 @@ from app.schemas.finding import (
 )
 from app.schemas.job import JobRead
 from app.schemas.risk_acceptance import RiskAcceptanceCreate, RiskAcceptanceRead
-from app.services import authorization
+from app.services import asset_context, authorization
 from app.services.audit import record_audit
 from app.services.jobs import JobValidationError, create_scan_job
 from app.services.remediation import create_risk_acceptance
@@ -70,9 +70,7 @@ async def _get_owned_finding(
         select(Finding).where(
             Finding.id == finding_id,
             Finding.organization_id == current_user.organization_id,
-            site_scope_clause(
-                current_user, Finding.site_id, permission_key=permission_key
-            ),
+            site_scope_clause(current_user, Finding.site_id, permission_key=permission_key),
         )
     )
     if finding is None:
@@ -110,7 +108,11 @@ async def list_findings(
 
     total = await session.scalar(select(func.count()).select_from(Finding).where(*filters))
     result = await session.execute(
-        select(Finding).where(*filters).order_by(Finding.last_seen_at.desc()).limit(limit).offset(offset)
+        select(Finding)
+        .where(*filters)
+        .order_by(Finding.last_seen_at.desc())
+        .limit(limit)
+        .offset(offset)
     )
     findings = result.scalars().all()
     return Page[FindingRead](
@@ -172,6 +174,10 @@ async def bulk_update(
                 continue
             finding.owner_user_id = payload.owner_user_id
             finding.status = FindingStatus.ASSIGNED
+            asset = await session.get(Asset, finding.asset_id)
+            if asset is not None:
+                ownership = await asset_context.resolve_ownership(session, asset, finding=finding)
+                await asset_context.record_ownership_snapshot(session, ownership)
         elif payload.action == "false_positive":
             finding.status = FindingStatus.FALSE_POSITIVE
             finding.false_positive_reason = payload.false_positive_reason
@@ -264,6 +270,11 @@ async def update_finding(
     if "false_positive_reason" in changes:
         finding.false_positive_reason = changes["false_positive_reason"]
     await session.flush()
+    if "owner_user_id" in changes:
+        asset = await session.get(Asset, finding.asset_id)
+        if asset is not None:
+            ownership = await asset_context.resolve_ownership(session, asset, finding=finding)
+            await asset_context.record_ownership_snapshot(session, ownership)
 
     record_audit(
         session,

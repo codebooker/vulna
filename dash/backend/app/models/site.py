@@ -36,4 +36,7 @@ class Site(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="UTC")
     business_owner: Mapped[str | None] = mapped_column(String(255), nullable=True)
     technical_owner: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     tags: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)

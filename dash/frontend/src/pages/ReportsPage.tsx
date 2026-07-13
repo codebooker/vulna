@@ -24,6 +24,7 @@ import { Modal } from '../components/ui/overlay';
 import { EmptyState, InlineError } from '../components/ui/states';
 import type { Report } from '../types/report';
 import type { Job } from '../types/schedule';
+import type { AssetGroup, AssetTag } from '../types/inventory';
 
 const TYPE_LABELS: Record<string, string> = {
   executive_pdf: 'Executive summary (PDF)',
@@ -270,16 +271,25 @@ function GenerateReportModal({
   const [jobs, setJobs] = useState<Job[]>([]);
   const [jobId, setJobId] = useState('');
   const [types, setTypes] = useState<string[]>(['executive_pdf', 'technical_pdf', 'findings_csv']);
+  const [tags, setTags] = useState<AssetTag[]>([]);
+  const [groups, setGroups] = useState<AssetGroup[]>([]);
+  const [tagId, setTagId] = useState('');
+  const [groupId, setGroupId] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (!open || !token) return;
-    api
-      .listJobs(token, 'completed', 100)
-      .then((p) => {
+    void Promise.all([
+      api.listJobs(token, 'completed', 100),
+      api.listAssetTags(token).catch(() => null),
+      api.listAssetGroups(token).catch(() => null),
+    ])
+      .then(([p, tagPage, groupPage]) => {
         setJobs(p.items);
         setJobId((cur) => cur || p.items[0]?.id || '');
+        setTags(tagPage?.items ?? []);
+        setGroups(groupPage?.items ?? []);
       })
       .catch(() => {});
   }, [open, token]);
@@ -293,7 +303,10 @@ function GenerateReportModal({
     setBusy(true);
     setError(null);
     try {
-      await api.createReports(token, jobId, types);
+      await api.createReports(token, jobId, types, {
+        assetTagIds: tagId ? [tagId] : [],
+        assetGroupIds: groupId ? [groupId] : [],
+      });
       toast('success', 'Report generated.');
       onGenerated();
     } catch (err) {
@@ -336,6 +349,37 @@ function GenerateReportModal({
               ))}
             </Select>
           </Field>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label="Asset tag filter" htmlFor="report-tag">
+              <Select id="report-tag" value={tagId} onChange={(e) => setTagId(e.target.value)}>
+                <option value="">All asset tags</option>
+                {tags.map((tag) => (
+                  <option key={tag.id} value={tag.id}>
+                    {tag.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Asset group filter" htmlFor="report-group">
+              <Select
+                id="report-group"
+                value={groupId}
+                onChange={(e) => setGroupId(e.target.value)}
+              >
+                <option value="">All asset groups</option>
+                {groups
+                  .filter((group) => {
+                    const job = jobs.find((candidate) => candidate.id === jobId);
+                    return !group.site_id || group.site_id === job?.site_id;
+                  })
+                  .map((group) => (
+                    <option key={group.id} value={group.id}>
+                      {group.name}
+                    </option>
+                  ))}
+              </Select>
+            </Field>
+          </div>
           <fieldset className="flex flex-col gap-1.5">
             <legend className="mb-1 text-xs font-medium text-muted">Report types</legend>
             {Object.entries(TYPE_LABELS).map(([val, label]) => (

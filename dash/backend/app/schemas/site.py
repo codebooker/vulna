@@ -22,6 +22,7 @@ class SiteRead(BaseModel):
     timezone: str
     business_owner: str | None
     technical_owner: str | None
+    owner_user_id: uuid.UUID | None
     tags: list[str]
     created_at: datetime
     updated_at: datetime
@@ -37,6 +38,7 @@ class SiteCreate(BaseModel):
     timezone: str = Field(default="UTC", max_length=64)
     business_owner: str | None = Field(default=None, max_length=255)
     technical_owner: str | None = Field(default=None, max_length=255)
+    owner_user_id: uuid.UUID | None = None
     tags: list[str] = Field(default_factory=list)
 
 
@@ -50,4 +52,5 @@ class SiteUpdate(BaseModel):
     timezone: str | None = Field(default=None, max_length=64)
     business_owner: str | None = Field(default=None, max_length=255)
     technical_owner: str | None = Field(default=None, max_length=255)
+    owner_user_id: uuid.UUID | None = None
     tags: list[str] | None = None

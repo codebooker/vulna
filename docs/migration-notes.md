@@ -17,6 +17,16 @@ step is needed for schema changes unless noted.
 
 ## Unreleased (on `main`)
 
+- **Asset context, groups, and ownership (Phase 40).** The additive upgrade adds
+  neutral structured context to assets, normalized tags/assignments, static and
+  dynamic groups with materialized membership, site/department/asset ownership,
+  and append-only effective-owner history. Existing `tags_json` values backfill
+  losslessly and remain as a compatibility projection; existing assets receive no
+  inferred classification or owner. Portability moves to schema v4 while validation
+  continues to accept v1–v3. Dynamic rules are validated JSON, never executable
+  expressions. Downgrade recreates the legacy tag projection before removing Phase
+  40 tables, but cannot represent structured context, groups, or ownership history;
+  take and verify an encrypted pre-upgrade backup first.
 - **Dedicated scheduler and worker (post-Phase-39 gate).** The additive upgrade
   creates durable task and worker-heartbeat tables. Single-host Compose installs now
   start `scheduler` and `worker` services automatically; the API no longer runs its

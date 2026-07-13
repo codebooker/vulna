@@ -84,6 +84,11 @@ same sites and permissions, the last-administrator protection remains effective,
 suspended service accounts remain unusable, revoked/rotated API tokens stay
 unusable, active tokens retain their original organization and IP restrictions,
 and no token value appears in logs or exports.
+A Phase 40 restore test must verify that structured asset context, normalized tags,
+static and dynamic group membership/explanations, site and department owners, and
+effective-owner history are unchanged. Re-evaluating a restored dynamic group must
+produce the same membership, and the legacy `tags_json` compatibility projection
+must still match normalized assignments.
 
 Post-Phase-39 background tasks, lease/retry/dead-letter state, and worker heartbeats
 are ordinary PostgreSQL records and are included in the encrypted database backup.

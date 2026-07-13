@@ -2,8 +2,8 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://vulna.dev/schemas/data-map.json",
   "title": "Vulna Data Map",
-  "description": "Machine-readable map of what data Vulna stores, where, its sensitivity, and whether it can leave the deployment (Phase 31). Not a JSON Schema for validation; a documented data inventory.",
-  "version": "1",
+  "description": "Machine-readable map of what data Vulna stores, where, its sensitivity, and whether it can leave the deployment (updated through Phase 40). Not a JSON Schema for validation; a documented data inventory.",
+  "version": "2",
   "leaves_deployment": {
     "intelligence_feeds": {
       "destinations": ["services.nvd.nist.gov", "www.cisa.gov", "epss.cyentia.com"],
@@ -52,6 +52,7 @@
     { "category": "experience profile and onboarding plan", "store": "database", "sensitivity": "low", "in_export": "profile_only" },
     { "category": "scouts", "store": "database", "sensitivity": "low", "in_export": "metadata_only" },
     { "category": "assets/services", "store": "database", "sensitivity": "medium", "in_export": true },
+    { "category": "structured asset context, normalized tags/groups, membership explanations, and ownership history", "store": "database", "sensitivity": "medium", "in_export": true },
     { "category": "findings", "store": "database", "sensitivity": "medium", "in_export": true },
     { "category": "raw scanner output", "store": "database", "sensitivity": "medium", "in_export": false },
     { "category": "evidence", "store": "reports volume", "sensitivity": "high", "in_export": false },

@@ -27,6 +27,7 @@ from app.models.enums import (
 from app.models.scan_artifact import ScanArtifact
 from app.models.scan_job import ScanJob
 from app.models.service import Service
+from app.services import asset_context
 from app.services.evidence_crypto import encrypt_evidence
 from app.services.nmap_parser import ParsedHost, ParsedService, parse_nmap_xml
 
@@ -197,8 +198,8 @@ async def _detect_service_changes(
 ) -> None:
     """Record port-open/close and version-change events vs the asset's current state."""
     current = (
-        await session.execute(select(Service).where(Service.asset_id == asset.id))
-    ).scalars().all()
+        (await session.execute(select(Service).where(Service.asset_id == asset.id))).scalars().all()
+    )
     before = {(s.transport, s.port): s for s in current}
     after = {(s.transport, s.port): s for s in host.services}
 
@@ -206,7 +207,10 @@ async def _detect_service_changes(
         existing = before.get((transport, port))
         if existing is None or existing.state != ServiceState.OPEN:
             _record_change(
-                session, job, asset, ChangeEventType.NEW_PORT_OPENED,
+                session,
+                job,
+                asset,
+                ChangeEventType.NEW_PORT_OPENED,
                 f"Port {port}/{transport.value} opened on {asset.canonical_name}",
                 after={"port": port, "transport": transport.value, "service": parsed.service_name},
             )
@@ -215,7 +219,10 @@ async def _detect_service_changes(
             parsed.product or parsed.version
         ):
             _record_change(
-                session, job, asset, ChangeEventType.SERVICE_VERSION_CHANGED,
+                session,
+                job,
+                asset,
+                ChangeEventType.SERVICE_VERSION_CHANGED,
                 f"Service on {port}/{transport.value} changed on {asset.canonical_name}",
                 before={"product": existing.product, "version": existing.version},
                 after={"product": parsed.product, "version": parsed.version},
@@ -225,7 +232,10 @@ async def _detect_service_changes(
     for (transport, port), existing in before.items():
         if (transport, port) not in after and existing.state == ServiceState.OPEN:
             _record_change(
-                session, job, asset, ChangeEventType.PORT_CLOSED,
+                session,
+                job,
+                asset,
+                ChangeEventType.PORT_CLOSED,
                 f"Port {port}/{transport.value} closed on {asset.canonical_name}",
                 before={"port": port, "transport": transport.value},
             )
@@ -263,7 +273,10 @@ async def _ingest_host(
         summary.assets_created += 1
         await session.flush()
         _record_change(
-            session, job, asset, ChangeEventType.ASSET_DISCOVERED,
+            session,
+            job,
+            asset,
+            ChangeEventType.ASSET_DISCOVERED,
             f"Asset {asset.canonical_name} discovered",
             after={"ip": host.ip, "mac": host.mac, "hostnames": host.hostnames},
         )
@@ -290,6 +303,9 @@ async def _ingest_host(
     for parsed_service in host.services:
         await _upsert_service(session, asset.id, parsed_service, now)
         summary.services_upserted += 1
+    await asset_context.refresh_dynamic_memberships_for_asset(session, asset, now=now)
+    ownership = await asset_context.resolve_ownership(session, asset)
+    await asset_context.record_ownership_snapshot(session, ownership)
 
 
 async def ingest_nmap_result(
@@ -304,8 +320,14 @@ async def ingest_nmap_result(
 ) -> IngestSummary:
     """Retain the raw output, parse it, and upsert assets/services for a job."""
     store_scan_artifact(
-        session, job=job, probe_id=probe_id, stage=stage, scanner=scanner,
-        raw=xml_bytes, content_type="application/xml", master_key=master_key,
+        session,
+        job=job,
+        probe_id=probe_id,
+        stage=stage,
+        scanner=scanner,
+        raw=xml_bytes,
+        content_type="application/xml",
+        master_key=master_key,
     )
     hosts = parse_nmap_xml(xml_bytes)
     now = datetime.now(UTC)

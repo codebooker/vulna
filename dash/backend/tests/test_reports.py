@@ -34,6 +34,7 @@ from app.models.scan_job import ScanJob
 from app.models.service import Service
 from app.models.site import Site
 from app.models.user import User
+from app.services import asset_context
 from app.services.reports.exporters import FINDINGS_COLUMNS
 from httpx import AsyncClient
 from sqlalchemy import select
@@ -287,3 +288,68 @@ async def test_generate_for_unknown_scan_is_404(
         "/api/v1/reports", json={"scan_job_id": str(uuid.uuid4())}, headers=admin_headers
     )
     assert resp.status_code == 404
+
+
+async def test_report_filters_by_normalized_asset_tag(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    organization: Organization,
+    admin_headers: dict[str, str],
+) -> None:
+    scan = await _seed_scan(db_session, organization)
+    primary = await db_session.scalar(select(Asset).where(Asset.canonical_name == "web01"))
+    assert primary is not None
+    tag = await asset_context.ensure_tag(db_session, organization.id, "Production")
+    await asset_context.assign_tag(db_session, primary, tag)
+    other = Asset(
+        organization_id=organization.id,
+        site_id=scan.site_id,
+        canonical_name="dev01",
+        asset_type=AssetType.SERVER,
+    )
+    db_session.add(other)
+    await db_session.flush()
+    db_session.add(
+        Finding(
+            organization_id=organization.id,
+            site_id=scan.site_id,
+            asset_id=other.id,
+            scan_job_id=scan.id,
+            scanner_name="nuclei",
+            canonical_finding_key="dev-finding",
+            finding_type=FindingType.VULNERABILITY,
+            title="Development finding",
+            severity=Severity.LOW,
+        )
+    )
+    await db_session.commit()
+
+    response = await client.post(
+        "/api/v1/reports",
+        json={
+            "scan_job_id": str(scan.id),
+            "report_types": ["json_bundle"],
+            "asset_tag_ids": [str(tag.id)],
+        },
+        headers=admin_headers,
+    )
+    assert response.status_code == 201, response.text
+    report = response.json()[0]
+    assert report["parameters_json"]["asset_filter_ids"] == [str(primary.id)]
+    download = await client.get(f"/api/v1/reports/{report['id']}/download", headers=admin_headers)
+    snapshot = json.loads(download.content)["snapshot"]
+    assert snapshot["summary"]["asset_count"] == 1
+    assert [asset["canonical_name"] for asset in snapshot["assets"]] == ["web01"]
+    assert [finding["title"] for finding in snapshot["findings"]] == ["Log4Shell RCE"]
+    assert snapshot["assets"][0]["tags"] == ["Production"]
+
+    invalid = await client.post(
+        "/api/v1/reports",
+        json={
+            "scan_job_id": str(scan.id),
+            "report_types": ["json_bundle"],
+            "asset_tag_ids": [str(uuid.uuid4())],
+        },
+        headers=admin_headers,
+    )
+    assert invalid.status_code == 422

@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 40: asset context, groups, and ownership
+
+- Assets now carry structured department, business-function, environment,
+  criticality, data-classification, exposure, owner, and bounded custom context.
+  Inventory and reports provide server-side context, normalized-tag, and group
+  filters without weakening organization/site authorization.
+- Organization-owned tags replace the legacy array as the normalized source of
+  truth while retaining `tags_json` as a compatibility projection. Upgrade safely
+  backfills original tag values, order, and metadata without loss.
+- Static groups and safely evaluated dynamic groups provide previewable,
+  explainable, materialized membership. Rules use a bounded allowlisted JSON AST;
+  executable expressions and regular expressions are rejected.
+- Effective ownership follows finding, asset, highest-priority group, site,
+  department, then unassigned. Potential group-owner ties are rejected and changes
+  append effective-owner history.
+- The Assets page adds context filtering, bulk editing, tags, group previews, and
+  ownership detail. SCIM can now validate asset-group mapping targets, report
+  snapshots retain filters/context, and portability schema v4 carries non-secret
+  context records.
+- The additive migration, backup/restore notes, data map, capability matrix,
+  OpenAPI, audit, permission, isolation, frontend, and release-gate coverage are
+  included. Production readiness remains false pending final qualification.
+
 ### Added — post-Phase-39 worker and scheduler gate
 
 - Dedicated scheduler and worker services now use a durable database-backed task

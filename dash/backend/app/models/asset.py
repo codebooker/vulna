@@ -11,12 +11,19 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, Enum, ForeignKey, String, UniqueConstraint
+from sqlalchemy import JSON, Boolean, DateTime, Enum, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 from app.db.mixins import TimestampMixin, UUIDPrimaryKeyMixin
-from app.models.enums import AssetStatus, AssetType, IdentifierType
+from app.models.enums import (
+    AssetCriticality,
+    AssetEnvironment,
+    AssetStatus,
+    AssetType,
+    DataClassification,
+    IdentifierType,
+)
 
 
 class Asset(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -44,6 +51,52 @@ class Asset(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     operating_system: Mapped[str | None] = mapped_column(String(255), nullable=True)
     manufacturer: Mapped[str | None] = mapped_column(String(255), nullable=True)
     identity_confidence: Mapped[int] = mapped_column(nullable=False, default=50)
+
+    # Structured operator context. Neutral defaults preserve the meaning of
+    # existing inventory until an administrator classifies it.
+    department: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    business_function: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    environment: Mapped[AssetEnvironment] = mapped_column(
+        Enum(
+            AssetEnvironment,
+            native_enum=False,
+            length=32,
+            validate_strings=True,
+            values_callable=lambda enum: [item.value for item in enum],
+        ),
+        nullable=False,
+        default=AssetEnvironment.UNKNOWN,
+        index=True,
+    )
+    criticality: Mapped[AssetCriticality] = mapped_column(
+        Enum(
+            AssetCriticality,
+            native_enum=False,
+            length=32,
+            validate_strings=True,
+            values_callable=lambda enum: [item.value for item in enum],
+        ),
+        nullable=False,
+        default=AssetCriticality.UNKNOWN,
+        index=True,
+    )
+    data_classification: Mapped[DataClassification] = mapped_column(
+        Enum(
+            DataClassification,
+            native_enum=False,
+            length=32,
+            validate_strings=True,
+            values_callable=lambda enum: [item.value for item in enum],
+        ),
+        nullable=False,
+        default=DataClassification.UNKNOWN,
+        index=True,
+    )
+    internet_exposed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    context_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
 
     first_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

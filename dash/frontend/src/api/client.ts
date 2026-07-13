@@ -24,10 +24,20 @@ import type {
 import type { Experience, ExperienceChange, ExperiencePreview } from '../types/experience';
 import type {
   Asset,
+  AssetBulkPayload,
+  AssetBulkResult,
+  AssetContextPatch,
+  AssetFilters,
+  AssetGroup,
+  AssetTag,
   ChangeEvent,
+  DepartmentOwner,
+  GroupPreview,
   NetworkScope,
   NewScope,
   NewSite,
+  OwnershipHistory,
+  OwnershipResolution,
   Page,
   Site,
 } from '../types/inventory';
@@ -651,17 +661,137 @@ export const api = {
   updateSite(
     token: string,
     siteId: string,
-    patch: { name?: string; code?: string; description?: string | null; address?: string | null },
+    patch: {
+      name?: string;
+      code?: string;
+      description?: string | null;
+      address?: string | null;
+      owner_user_id?: string | null;
+    },
   ): Promise<Site> {
     return request<Site>(`/api/v1/sites/${siteId}`, { method: 'PATCH', token, body: patch });
   },
   deleteSite(token: string, siteId: string): Promise<void> {
     return request<void>(`/api/v1/sites/${siteId}`, { method: 'DELETE', token });
   },
-  listAssets(token: string, limit = 200, siteId?: string): Promise<Page<Asset>> {
+  listAssets(
+    token: string,
+    limit = 200,
+    siteId?: string,
+    filters: AssetFilters = {},
+  ): Promise<Page<Asset>> {
     const params = new URLSearchParams({ limit: String(limit) });
     if (siteId) params.set('site_id', siteId);
+    for (const [key, value] of Object.entries(filters)) {
+      if (value !== undefined && value !== '') params.set(key, String(value));
+    }
     return request<Page<Asset>>(`/api/v1/assets?${params.toString()}`, { token });
+  },
+  updateAssetContext(
+    token: string,
+    assetId: string,
+    patch: AssetContextPatch,
+  ): Promise<Record<string, unknown>> {
+    return request(`/api/v1/assets/${assetId}/context`, {
+      method: 'PATCH',
+      token,
+      body: patch,
+    });
+  },
+  bulkUpdateAssets(token: string, payload: AssetBulkPayload): Promise<AssetBulkResult> {
+    return request<AssetBulkResult>('/api/v1/assets/bulk', {
+      method: 'POST',
+      token,
+      body: payload,
+    });
+  },
+  assetOwnership(token: string, assetId: string): Promise<OwnershipResolution> {
+    return request<OwnershipResolution>(`/api/v1/assets/${assetId}/ownership`, { token });
+  },
+  assetOwnershipHistory(token: string, assetId: string): Promise<Page<OwnershipHistory>> {
+    return request<Page<OwnershipHistory>>(`/api/v1/assets/${assetId}/ownership-history?limit=20`, {
+      token,
+    });
+  },
+  listDepartmentOwners(token: string): Promise<DepartmentOwner[]> {
+    return request<DepartmentOwner[]>('/api/v1/department-owners', { token });
+  },
+  upsertDepartmentOwner(
+    token: string,
+    payload: { department: string; owner_user_id: string },
+  ): Promise<DepartmentOwner> {
+    return request<DepartmentOwner>('/api/v1/department-owners', {
+      method: 'PUT',
+      token,
+      body: payload,
+    });
+  },
+  deleteDepartmentOwner(token: string, departmentOwnerId: string): Promise<void> {
+    return request<void>(`/api/v1/department-owners/${departmentOwnerId}`, {
+      method: 'DELETE',
+      token,
+    });
+  },
+  listAssetTags(token: string): Promise<Page<AssetTag>> {
+    return request<Page<AssetTag>>('/api/v1/asset-tags?limit=500', { token });
+  },
+  createAssetTag(
+    token: string,
+    payload: { name: string; description?: string | null; color?: string | null },
+  ): Promise<AssetTag> {
+    return request<AssetTag>('/api/v1/asset-tags', {
+      method: 'POST',
+      token,
+      body: payload,
+    });
+  },
+  addAssetTag(token: string, assetId: string, tagId: string): Promise<unknown> {
+    return request(`/api/v1/assets/${assetId}/tags/${tagId}`, { method: 'PUT', token });
+  },
+  removeAssetTag(token: string, assetId: string, tagId: string): Promise<void> {
+    return request<void>(`/api/v1/assets/${assetId}/tags/${tagId}`, {
+      method: 'DELETE',
+      token,
+    });
+  },
+  listAssetGroups(token: string): Promise<Page<AssetGroup>> {
+    return request<Page<AssetGroup>>('/api/v1/asset-groups?limit=500', { token });
+  },
+  createAssetGroup(
+    token: string,
+    payload: {
+      name: string;
+      description?: string | null;
+      group_type: 'static' | 'dynamic';
+      site_id?: string | null;
+      rule_json?: Record<string, unknown> | null;
+      priority?: number;
+      owner_user_id?: string | null;
+    },
+  ): Promise<AssetGroup> {
+    return request<AssetGroup>('/api/v1/asset-groups', {
+      method: 'POST',
+      token,
+      body: payload,
+    });
+  },
+  previewAssetGroup(
+    token: string,
+    ruleJson: Record<string, unknown>,
+    siteId?: string | null,
+  ): Promise<GroupPreview> {
+    return request<GroupPreview>('/api/v1/asset-groups/preview', {
+      method: 'POST',
+      token,
+      body: { rule_json: ruleJson, site_id: siteId ?? null },
+    });
+  },
+  addAssetGroupMembers(token: string, groupId: string, assetIds: string[]): Promise<AssetGroup> {
+    return request<AssetGroup>(`/api/v1/asset-groups/${groupId}/members`, {
+      method: 'PUT',
+      token,
+      body: { asset_ids: assetIds },
+    });
   },
   listScopes(token: string, siteId?: string): Promise<Page<NetworkScope>> {
     const query = siteId ? `?site_id=${encodeURIComponent(siteId)}` : '';
@@ -760,11 +890,21 @@ export const api = {
   listReports(token: string, limit = 50): Promise<Page<Report>> {
     return request<Page<Report>>(`/api/v1/reports?limit=${limit}`, { token });
   },
-  createReports(token: string, scanJobId: string, reportTypes?: string[]): Promise<Report[]> {
+  createReports(
+    token: string,
+    scanJobId: string,
+    reportTypes?: string[],
+    filters: { assetTagIds?: string[]; assetGroupIds?: string[] } = {},
+  ): Promise<Report[]> {
     return request<Report[]>('/api/v1/reports', {
       method: 'POST',
       token,
-      body: { scan_job_id: scanJobId, ...(reportTypes ? { report_types: reportTypes } : {}) },
+      body: {
+        scan_job_id: scanJobId,
+        ...(reportTypes ? { report_types: reportTypes } : {}),
+        asset_tag_ids: filters.assetTagIds ?? [],
+        asset_group_ids: filters.assetGroupIds ?? [],
+      },
     });
   },
   async downloadReport(token: string, id: string): Promise<Blob> {

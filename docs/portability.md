@@ -9,7 +9,8 @@ and moving Vulna to another machine.
 checksummed** JSON bundle of your organization's non-secret data: organization,
 sites, network scopes, Scouts (metadata only), users (non-secret lifecycle and
 access metadata), user-site assignments, assets, services, findings, report
-metadata, and remediation history. It contains **no** password hashes, invitation
+metadata, remediation history, structured asset context, normalized tags/groups,
+and effective-owner history. It contains **no** password hashes, invitation
 or reset hashes, recovery codes, keys, token values or hashes, certificates,
 lifecycle event details, or report file bytes.
 Session records, device/IP history, and refresh-token hashes are also excluded.
@@ -25,12 +26,16 @@ separated from the credentials and MFA factors that make enforcement safe.
 Export schema v2 added SCIM-owned user external ids, provisioned groups,
 membership, role/site mapping metadata, and sanitized provisioning history. It
 excludes bearer-token hashes, token identifiers, source IPs, rate-limit windows,
-and reserved Phase 40 asset-group targets. Schema-v1 bundles remain valid input to
+and secret provisioning state. Schema-v1 bundles remain valid input to
 the validation endpoint; full connector continuity still requires encrypted
 backup/restore. Schema v3 additionally includes non-secret authorization-role,
 permission-key, scoped-grant, and service-account metadata plus API-token lifecycle
 metadata (`has_secret`, expiry, revocation, restrictions, and last-use time). It
-never includes a token value or hash. Validation accepts schema v1, v2, and v3 bundles;
+never includes a token value or hash. Schema v4 adds structured asset context,
+normalized tags and assignments, static/dynamic groups and materialized membership,
+department ownership, and effective-owner history. Dynamic rules and membership
+explanations are data, not executable expressions. SCIM asset-group targets are now
+exported as validated non-secret mappings. Validation accepts schema v1 through v4;
 credential continuity still requires encrypted backup/restore.
 Background task payloads, leases, retries, dead letters, results, and process
 heartbeats are operational state and are excluded from portability exports. They

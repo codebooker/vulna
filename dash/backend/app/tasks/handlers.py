@@ -86,6 +86,12 @@ async def generate_report_task(
     if scan_job is None:
         raise ValueError("scan job no longer exists")
     report_types = [ReportType(str(value)) for value in task.payload_json["report_types"]]
+    raw_asset_filter_ids = task.payload_json.get("asset_filter_ids")
+    asset_filter_ids = (
+        {uuid.UUID(str(value)) for value in raw_asset_filter_ids}
+        if raw_asset_filter_ids is not None
+        else None
+    )
     requested_by_raw = task.payload_json.get("requested_by")
     reports = await generate_reports(
         session,
@@ -98,6 +104,7 @@ async def generate_report_task(
             report_type: uuid.uuid5(task.id, f"report:{report_type.value}")
             for report_type in report_types
         },
+        asset_filter_ids=asset_filter_ids,
     )
     return {"report_ids": [str(report.id) for report in reports]}
 

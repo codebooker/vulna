@@ -25,6 +25,7 @@ cross-installation identifier.
 | Organization / sites / scopes | database | low | yes |
 | Scouts | database | low | metadata only |
 | Assets / services | database | medium | yes |
+| Structured asset context, normalized tags/groups, membership explanations, and ownership history | database | medium | yes |
 | Findings | database | medium | yes |
 | Raw scanner output | database | medium | no |
 | Evidence | reports volume | high | no |

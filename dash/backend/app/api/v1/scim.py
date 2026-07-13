@@ -14,6 +14,7 @@ from app.api.context import RequestContext, get_request_context
 from app.auth.dependencies import StepUpIdentity, require_permission
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
+from app.models.asset_context import AssetGroup
 from app.models.enums import UserRole
 from app.models.scim import (
     ScimGroup,
@@ -81,6 +82,25 @@ async def _owned_group(
     if group is None:
         raise HTTPException(status_code=404, detail="SCIM group not found")
     return group
+
+
+async def _validate_asset_group_ids(
+    session: AsyncSession, organization_id: uuid.UUID, group_ids: set[uuid.UUID]
+) -> None:
+    if not group_ids:
+        return
+    found = set(
+        (
+            await session.execute(
+                select(AssetGroup.id).where(
+                    AssetGroup.organization_id == organization_id,
+                    AssetGroup.id.in_(group_ids),
+                )
+            )
+        ).scalars()
+    )
+    if found != group_ids:
+        raise HTTPException(status_code=422, detail="One or more asset groups were not found")
 
 
 def _token_read(value: ScimToken) -> ScimTokenRead:
@@ -233,6 +253,12 @@ async def _mapping_read(session: AsyncSession, group: ScimGroup) -> ScimGroupMap
             )
         ).scalars()
     )
+    asset_group_ids: list[uuid.UUID] = []
+    for target in group.asset_group_targets_json or []:
+        try:
+            asset_group_ids.append(uuid.UUID(str(target["asset_group_id"])))
+        except (KeyError, TypeError, ValueError):
+            continue
     return ScimGroupMappingRead(
         id=group.id,
         external_id=group.external_id,
@@ -241,6 +267,7 @@ async def _mapping_read(session: AsyncSession, group: ScimGroup) -> ScimGroupMap
         role=group.mapped_role,
         grants_all_sites=group.grants_all_sites,
         site_ids=site_ids,
+        asset_group_ids=asset_group_ids,
         created_at=group.created_at,
         updated_at=group.updated_at,
     )
@@ -316,6 +343,7 @@ async def _mapping_preview(
         role=payload.role,
         grants_all_sites=payload.grants_all_sites,
         site_ids=payload.site_ids,
+        asset_group_ids=payload.asset_group_ids,
         users=preview_users,
     )
 
@@ -329,6 +357,7 @@ async def preview_group_mapping(
 ) -> ScimMappingPreview:
     group = await _owned_group(session, group_id, admin.organization_id)
     await validate_site_ids(session, admin.organization_id, set(payload.site_ids))
+    await _validate_asset_group_ids(session, admin.organization_id, set(payload.asset_group_ids))
     return await _mapping_preview(session, group, payload)
 
 
@@ -343,13 +372,20 @@ async def update_group_mapping(
     admin = await _require_manager(identity, session)
     group = await _owned_group(session, group_id, admin.organization_id)
     await validate_site_ids(session, admin.organization_id, set(payload.site_ids))
+    await _validate_asset_group_ids(session, admin.organization_id, set(payload.asset_group_ids))
     preview = await _mapping_preview(session, group, payload)
     previous = {
         "role": group.mapped_role.value if group.mapped_role else None,
         "grants_all_sites": group.grants_all_sites,
+        "asset_group_ids": [
+            value.get("asset_group_id") for value in group.asset_group_targets_json or []
+        ],
     }
     group.mapped_role = payload.role
     group.grants_all_sites = payload.grants_all_sites
+    group.asset_group_targets_json = [
+        {"asset_group_id": str(asset_group_id)} for asset_group_id in payload.asset_group_ids
+    ]
     group.updated_at = scim.utcnow()
     await session.execute(
         delete(ScimGroupSiteMapping).where(ScimGroupSiteMapping.group_id == group.id)
@@ -387,6 +423,7 @@ async def update_group_mapping(
             "role": payload.role.value if payload.role else None,
             "grants_all_sites": payload.grants_all_sites,
             "site_ids": [str(value) for value in payload.site_ids],
+            "asset_group_ids": [str(value) for value in payload.asset_group_ids],
             "affected_users": preview.affected_users,
         },
     )

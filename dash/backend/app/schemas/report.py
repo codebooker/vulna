@@ -19,6 +19,8 @@ class ReportCreate(BaseModel):
 
     scan_job_id: uuid.UUID
     report_types: list[ReportType] = Field(default_factory=lambda: list(ALL_REPORT_TYPES))
+    asset_tag_ids: list[uuid.UUID] = Field(default_factory=list, max_length=50)
+    asset_group_ids: list[uuid.UUID] = Field(default_factory=list, max_length=50)
 
 
 class ReportRead(BaseModel):

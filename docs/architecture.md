@@ -57,6 +57,13 @@ periodic loop runs inside the web process. See
 The worker shares the API's persistent signing-key and report/evidence volumes so
 scheduled jobs retain the same trust identity and artifacts survive restarts.
 
+Asset context is organization-owned and independent from authorization. Normalized
+tags and bounded JSON-AST group rules produce materialized, explainable membership;
+one shared resolver applies finding → asset → group → site → department ownership.
+Phase 39 permission and site predicates still govern every inventory and report
+query. See [Asset context, groups, and ownership](asset-context.md) and
+[ADR 0041](adr/0041-asset-context-groups-ownership.md).
+
 ### VulnaScout (`scout/`)
 
 A single statically linked Go binary deployed as a systemd service, container,

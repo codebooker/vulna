@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.asset import Asset
+from app.models.asset_context import AssetGroup, AssetGroupMembership, AssetTag, AssetTagAssignment
 from app.models.change_event import ChangeEvent
 from app.models.cve import CveRecord, ThreatIntelEnrichment
 from app.models.enums import IdentifierType, ServiceState, Severity
@@ -37,26 +38,54 @@ def _identifiers(asset: Asset, id_type: IdentifierType) -> list[str]:
 
 
 async def build_snapshot(
-    session: AsyncSession, *, scan_job: ScanJob, now: datetime
+    session: AsyncSession,
+    *,
+    scan_job: ScanJob,
+    now: datetime,
+    asset_filter_ids: set[Any] | None = None,
 ) -> dict[str, Any]:
     """Assemble a scan's reporting snapshot (org, site, assets, services,
     findings, CVE exposure, and changes)."""
     org = await session.get(Organization, scan_job.organization_id)
     site = await session.get(Site, scan_job.site_id)
 
+    asset_filters = [Asset.site_id == scan_job.site_id]
+    if asset_filter_ids is not None:
+        asset_filters.append(Asset.id.in_(asset_filter_ids))
     assets = list(
-        (
-            await session.execute(
-                select(Asset)
-                .where(Asset.site_id == scan_job.site_id)
-                .order_by(Asset.canonical_name)
-            )
-        )
+        (await session.execute(select(Asset).where(*asset_filters).order_by(Asset.canonical_name)))
         .scalars()
         .all()
     )
     asset_ids = [a.id for a in assets]
     asset_by_id = {a.id: a for a in assets}
+
+    tags_by_asset: dict[Any, list[str]] = {asset_id: [] for asset_id in asset_ids}
+    groups_by_asset: dict[Any, list[str]] = {asset_id: [] for asset_id in asset_ids}
+    if asset_ids:
+        tag_rows = (
+            await session.execute(
+                select(AssetTagAssignment.asset_id, AssetTag.name)
+                .join(AssetTag, AssetTag.id == AssetTagAssignment.tag_id)
+                .where(AssetTagAssignment.asset_id.in_(asset_ids))
+                .order_by(AssetTag.normalized_name)
+            )
+        ).all()
+        for asset_id, tag_name in tag_rows:
+            tags_by_asset[asset_id].append(tag_name)
+        group_rows = (
+            await session.execute(
+                select(AssetGroupMembership.asset_id, AssetGroup.name)
+                .join(AssetGroup, AssetGroup.id == AssetGroupMembership.group_id)
+                .where(
+                    AssetGroupMembership.asset_id.in_(asset_ids),
+                    AssetGroup.enabled.is_(True),
+                )
+                .order_by(AssetGroup.name)
+            )
+        ).all()
+        for asset_id, group_name in group_rows:
+            groups_by_asset[asset_id].append(group_name)
 
     services = (
         list(
@@ -71,24 +100,26 @@ async def build_snapshot(
     for svc in services:
         services_by_asset.setdefault(svc.asset_id, []).append(svc)
 
+    finding_filters = [Finding.site_id == scan_job.site_id]
+    if asset_filter_ids is not None:
+        finding_filters.append(Finding.asset_id.in_(asset_ids))
     findings = list(
         (
             await session.execute(
-                select(Finding)
-                .where(Finding.site_id == scan_job.site_id)
-                .order_by(Finding.severity, Finding.title)
+                select(Finding).where(*finding_filters).order_by(Finding.severity, Finding.title)
             )
         )
         .scalars()
         .all()
     )
 
+    change_filters = [ChangeEvent.scan_job_id == scan_job.id]
+    if asset_filter_ids is not None:
+        change_filters.append(ChangeEvent.asset_id.in_(asset_ids))
     changes = list(
         (
             await session.execute(
-                select(ChangeEvent)
-                .where(ChangeEvent.scan_job_id == scan_job.id)
-                .order_by(ChangeEvent.created_at.desc())
+                select(ChangeEvent).where(*change_filters).order_by(ChangeEvent.created_at.desc())
             )
         )
         .scalars()
@@ -123,9 +154,7 @@ async def build_snapshot(
     if cve_ids:
         cve_map = {
             r.cve_id: r
-            for r in (
-                await session.execute(select(CveRecord).where(CveRecord.cve_id.in_(cve_ids)))
-            )
+            for r in (await session.execute(select(CveRecord).where(CveRecord.cve_id.in_(cve_ids))))
             .scalars()
             .all()
         }
@@ -170,11 +199,18 @@ async def build_snapshot(
             "first_seen_at": _iso(a.first_seen_at),
             "last_seen_at": _iso(a.last_seen_at),
             "last_assessed_at": _iso(a.last_assessed_at),
-            "tags": list(a.tags_json or []),
+            "department": a.department,
+            "business_function": a.business_function,
+            "environment": a.environment.value,
+            "criticality": a.criticality.value,
+            "data_classification": a.data_classification.value,
+            "internet_exposed": a.internet_exposed,
+            "owner_user_id": str(a.owner_user_id) if a.owner_user_id else None,
+            "context": dict(a.context_json or {}),
+            "tags": tags_by_asset.get(a.id, list(a.tags_json or [])),
+            "groups": groups_by_asset.get(a.id, []),
             "open_port_count": sum(
-                1
-                for s in services_by_asset.get(a.id, [])
-                if s.state == ServiceState.OPEN
+                1 for s in services_by_asset.get(a.id, []) if s.state == ServiceState.OPEN
             ),
             "critical_finding_count": crit_by_asset.get(a.id, 0),
             "high_finding_count": high_by_asset.get(a.id, 0),
@@ -208,9 +244,7 @@ async def build_snapshot(
             "id": str(f.id),
             "asset_id": str(f.asset_id) if f.asset_id else None,
             "asset_name": (
-                asset_by_id[f.asset_id].canonical_name
-                if f.asset_id in asset_by_id
-                else None
+                asset_by_id[f.asset_id].canonical_name if f.asset_id in asset_by_id else None
             ),
             "service_id": str(f.service_id) if f.service_id else None,
             "scanner_name": f.scanner_name,
@@ -290,9 +324,14 @@ async def build_snapshot(
     return {
         "schema_version": SNAPSHOT_VERSION,
         "generated_at": _iso(now),
-        "organization": (
-            {"id": str(org.id), "name": org.name, "slug": org.slug} if org else None
-        ),
+        "filters": {
+            "asset_ids": (
+                sorted(str(value) for value in asset_filter_ids)
+                if asset_filter_ids is not None
+                else None
+            )
+        },
+        "organization": ({"id": str(org.id), "name": org.name, "slug": org.slug} if org else None),
         "site": ({"id": str(site.id), "name": site.name, "code": site.code} if site else None),
         "scan_job": {
             "id": str(scan_job.id),

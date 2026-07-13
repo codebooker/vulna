@@ -24,6 +24,7 @@ export interface ScimGroupMapping {
   role: Role | null;
   grants_all_sites: boolean;
   site_ids: string[];
+  asset_group_ids: string[];
   created_at: string;
   updated_at: string;
 }
@@ -32,6 +33,7 @@ export interface ScimMappingPayload {
   role: Role | null;
   grants_all_sites: boolean;
   site_ids: string[];
+  asset_group_ids: string[];
 }
 
 export interface ScimMappingPreview extends ScimMappingPayload {

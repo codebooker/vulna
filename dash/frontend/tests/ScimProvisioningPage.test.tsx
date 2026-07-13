@@ -39,6 +39,7 @@ const group = {
   role: null,
   grants_all_sites: false,
   site_ids: [],
+  asset_group_ids: [],
   created_at: '2026-07-13T00:00:00Z',
   updated_at: '2026-07-13T00:00:00Z',
 };
@@ -86,6 +87,29 @@ beforeEach(() => {
           offset: 0,
         });
       }
+      if (url.endsWith('/api/v1/asset-groups?limit=500')) {
+        return jsonResponse({
+          items: [
+            {
+              id: 'asset-group-1',
+              organization_id: 'org-1',
+              site_id: 'site-1',
+              name: 'Production assets',
+              group_type: 'static',
+              rule_json: null,
+              priority: 10,
+              owner_user_id: null,
+              enabled: true,
+              member_count: 1,
+              created_at: '2026-07-13T00:00:00Z',
+              updated_at: '2026-07-13T00:00:00Z',
+            },
+          ],
+          total: 1,
+          limit: 500,
+          offset: 0,
+        });
+      }
       if (url.endsWith('/api/v1/scim/groups/group-1/mapping/preview')) {
         return jsonResponse({
           group_id: 'group-1',
@@ -93,6 +117,7 @@ beforeEach(() => {
           role: 'security_operator',
           grants_all_sites: false,
           site_ids: ['site-1'],
+          asset_group_ids: ['asset-group-1'],
           users: [],
         });
       }
@@ -126,6 +151,7 @@ it('shows one-time tokens and requires a mapping preview before apply', async ()
     target: { value: 'security_operator' },
   });
   fireEvent.click(screen.getByLabelText('HQ'));
+  fireEvent.click(screen.getByLabelText('Production assets'));
   fireEvent.click(screen.getByRole('button', { name: 'Preview impact' }));
   expect(await screen.findByText(/Preview: 2 users/)).toBeInTheDocument();
   expect(apply).toBeEnabled();
@@ -138,6 +164,7 @@ it('shows one-time tokens and requires a mapping preview before apply', async ()
           role: 'security_operator',
           grants_all_sites: false,
           site_ids: ['site-1'],
+          asset_group_ids: ['asset-group-1'],
         }),
       }),
     ),

@@ -26,6 +26,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.asset import Asset
+from app.models.asset_context import (
+    AssetGroup,
+    AssetGroupMembership,
+    AssetOwnershipHistory,
+    AssetTag,
+    AssetTagAssignment,
+    DepartmentOwner,
+)
 from app.models.authorization import (
     ApiToken,
     AuthorizationRole,
@@ -51,8 +59,8 @@ from app.models.site import Site
 from app.models.user import User
 from app.models.user_lifecycle import UserSiteAssignment
 
-EXPORT_SCHEMA_VERSION = "3"
-SUPPORTED_IMPORT_SCHEMA_VERSIONS = {"1", "2", EXPORT_SCHEMA_VERSION}
+EXPORT_SCHEMA_VERSION = "4"
+SUPPORTED_IMPORT_SCHEMA_VERSIONS = {"1", "2", "3", EXPORT_SCHEMA_VERSION}
 CHECKSUM_FIELD = "checksum"
 
 
@@ -83,7 +91,9 @@ async def build_export(
         "schema_version": EXPORT_SCHEMA_VERSION,
         "exported_at": now.isoformat(),
         "organization": {
-            "id": str(org.id), "name": org.name, "slug": org.slug,
+            "id": str(org.id),
+            "name": org.name,
+            "slug": org.slug,
             "default_timezone": org.default_timezone,
             "experience_profile": org.experience_profile.value,
             "feature_overrides": org.feature_overrides_json,
@@ -102,6 +112,12 @@ async def build_export(
         "network_scopes": await _scopes(session, org_id),
         "scouts": await _scouts(session, org_id),
         "assets": await _assets(session, org_id),
+        "asset_tags": await _asset_tags(session, org_id),
+        "asset_tag_assignments": await _asset_tag_assignments(session, org_id),
+        "asset_groups": await _asset_groups(session, org_id),
+        "asset_group_memberships": await _asset_group_memberships(session, org_id),
+        "department_owners": await _department_owners(session, org_id),
+        "asset_ownership_history": await _asset_ownership_history(session, org_id),
         "services": await _services(session, org_id),
         "findings": await _findings(session, org_id),
         "reports": await _reports(session, org_id),
@@ -131,24 +147,16 @@ async def _users(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, Any
     ]
 
 
-async def _user_site_assignments(
-    session: AsyncSession, org_id: uuid.UUID
-) -> list[dict[str, Any]]:
+async def _user_site_assignments(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, Any]]:
     rows = (
         await session.execute(
-            select(UserSiteAssignment).where(
-                UserSiteAssignment.organization_id == org_id
-            )
+            select(UserSiteAssignment).where(UserSiteAssignment.organization_id == org_id)
         )
     ).scalars()
-    return [
-        {"user_id": str(row.user_id), "site_id": str(row.site_id)} for row in rows
-    ]
+    return [{"user_id": str(row.user_id), "site_id": str(row.site_id)} for row in rows]
 
 
-async def _authorization_roles(
-    session: AsyncSession, org_id: uuid.UUID
-) -> list[dict[str, Any]]:
+async def _authorization_roles(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, Any]]:
     roles = list(
         (
             await session.execute(
@@ -182,13 +190,9 @@ async def _authorization_roles(
     ]
 
 
-async def _scoped_grants(
-    session: AsyncSession, org_id: uuid.UUID
-) -> list[dict[str, Any]]:
+async def _scoped_grants(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, Any]]:
     rows = (
-        await session.execute(
-            select(ScopedGrant).where(ScopedGrant.organization_id == org_id)
-        )
+        await session.execute(select(ScopedGrant).where(ScopedGrant.organization_id == org_id))
     ).scalars()
     return [
         {
@@ -203,9 +207,7 @@ async def _scoped_grants(
     ]
 
 
-async def _service_accounts(
-    session: AsyncSession, org_id: uuid.UUID
-) -> list[dict[str, Any]]:
+async def _service_accounts(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, Any]]:
     rows = (
         await session.execute(
             select(ServiceAccount).where(ServiceAccount.organization_id == org_id)
@@ -245,9 +247,7 @@ async def _api_tokens(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str
     ]
 
 
-async def _scim_groups(
-    session: AsyncSession, org_id: uuid.UUID
-) -> list[dict[str, Any]]:
+async def _scim_groups(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, Any]]:
     rows = (
         await session.execute(select(ScimGroup).where(ScimGroup.organization_id == org_id))
     ).scalars()
@@ -258,22 +258,23 @@ async def _scim_groups(
             "external_id": row.external_id,
             "mapped_role": row.mapped_role.value if row.mapped_role else None,
             "grants_all_sites": row.grants_all_sites,
+            "asset_group_ids": [
+                str(target["asset_group_id"])
+                for target in row.asset_group_targets_json or []
+                if target.get("asset_group_id")
+            ],
         }
         for row in rows
     ]
 
 
-async def _scim_group_members(
-    session: AsyncSession, org_id: uuid.UUID
-) -> list[dict[str, Any]]:
+async def _scim_group_members(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, Any]]:
     rows = (
         await session.execute(
             select(ScimGroupMember).where(ScimGroupMember.organization_id == org_id)
         )
     ).scalars()
-    return [
-        {"group_id": str(row.group_id), "user_id": str(row.user_id)} for row in rows
-    ]
+    return [{"group_id": str(row.group_id), "user_id": str(row.user_id)} for row in rows]
 
 
 async def _scim_group_site_mappings(
@@ -281,26 +282,18 @@ async def _scim_group_site_mappings(
 ) -> list[dict[str, Any]]:
     rows = (
         await session.execute(
-            select(ScimGroupSiteMapping).where(
-                ScimGroupSiteMapping.organization_id == org_id
-            )
+            select(ScimGroupSiteMapping).where(ScimGroupSiteMapping.organization_id == org_id)
         )
     ).scalars()
-    return [
-        {"group_id": str(row.group_id), "site_id": str(row.site_id)} for row in rows
-    ]
+    return [{"group_id": str(row.group_id), "site_id": str(row.site_id)} for row in rows]
 
 
-async def _scim_provisioning_logs(
-    session: AsyncSession, org_id: uuid.UUID
-) -> list[dict[str, Any]]:
+async def _scim_provisioning_logs(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, Any]]:
     # Token identifiers and source IPs are deliberately excluded. The portable
     # history is useful without becoming a credential or network-metadata export.
     rows = (
         await session.execute(
-            select(ScimProvisioningLog).where(
-                ScimProvisioningLog.organization_id == org_id
-            )
+            select(ScimProvisioningLog).where(ScimProvisioningLog.organization_id == org_id)
         )
     ).scalars()
     return [
@@ -324,8 +317,14 @@ async def _scim_provisioning_logs(
 async def _sites(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, Any]]:
     rows = (await session.execute(select(Site).where(Site.organization_id == org_id))).scalars()
     return [
-        {"id": str(s.id), "name": s.name, "code": s.code, "description": s.description,
-         "tags": s.tags}
+        {
+            "id": str(s.id),
+            "name": s.name,
+            "code": s.code,
+            "description": s.description,
+            "tags": s.tags,
+            "owner_user_id": str(s.owner_user_id) if s.owner_user_id else None,
+        }
         for s in rows
     ]
 
@@ -336,9 +335,14 @@ async def _scopes(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, An
     ).scalars()
     return [
         {
-            "id": str(x.id), "site_id": str(x.site_id), "name": x.name, "cidr": x.cidr,
-            "enabled": x.enabled, "allow_public_addresses": x.allow_public_addresses,
-            "approved_at": _iso(x.approved_at), "expires_at": _iso(x.expires_at),
+            "id": str(x.id),
+            "site_id": str(x.site_id),
+            "name": x.name,
+            "cidr": x.cidr,
+            "enabled": x.enabled,
+            "allow_public_addresses": x.allow_public_addresses,
+            "approved_at": _iso(x.approved_at),
+            "expires_at": _iso(x.expires_at),
             "maximum_hosts": x.maximum_hosts,
             "maximum_packets_per_second": x.maximum_packets_per_second,
             "maximum_concurrency": x.maximum_concurrency,
@@ -352,9 +356,12 @@ async def _scouts(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, An
     rows = (await session.execute(select(Probe).where(Probe.organization_id == org_id))).scalars()
     return [
         {
-            "id": str(p.id), "name": p.name, "status": p.status.value,
+            "id": str(p.id),
+            "name": p.name,
+            "status": p.status.value,
             "certificate_fingerprint": p.certificate_fingerprint,
-            "agent_version": p.agent_version, "last_seen_at": _iso(p.last_seen_at),
+            "agent_version": p.agent_version,
+            "last_seen_at": _iso(p.last_seen_at),
         }
         for p in rows
     ]
@@ -364,25 +371,153 @@ async def _assets(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, An
     rows = (await session.execute(select(Asset).where(Asset.organization_id == org_id))).scalars()
     return [
         {
-            "id": str(a.id), "site_id": str(a.site_id), "canonical_name": a.canonical_name,
-            "asset_type": a.asset_type.value, "status": a.status.value,
+            "id": str(a.id),
+            "site_id": str(a.site_id),
+            "canonical_name": a.canonical_name,
+            "asset_type": a.asset_type.value,
+            "status": a.status.value,
+            "department": a.department,
+            "business_function": a.business_function,
+            "environment": a.environment.value,
+            "criticality": a.criticality.value,
+            "data_classification": a.data_classification.value,
+            "internet_exposed": a.internet_exposed,
+            "owner_user_id": str(a.owner_user_id) if a.owner_user_id else None,
+            "context": a.context_json,
+            "legacy_tags": a.tags_json,
             "metadata": a.metadata_json,
         }
         for a in rows
     ]
 
 
-async def _services(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, Any]]:
+async def _asset_tags(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, Any]]:
+    rows = (
+        await session.execute(select(AssetTag).where(AssetTag.organization_id == org_id))
+    ).scalars()
+    return [
+        {
+            "id": str(row.id),
+            "name": row.name,
+            "description": row.description,
+            "color": row.color,
+        }
+        for row in rows
+    ]
+
+
+async def _asset_tag_assignments(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, Any]]:
     rows = (
         await session.execute(
-            select(Service).join(Asset, Asset.id == Service.asset_id).where(
-                Asset.organization_id == org_id
-            )
+            select(AssetTagAssignment).where(AssetTagAssignment.organization_id == org_id)
         )
     ).scalars()
     return [
-        {"id": str(s.id), "asset_id": str(s.asset_id), "transport": s.transport.value,
-         "port": s.port, "state": s.state.value}
+        {
+            "asset_id": str(row.asset_id),
+            "tag_id": str(row.tag_id),
+            "source": row.source.value,
+            "metadata": row.metadata_json,
+        }
+        for row in rows
+    ]
+
+
+async def _asset_groups(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, Any]]:
+    rows = (
+        await session.execute(select(AssetGroup).where(AssetGroup.organization_id == org_id))
+    ).scalars()
+    return [
+        {
+            "id": str(row.id),
+            "site_id": str(row.site_id) if row.site_id else None,
+            "name": row.name,
+            "description": row.description,
+            "group_type": row.group_type.value,
+            "rule": row.rule_json,
+            "priority": row.priority,
+            "owner_user_id": str(row.owner_user_id) if row.owner_user_id else None,
+            "enabled": row.enabled,
+            "last_evaluated_at": _iso(row.last_evaluated_at),
+        }
+        for row in rows
+    ]
+
+
+async def _asset_group_memberships(
+    session: AsyncSession, org_id: uuid.UUID
+) -> list[dict[str, Any]]:
+    rows = (
+        await session.execute(
+            select(AssetGroupMembership).where(AssetGroupMembership.organization_id == org_id)
+        )
+    ).scalars()
+    return [
+        {
+            "group_id": str(row.group_id),
+            "asset_id": str(row.asset_id),
+            "source": row.source.value,
+            "explanation": row.explanation_json,
+        }
+        for row in rows
+    ]
+
+
+async def _department_owners(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, Any]]:
+    rows = (
+        await session.execute(
+            select(DepartmentOwner).where(DepartmentOwner.organization_id == org_id)
+        )
+    ).scalars()
+    return [
+        {
+            "id": str(row.id),
+            "department": row.department,
+            "owner_user_id": str(row.owner_user_id),
+        }
+        for row in rows
+    ]
+
+
+async def _asset_ownership_history(
+    session: AsyncSession, org_id: uuid.UUID
+) -> list[dict[str, Any]]:
+    rows = (
+        await session.execute(
+            select(AssetOwnershipHistory).where(AssetOwnershipHistory.organization_id == org_id)
+        )
+    ).scalars()
+    return [
+        {
+            "id": str(row.id),
+            "asset_id": str(row.asset_id),
+            "finding_id": str(row.finding_id) if row.finding_id else None,
+            "owner_user_id": str(row.owner_user_id) if row.owner_user_id else None,
+            "source": row.source.value,
+            "source_id": str(row.source_id) if row.source_id else None,
+            "explanation": row.explanation_json,
+            "created_at": _iso(row.created_at),
+        }
+        for row in rows
+    ]
+
+
+async def _services(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, Any]]:
+    rows = (
+        await session.execute(
+            select(Service)
+            .join(Asset, Asset.id == Service.asset_id)
+            .where(Asset.organization_id == org_id)
+        )
+    ).scalars()
+    return [
+        {
+            "id": str(s.id),
+            "asset_id": str(s.asset_id),
+            "transport": s.transport.value,
+            "port": s.port,
+            "state": s.state.value,
+        }
         for s in rows
     ]
 
@@ -393,12 +528,17 @@ async def _findings(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, 
     ).scalars()
     return [
         {
-            "id": str(f.id), "site_id": str(f.site_id),
+            "id": str(f.id),
+            "site_id": str(f.site_id),
             "asset_id": str(f.asset_id) if f.asset_id else None,
-            "scanner_name": f.scanner_name, "canonical_finding_key": f.canonical_finding_key,
-            "finding_type": f.finding_type.value, "title": f.title,
-            "severity": f.severity.value, "status": f.status.value,
-            "cve_ids": f.cve_ids_json, "known_exploited": f.known_exploited,
+            "scanner_name": f.scanner_name,
+            "canonical_finding_key": f.canonical_finding_key,
+            "finding_type": f.finding_type.value,
+            "title": f.title,
+            "severity": f.severity.value,
+            "status": f.status.value,
+            "cve_ids": f.cve_ids_json,
+            "known_exploited": f.known_exploited,
         }
         for f in rows
     ]
@@ -409,8 +549,12 @@ async def _reports(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, A
     rows = (await session.execute(select(Report).where(Report.organization_id == org_id))).scalars()
     return [
         {
-            "id": str(r.id), "report_type": r.report_type.value, "format": r.format.value,
-            "status": r.status.value, "sha256": r.sha256, "size_bytes": r.size_bytes,
+            "id": str(r.id),
+            "report_type": r.report_type.value,
+            "format": r.format.value,
+            "status": r.status.value,
+            "sha256": r.sha256,
+            "size_bytes": r.size_bytes,
             "created_at": _iso(r.created_at),
         }
         for r in rows
@@ -425,8 +569,11 @@ async def _risk_acceptances(session: AsyncSession, org_id: uuid.UUID) -> list[di
     ).scalars()
     return [
         {
-            "id": str(x.id), "finding_id": str(x.finding_id), "reason": x.reason,
-            "status": x.status.value, "expires_at": _iso(x.expires_at),
+            "id": str(x.id),
+            "finding_id": str(x.finding_id),
+            "reason": x.reason,
+            "status": x.status.value,
+            "expires_at": _iso(x.expires_at),
         }
         for x in rows
     ]
@@ -435,14 +582,18 @@ async def _risk_acceptances(session: AsyncSession, org_id: uuid.UUID) -> list[di
 async def _finding_notes(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, Any]]:
     rows = (
         await session.execute(
-            select(FindingNote).join(Finding, Finding.id == FindingNote.finding_id).where(
-                Finding.organization_id == org_id
-            )
+            select(FindingNote)
+            .join(Finding, Finding.id == FindingNote.finding_id)
+            .where(Finding.organization_id == org_id)
         )
     ).scalars()
     return [
-        {"id": str(n.id), "finding_id": str(n.finding_id), "body": n.body,
-         "created_at": _iso(n.created_at)}
+        {
+            "id": str(n.id),
+            "finding_id": str(n.finding_id),
+            "body": n.body,
+            "created_at": _iso(n.created_at),
+        }
         for n in rows
     ]
 
@@ -489,6 +640,19 @@ def validate_import(payload: dict[str, Any], *, expected_org_id: uuid.UUID) -> d
     for a in payload.get("assets", []):
         if a.get("site_id") not in site_ids:
             warnings.append(f"Asset {a.get('id')} references a site not in the bundle.")
+    asset_ids = {asset.get("id") for asset in payload.get("assets", [])}
+    asset_tag_ids = {tag.get("id") for tag in payload.get("asset_tags", [])}
+    asset_group_ids = {group.get("id") for group in payload.get("asset_groups", [])}
+    for assignment in payload.get("asset_tag_assignments", []):
+        if assignment.get("asset_id") not in asset_ids:
+            warnings.append("An asset-tag assignment references an unknown asset.")
+        if assignment.get("tag_id") not in asset_tag_ids:
+            warnings.append("An asset-tag assignment references an unknown tag.")
+    for membership in payload.get("asset_group_memberships", []):
+        if membership.get("asset_id") not in asset_ids:
+            warnings.append("An asset-group membership references an unknown asset.")
+        if membership.get("group_id") not in asset_group_ids:
+            warnings.append("An asset-group membership references an unknown group.")
 
     user_ids = {u.get("id") for u in payload.get("users", [])}
     for assignment in payload.get("user_site_assignments", []):
@@ -498,6 +662,10 @@ def validate_import(payload: dict[str, Any], *, expected_org_id: uuid.UUID) -> d
             warnings.append("A user-site assignment references an unknown site.")
 
     group_ids = {group.get("id") for group in payload.get("scim_groups", [])}
+    for group in payload.get("scim_groups", []):
+        for asset_group_id in group.get("asset_group_ids", []):
+            if asset_group_id not in asset_group_ids:
+                warnings.append("A SCIM mapping references an unknown asset group.")
     for membership in payload.get("scim_group_members", []):
         if membership.get("group_id") not in group_ids:
             warnings.append("A SCIM membership references an unknown group.")

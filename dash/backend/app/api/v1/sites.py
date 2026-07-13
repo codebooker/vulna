@@ -19,10 +19,13 @@ from app.api.context import RequestContext, get_request_context
 from app.auth.dependencies import CurrentUser, require_permission
 from app.auth.site_scope import get_accessible_site, site_scope_clause
 from app.db.session import get_session
+from app.models.asset import Asset
 from app.models.site import Site
 from app.models.user import User
 from app.schemas.common import Page
 from app.schemas.site import SiteCreate, SiteRead, SiteUpdate
+from app.services import asset_context
+from app.services.asset_context import AssetContextError, validate_owner
 from app.services.audit import record_audit
 
 router = APIRouter(
@@ -55,11 +58,7 @@ async def list_sites(
     ]
     total = await session.scalar(select(func.count()).select_from(Site).where(*filters))
     result = await session.execute(
-        select(Site)
-        .where(*filters)
-        .order_by(Site.created_at.asc())
-        .limit(limit)
-        .offset(offset)
+        select(Site).where(*filters).order_by(Site.created_at.asc()).limit(limit).offset(offset)
     )
     sites = result.scalars().all()
     return Page[SiteRead](
@@ -76,9 +75,7 @@ async def get_site(
     current_user: CurrentUser,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> SiteRead:
-    site = await get_accessible_site(
-        session, current_user, site_id, permission_key="sites.read"
-    )
+    site = await get_accessible_site(session, current_user, site_id, permission_key="sites.read")
     return SiteRead.model_validate(site)
 
 
@@ -95,6 +92,10 @@ async def create_site(
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> SiteRead:
     """Create a site (Administrator only)."""
+    try:
+        await validate_owner(session, admin.organization_id, payload.owner_user_id)
+    except AssetContextError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     site = Site(
         organization_id=admin.organization_id,
         name=payload.name,
@@ -104,6 +105,7 @@ async def create_site(
         timezone=payload.timezone,
         business_owner=payload.business_owner,
         technical_owner=payload.technical_owner,
+        owner_user_id=payload.owner_user_id,
         tags=payload.tags,
     )
     session.add(site)
@@ -142,6 +144,11 @@ async def update_site(
     """Update a site (Administrator only)."""
     site = await _get_owned_site(session, site_id, admin.organization_id)
     changes = payload.model_dump(exclude_unset=True)
+    if "owner_user_id" in changes:
+        try:
+            await validate_owner(session, admin.organization_id, changes["owner_user_id"])
+        except AssetContextError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
     for field, value in changes.items():
         setattr(site, field, value)
     try:
@@ -152,6 +159,14 @@ async def update_site(
             status_code=status.HTTP_409_CONFLICT,
             detail="A site with that code already exists",
         ) from exc
+
+    if "owner_user_id" in changes:
+        assets = list(
+            (await session.execute(select(Asset).where(Asset.site_id == site.id))).scalars()
+        )
+        for asset in assets:
+            ownership = await asset_context.resolve_ownership(session, asset)
+            await asset_context.record_ownership_snapshot(session, ownership)
 
     record_audit(
         session,

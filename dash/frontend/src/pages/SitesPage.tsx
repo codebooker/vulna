@@ -9,12 +9,13 @@ import { PageHeader } from '../components/app/page-header';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
-import { Field, Input } from '../components/ui/input';
+import { Field, Input, Select } from '../components/ui/input';
 import { Code, DetailRow } from '../components/ui/misc';
 import { ConfirmDialog, Drawer, Modal } from '../components/ui/overlay';
 import { EmptyState, ErrorState, InlineError, TableSkeleton } from '../components/ui/states';
 import { Segmented } from '../components/ui/tabs';
 import type { NetworkScope, Site } from '../types/inventory';
+import type { UserSummary } from '../types/auth';
 
 /** Sites: the site list front and center, with table/card views and creation
  *  in a modal instead of a permanent inline form. */
@@ -22,6 +23,7 @@ export function SitesPage() {
   const { token, user, logout } = useAuth();
   const [sites, setSites] = useState<Site[]>([]);
   const [scopes, setScopes] = useState<NetworkScope[]>([]);
+  const [users, setUsers] = useState<UserSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<'table' | 'cards'>('table');
@@ -35,12 +37,20 @@ export function SitesPage() {
     setLoading(true);
     setError(null);
     try {
-      const [page, scopePage] = await Promise.all([
+      const [page, scopePage, userPage] = await Promise.all([
         api.listSites(token),
         api.listScopes(token).catch(() => null),
+        isAdmin ? api.listUsers(token).catch(() => null) : Promise.resolve(null),
       ]);
       setSites(page.items);
       setScopes(scopePage?.items ?? []);
+      setUsers(
+        (userPage?.items ?? []).filter(
+          (candidate) =>
+            candidate.is_active !== false &&
+            (!candidate.account_status || candidate.account_status === 'active'),
+        ),
+      );
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         logout();
@@ -50,7 +60,7 @@ export function SitesPage() {
     } finally {
       setLoading(false);
     }
-  }, [token, logout]);
+  }, [token, logout, isAdmin]);
 
   useEffect(() => {
     void loadSites();
@@ -97,6 +107,19 @@ export function SitesPage() {
         csvValue: (s) => s.timezone,
       },
       {
+        id: 'owner',
+        header: 'Fallback owner',
+        defaultHidden: true,
+        cell: (s) => (
+          <span className="text-xs text-muted">
+            {users.find((candidate) => candidate.id === s.owner_user_id)?.full_name ?? '—'}
+          </span>
+        ),
+        sortValue: (s) =>
+          users.find((candidate) => candidate.id === s.owner_user_id)?.full_name ?? '',
+        csvValue: (s) => users.find((candidate) => candidate.id === s.owner_user_id)?.email ?? '',
+      },
+      {
         id: 'scopes',
         header: 'Approved scopes',
         cell: (s) => {
@@ -139,7 +162,7 @@ export function SitesPage() {
         csvValue: (s) => s.updated_at,
       },
     ],
-    [scopeCount],
+    [scopeCount, users],
   );
 
   return (
@@ -269,6 +292,7 @@ export function SitesPage() {
       <SiteDrawer
         site={selected}
         scopes={scopes}
+        users={users}
         isAdmin={isAdmin}
         onClose={() => setSelected(null)}
         onChanged={() => void loadSites()}
@@ -291,12 +315,14 @@ export function SitesPage() {
 function SiteDrawer({
   site,
   scopes,
+  users,
   isAdmin,
   onClose,
   onChanged,
 }: {
   site: Site | null;
   scopes: NetworkScope[];
+  users: UserSummary[];
   isAdmin: boolean;
   onClose: () => void;
   onChanged: () => void;
@@ -306,6 +332,7 @@ function SiteDrawer({
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
   const [address, setAddress] = useState('');
+  const [ownerId, setOwnerId] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -315,6 +342,7 @@ function SiteDrawer({
       setName(site.name);
       setCode(site.code);
       setAddress(site.address ?? '');
+      setOwnerId(site.owner_user_id ?? '');
       setError(null);
     }
   }, [site]);
@@ -323,7 +351,8 @@ function SiteDrawer({
     site &&
     (name !== site.name ||
       code !== site.code ||
-      (address.trim() || null) !== (site.address ?? null));
+      (address.trim() || null) !== (site.address ?? null) ||
+      (ownerId || null) !== site.owner_user_id);
 
   const save = async () => {
     if (!token || !site || !name.trim() || !code.trim()) return;
@@ -334,6 +363,7 @@ function SiteDrawer({
         name: name.trim(),
         code: code.trim(),
         address: address.trim() || null,
+        owner_user_id: ownerId || null,
       });
       onChanged();
       toast('success', 'Site updated.');
@@ -392,6 +422,19 @@ function SiteDrawer({
                   />
                 </Field>
               </div>
+              <Field
+                label="Fallback asset owner"
+                hint="Used only when no finding, asset, or group owner matches."
+              >
+                <Select value={ownerId} onChange={(event) => setOwnerId(event.target.value)}>
+                  <option value="">No site fallback owner</option>
+                  {users.map((candidate) => (
+                    <option key={candidate.id} value={candidate.id}>
+                      {candidate.full_name || candidate.email}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
               <Field label="Location" htmlFor="edit-site-address">
                 <Input
                   id="edit-site-address"

@@ -35,6 +35,7 @@ class ScimGroupMappingUpdate(BaseModel):
     role: UserRole | None = None
     grants_all_sites: bool = False
     site_ids: list[uuid.UUID] = Field(default_factory=list, max_length=500)
+    asset_group_ids: list[uuid.UUID] = Field(default_factory=list, max_length=500)
 
     @model_validator(mode="after")
     def validate_site_mode(self) -> ScimGroupMappingUpdate:
@@ -42,6 +43,8 @@ class ScimGroupMappingUpdate(BaseModel):
             raise ValueError("site_ids must be empty when grants_all_sites is true")
         if len(set(self.site_ids)) != len(self.site_ids):
             raise ValueError("site_ids must not contain duplicates")
+        if len(set(self.asset_group_ids)) != len(self.asset_group_ids):
+            raise ValueError("asset_group_ids must not contain duplicates")
         return self
 
 
@@ -53,6 +56,7 @@ class ScimGroupMappingRead(BaseModel):
     role: UserRole | None
     grants_all_sites: bool
     site_ids: list[uuid.UUID]
+    asset_group_ids: list[uuid.UUID]
     created_at: datetime
     updated_at: datetime
 
@@ -63,6 +67,7 @@ class ScimMappingPreview(BaseModel):
     role: UserRole | None
     grants_all_sites: bool
     site_ids: list[uuid.UUID]
+    asset_group_ids: list[uuid.UUID]
     users: list[dict[str, object]]
 
 

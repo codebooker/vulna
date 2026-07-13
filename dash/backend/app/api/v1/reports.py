@@ -28,7 +28,7 @@ from app.models.scan_job import ScanJob
 from app.schemas.background_task import BackgroundTaskRead
 from app.schemas.common import Page
 from app.schemas.report import ReportCreate, ReportRead
-from app.services import background_tasks
+from app.services import asset_context, background_tasks
 from app.services.audit import record_audit
 from app.services.reports import generate_reports
 
@@ -90,6 +90,16 @@ async def create_reports(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="At least one report type is required",
         )
+    try:
+        asset_filter_ids = await asset_context.resolve_report_asset_ids(
+            session,
+            organization_id=current_user.organization_id,
+            site_id=scan_job.site_id,
+            tag_ids=payload.asset_tag_ids,
+            group_ids=payload.asset_group_ids,
+        )
+    except asset_context.AssetContextError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     reports = await generate_reports(
         session,
@@ -98,6 +108,7 @@ async def create_reports(
         requested_by=current_user.id,
         settings=settings,
         now=datetime.now(UTC),
+        asset_filter_ids=asset_filter_ids,
     )
     record_audit(
         session,
@@ -109,7 +120,11 @@ async def create_reports(
         source_ip=context.source_ip,
         user_agent=context.user_agent,
         request_id=context.request_id,
-        metadata={"report_types": [r.value for r in payload.report_types]},
+        metadata={
+            "report_types": [r.value for r in payload.report_types],
+            "asset_tag_ids": [str(value) for value in payload.asset_tag_ids],
+            "asset_group_ids": [str(value) for value in payload.asset_group_ids],
+        },
     )
     return [ReportRead.model_validate(r) for r in reports]
 
@@ -142,7 +157,23 @@ async def queue_reports(
     )
     if not payload.report_types:
         raise HTTPException(status_code=422, detail="At least one report type is required")
-    report_key = ",".join(sorted(report_type.value for report_type in payload.report_types))
+    try:
+        asset_filter_ids = await asset_context.resolve_report_asset_ids(
+            session,
+            organization_id=current_user.organization_id,
+            site_id=scan_job.site_id,
+            tag_ids=payload.asset_tag_ids,
+            group_ids=payload.asset_group_ids,
+        )
+    except asset_context.AssetContextError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    report_key = ":".join(
+        [
+            ",".join(sorted(report_type.value for report_type in payload.report_types)),
+            ",".join(sorted(str(value) for value in payload.asset_tag_ids)),
+            ",".join(sorted(str(value) for value in payload.asset_group_ids)),
+        ]
+    )
     task, created = await background_tasks.enqueue_task(
         session,
         task_type="reports.generate",
@@ -157,6 +188,11 @@ async def queue_reports(
             "scan_job_id": str(scan_job.id),
             "report_types": [report_type.value for report_type in payload.report_types],
             "requested_by": str(current_user.id),
+            "asset_filter_ids": (
+                sorted(str(value) for value in asset_filter_ids)
+                if asset_filter_ids is not None
+                else None
+            ),
         },
         organization_id=current_user.organization_id,
         created_by_user_id=current_user.id,
@@ -175,6 +211,8 @@ async def queue_reports(
         metadata={
             "scan_job_id": str(scan_job.id),
             "report_types": [report_type.value for report_type in payload.report_types],
+            "asset_tag_ids": [str(value) for value in payload.asset_tag_ids],
+            "asset_group_ids": [str(value) for value in payload.asset_group_ids],
             "idempotent_replay": not created,
         },
     )

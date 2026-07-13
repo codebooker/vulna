@@ -66,7 +66,7 @@ class ScimGroup(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         Enum(UserRole, native_enum=False, length=32, validate_strings=True), nullable=True
     )
     grants_all_sites: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    # Reserved for Phase 40. It is intentionally not serialized by Phase 38 APIs.
+    # Phase 40 exposes these generic targets after organization validation.
     asset_group_targets_json: Mapped[list[dict[str, Any]]] = mapped_column(
         JSON, nullable=False, default=list
     )

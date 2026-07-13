@@ -27,7 +27,8 @@ payloads—map groups to the existing compatibility roles and sites after a prev
 Effective access uses the highest mapped role and union of mapped sites, with a
 Viewer/no-site least-privilege fallback. Changed access increments authentication
 version and revokes sessions. The schema reserves opaque asset-group mapping targets
-but does not expose them until Phase 40.
+but does not expose them until Phase 40. ADR 0041 activates those targets after
+organization validation without treating them as authorization grants.
 
 Parse filters and PATCH paths with bounded, non-executable grammars. Return standard
 SCIM pagination, media types, discovery resources, ETags, and error objects. Keep

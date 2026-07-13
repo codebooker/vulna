@@ -66,8 +66,9 @@ When a user belongs to multiple mapped groups, the highest existing compatibilit
 role wins and site ids form a union; any explicitly all-site group wins for site
 scope. With no mapped group, a SCIM user falls back to Viewer with no assigned
 sites. Phase 39 materializes these results as additive scoped grants. Generic
-asset-group targets are retained internally but deliberately remain unavailable
-until Phase 40 defines asset groups.
+asset-group targets can now reference Phase 40 groups after organization and site
+scope validation. They remain mapping metadata and never substitute for an asset
+permission or grant.
 
 ## Operations and recovery
 

@@ -106,7 +106,7 @@ CAPABILITIES: tuple[dict[str, Any], ...] = (
     {
         "key": "asset_groups",
         "name": "Asset groups and ownership",
-        "status": "planned",
+        "status": "available",
         "production_ready": False,
     },
     {
