@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 44 connector: VMware vCenter
+
+- A read-only VMware vCenter importer now creates an ephemeral API session, reads
+  only the fixed host and virtual-machine summary resources, maps bounded ESXi/VM
+  identity and state into observations, and invalidates the session after success
+  or failure.
+- The HTTPS origin is fixed to port 443 with no configurable API path or query;
+  destination DNS is pinned, private servers require explicit opt-in, system or
+  operator-supplied public-CA trust verifies TLS, and account/session secrets never
+  enter observations, cursors, tasks, logs, errors, or portability exports.
+
 ### Security — [GO-2026-5932](https://pkg.go.dev/vuln/GO-2026-5932)
 
 - Vulna does not import the affected, unmaintained

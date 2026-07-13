@@ -81,6 +81,7 @@ def register_builtin_adapters() -> None:
     from app.services.inventory_entra import EntraInventoryAdapter
     from app.services.inventory_generic_api import GenericApiInventoryAdapter
     from app.services.inventory_unifi import UnifiInventoryAdapter
+    from app.services.inventory_vcenter import VcenterInventoryAdapter
 
     register_adapter(PassiveConnectorType.ACTIVE_DIRECTORY, ActiveDirectoryInventoryAdapter())
     register_adapter(PassiveConnectorType.CSV, CsvInventoryAdapter())
@@ -89,6 +90,7 @@ def register_builtin_adapters() -> None:
     register_adapter(PassiveConnectorType.ENTRA, EntraInventoryAdapter())
     register_adapter(PassiveConnectorType.GENERIC_API, GenericApiInventoryAdapter())
     register_adapter(PassiveConnectorType.UNIFI, UnifiInventoryAdapter())
+    register_adapter(PassiveConnectorType.VCENTER, VcenterInventoryAdapter())
 
 
 def validate_public_config(value: dict[str, Any]) -> dict[str, Any]:

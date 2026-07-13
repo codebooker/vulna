@@ -157,6 +157,12 @@ directly. See also [`threat-model.md`](threat-model.md) and
   clients; validates bounded offset paging and record fields; pins DNS; requires
   private-network opt-in; and never retains its `X-API-Key` value in results,
   cursors, observations, tasks, logs, or exports (`tests/test_inventory_unifi.py`).
+- [ ] VMware vCenter accepts only an HTTPS port-443 origin, verifies system or
+  supplied public-CA trust, pins DNS, requires explicit private-network access,
+  creates one ephemeral session, reads only the fixed host/VM list resources, and
+  invalidates the session after success or failure. Passwords, Basic headers, and
+  session IDs never enter results, observations, cursors, tasks, logs, errors, or
+  exports (`tests/test_inventory_vcenter.py`).
 - [ ] Report export passwords use a separate HKDF purpose, appear only as
   `has_export_password`, never enter task payloads/portability/audit metadata, and
   AES-256 protection is applied only in renderer memory (`tests/test_passive_inventory.py`).

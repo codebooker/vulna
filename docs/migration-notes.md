@@ -17,6 +17,13 @@ step is needed for schema changes unless noted.
 
 ## Unreleased (on `main`)
 
+- **VMware vCenter passive inventory importer (Phase 44).** No schema migration is
+  required. The public HTTPS origin, username, resource selectors, limits, public
+  CA trust, and private-network opt-in use existing connector configuration; the
+  password uses the existing purpose-encrypted one-way secret. Existing sources
+  are unchanged and none is enabled automatically. Portability excludes the
+  password and ephemeral session, so full continuity requires an encrypted backup.
+
 - **UniFi Network passive inventory importer (Phase 44).** No schema migration is
   required. The public Integration API root, site UUID, resource selectors, and
   safety limits use existing connector configuration; the API key uses the existing

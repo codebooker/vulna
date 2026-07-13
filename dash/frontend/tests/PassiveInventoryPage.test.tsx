@@ -360,6 +360,41 @@ it('shows scoped analytics and keeps connector secrets one-way', async () => {
     });
   });
 
+  fireEvent.change(screen.getByLabelText('Type'), { target: { value: 'vcenter' } });
+  fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'vCenter inventory' } });
+  fireEvent.change(screen.getByLabelText('vCenter server URL'), {
+    target: { value: 'https://vcenter.internal.test' },
+  });
+  fireEvent.change(screen.getByLabelText('vCenter read-only username'), {
+    target: { value: 'vulna-reader@vsphere.local' },
+  });
+  fireEvent.change(screen.getByLabelText('vCenter password'), {
+    target: { value: 'vcenter-password' },
+  });
+  fireEvent.change(screen.getByLabelText('Private vCenter server'), {
+    target: { value: 'yes' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save source' }));
+  await waitFor(() => {
+    const vcenterCall = vi.mocked(fetch).mock.calls.find(([, init]) => {
+      if (init?.method !== 'POST' || typeof init.body !== 'string') return false;
+      return (JSON.parse(init.body) as { connector_type?: string }).connector_type === 'vcenter';
+    });
+    expect(vcenterCall).toBeDefined();
+    const payload = JSON.parse(String(vcenterCall?.[1]?.body)) as Record<string, unknown>;
+    expect(payload).toMatchObject({
+      connector_type: 'vcenter',
+      base_url: 'https://vcenter.internal.test',
+      secret: 'vcenter-password',
+      config: {
+        username: 'vulna-reader@vsphere.local',
+        allow_private: true,
+        include_hosts: true,
+        include_vms: true,
+      },
+    });
+  });
+
   fireEvent.click(screen.getByRole('tab', { name: /Reconciliation/ }));
   expect(await screen.findByText('75')).toBeInTheDocument();
   expect(screen.getByText('1 exact identifier match(es)')).toBeInTheDocument();

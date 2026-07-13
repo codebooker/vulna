@@ -149,6 +149,14 @@ inventory-connector purpose and remain absent from portability, task state,
 observations, cursors, audit metadata, errors, and logs. Restore must not contact a
 controller until an operator explicitly tests, runs, or schedules the connector.
 
+VMware vCenter restore coverage must preserve the exact public HTTPS origin,
+username, resource selectors, limits, public CA trust, private-network opt-in, and
+disabled/tested/enabled state. The password must decrypt only with the
+inventory-connector purpose and remain absent from portability, task state,
+observations, cursors, audit metadata, errors, and logs. Ephemeral API sessions are
+never backup data, and restore must not contact vCenter until an operator explicitly
+tests, runs, or schedules the connector.
+
 CSV source uploads are included only in encrypted database backups. Restore tests
 must verify that source ciphertext decrypts under the CSV-specific purpose, its
 SHA-256 and size metadata still match, and a restored worker can derive the same

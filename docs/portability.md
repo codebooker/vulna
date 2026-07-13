@@ -61,6 +61,10 @@ and ciphertext are never portable.
 UniFi connectors export only the public Integration API root, site UUID, resource
 selectors, bounds, private-network opt-in, and `has_secret`; API keys and ciphertext
 are never portable.
+VMware vCenter connectors export only the public HTTPS origin, username, resource
+selectors, limits, public CA trust, private-network opt-in, and `has_secret`;
+passwords, Basic credentials, ephemeral API sessions, and ciphertext are never
+portable.
 Background task payloads, leases, retries, dead letters, results, and process
 heartbeats are operational state and are excluded from portability exports. They
 remain available only through encrypted database backup/restore.

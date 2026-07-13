@@ -176,6 +176,13 @@ export function PassiveInventoryPage() {
       setError('UniFi sources require a Network Integration API root, site ID, and API key.');
       return;
     }
+    if (
+      connectorForm.type === 'vcenter' &&
+      (!connectorForm.baseUrl || !connectorForm.username || !connectorForm.secret)
+    ) {
+      setError('vCenter sources require an HTTPS server URL, read-only username, and password.');
+      return;
+    }
     setBusy('connector');
     setError(null);
     let connectorCreated = false;
@@ -246,6 +253,17 @@ export function PassiveInventoryPage() {
                 allow_private: connectorForm.allowPrivate,
                 include_devices: true,
                 include_clients: true,
+              },
+            }
+          : {}),
+        ...(connectorForm.type === 'vcenter'
+          ? {
+              config: {
+                username: connectorForm.username,
+                allow_private: connectorForm.allowPrivate,
+                include_hosts: true,
+                include_vms: true,
+                ...(connectorForm.trustPem ? { trust_pem: connectorForm.trustPem } : {}),
               },
             }
           : {}),
@@ -655,7 +673,9 @@ export function PassiveInventoryPage() {
                               ? 'Directory server'
                               : connectorForm.type === 'unifi'
                                 ? 'UniFi Network API root'
-                                : 'HTTPS URL (when required)'
+                                : connectorForm.type === 'vcenter'
+                                  ? 'vCenter server URL'
+                                  : 'HTTPS URL (when required)'
                         }
                       >
                         <Input
@@ -666,7 +686,9 @@ export function PassiveInventoryPage() {
                                 ? 'Directory server'
                                 : connectorForm.type === 'unifi'
                                   ? 'UniFi Network API root'
-                                  : 'HTTPS URL (when required)'
+                                  : connectorForm.type === 'vcenter'
+                                    ? 'vCenter server URL'
+                                    : 'HTTPS URL (when required)'
                           }
                           value={connectorForm.baseUrl}
                           onChange={(event) =>
@@ -771,6 +793,36 @@ export function PassiveInventoryPage() {
                         />
                       </Field>
                     )}
+                    {connectorForm.type === 'vcenter' && (
+                      <>
+                        <Field label="vCenter read-only username">
+                          <Input
+                            aria-label="vCenter read-only username"
+                            placeholder="vulna-reader@vsphere.local"
+                            value={connectorForm.username}
+                            onChange={(event) =>
+                              setConnectorForm((current) => ({
+                                ...current,
+                                username: event.target.value,
+                              }))
+                            }
+                          />
+                        </Field>
+                        <Field label="vCenter CA PEM (optional)">
+                          <Textarea
+                            aria-label="vCenter CA PEM (optional)"
+                            placeholder="Use system trust, or paste the issuing CA certificate"
+                            value={connectorForm.trustPem}
+                            onChange={(event) =>
+                              setConnectorForm((current) => ({
+                                ...current,
+                                trustPem: event.target.value,
+                              }))
+                            }
+                          />
+                        </Field>
+                      </>
+                    )}
                     {connectorForm.type === 'active_directory' && (
                       <>
                         <Field label="Bind user">
@@ -817,7 +869,8 @@ export function PassiveInventoryPage() {
                     {(connectorForm.type === 'dhcp' ||
                       connectorForm.type === 'dns' ||
                       connectorForm.type === 'active_directory' ||
-                      connectorForm.type === 'unifi') && (
+                      connectorForm.type === 'unifi' ||
+                      connectorForm.type === 'vcenter') && (
                       <Field
                         label={
                           connectorForm.type === 'dns'
@@ -826,7 +879,9 @@ export function PassiveInventoryPage() {
                               ? 'Private directory server'
                               : connectorForm.type === 'unifi'
                                 ? 'Private UniFi controller'
-                                : 'Private network URL'
+                                : connectorForm.type === 'vcenter'
+                                  ? 'Private vCenter server'
+                                  : 'Private network URL'
                         }
                       >
                         <Select
@@ -837,7 +892,9 @@ export function PassiveInventoryPage() {
                                 ? 'Private directory server'
                                 : connectorForm.type === 'unifi'
                                   ? 'Private UniFi controller'
-                                  : 'Private network URL'
+                                  : connectorForm.type === 'vcenter'
+                                    ? 'Private vCenter server'
+                                    : 'Private network URL'
                           }
                           value={connectorForm.allowPrivate ? 'yes' : 'no'}
                           onChange={(event) =>
@@ -909,7 +966,9 @@ export function PassiveInventoryPage() {
                                 ? 'Application client secret'
                                 : connectorForm.type === 'unifi'
                                   ? 'UniFi API key'
-                                  : 'Secret (optional)'
+                                  : connectorForm.type === 'vcenter'
+                                    ? 'vCenter password'
+                                    : 'Secret (optional)'
                       }
                     >
                       <Input
@@ -924,7 +983,9 @@ export function PassiveInventoryPage() {
                                   ? 'Application client secret'
                                   : connectorForm.type === 'unifi'
                                     ? 'UniFi API key'
-                                    : 'Secret (optional)'
+                                    : connectorForm.type === 'vcenter'
+                                      ? 'vCenter password'
+                                      : 'Secret (optional)'
                         }
                         type="password"
                         value={connectorForm.secret}
@@ -967,6 +1028,10 @@ export function PassiveInventoryPage() {
                       (connectorForm.type === 'unifi' &&
                         (!connectorForm.baseUrl ||
                           !connectorForm.unifiSiteId ||
+                          !connectorForm.secret)) ||
+                      (connectorForm.type === 'vcenter' &&
+                        (!connectorForm.baseUrl ||
+                          !connectorForm.username ||
                           !connectorForm.secret))
                     }
                   >

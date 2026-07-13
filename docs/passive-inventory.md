@@ -19,6 +19,36 @@ bounded attribute object, normalized identifiers, source timestamp, and payload
 hash. Source observations are never overwritten, so operators can explain how the
 current inventory was derived.
 
+### VMware vCenter importer
+
+The vCenter source uses Broadcom's current
+[vSphere Automation API](https://developer.broadcom.com/xapis/vsphere-automation-api/latest/).
+Configure an exact HTTPS origin on port 443, a dedicated read-only account, and its
+password as the connector's one-way secret. Private management addresses require
+`allow_private=true`. System trust is used by default; `trust_pem` may contain one
+public issuing CA certificate for an internal PKI. Disabling certificate or
+hostname verification is not available.
+
+Authentication is limited to the documented
+[`POST /api/session`](https://developer.broadcom.com/xapis/vsphere-automation-api/latest/api/session/post/)
+exchange. The resulting token exists only in worker memory and is sent as
+`vmware-api-session-id` to the fixed
+[`GET /api/vcenter/host`](https://developer.broadcom.com/xapis/vsphere-automation-api/latest/api/vcenter/host/get/)
+and [`GET /api/vcenter/vm`](https://developer.broadcom.com/xapis/vsphere-automation-api/latest/api/vcenter/vm/get/)
+resources. A fixed `DELETE /api/session` invalidates the token after success and is
+also attempted on every provider or validation failure. Session creation/deletion
+is authentication lifecycle only; the adapter exposes no inventory mutation
+operation.
+
+The current vCenter list contracts return at most 2,500 visible hosts and 4,000
+visible VMs. Vulna enforces those provider ceilings, a combined 6,500-record limit,
+the shared 1 MiB response limit, and a bounded timeout. The connector configuration
+cannot add filters, actions, paths, ports, or query parameters. Host and VM managed
+object references are namespaced to the connector as immutable provider IDs. A
+valid host SMBIOS UUID receives an additional `vmware-host` identity so the same
+physical hypervisor can reconcile across qualified sources; names contribute only
+validated IP/FQDN/hostname/SMB identifiers.
+
 ### UniFi Network importer
 
 The UniFi source reads adopted devices and connected clients through Ubiquiti's
@@ -273,7 +303,10 @@ likewise export public server/base/trust configuration and `has_secret`, never t
 bind password or ciphertext. UniFi connectors export only their public API root,
 site UUID, bounds, resource selectors, private-network opt-in, and `has_secret`;
 the API key and ciphertext are excluded. It excludes connector and source
-ciphertext, export passwords, analytics cache entries, task payloads, and leases.
-Restoring a usable CSV source or secret requires a verified encrypted backup.
-Downgrade removes Phase 44 history and cannot reconstruct source links, so verify a
-backup first.
+ciphertext. vCenter connectors export only their public HTTPS origin, username,
+resource selectors, limits, public CA trust, private-network opt-in, and
+`has_secret`; passwords, Basic credentials, API session tokens, and ciphertext are
+excluded. It excludes export passwords, analytics cache entries, task payloads,
+and leases. Restoring a usable CSV source or secret requires a verified encrypted
+backup. Downgrade removes Phase 44 history and cannot reconstruct source links, so
+verify a backup first.
