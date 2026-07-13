@@ -64,6 +64,44 @@ async def test_network_crud_and_ranges_and_scouts(
     assert {r["cidr"] for r in add2.json()["ranges"]} == {"10.2.0.0/16", "10.3.0.0/24"}
 
 
+async def test_deleting_a_network_frees_its_ranges(
+    client: AsyncClient, admin_headers: dict[str, str], enroll_probe: EnrollFactory
+) -> None:
+    # Reproduces the field report: after deleting a network, its CIDR must not keep
+    # blocking a new (overlapping) range as an invisible orphaned scope.
+    probe = await _approved_probe(client, admin_headers, enroll_probe, "SAV", "savannah-scout")
+    site_id = probe["site_id"]
+
+    created = await client.post(
+        "/api/v1/networks",
+        json={"site_id": site_id, "name": "Temp LAN", "ranges": [{"cidr": "10.1.1.0/24"}]},
+        headers=admin_headers,
+    )
+    assert created.status_code == 201, created.text
+    net_id = created.json()["id"]
+
+    # While it exists, an overlapping range in the same site is rejected.
+    blocked = await client.post(
+        "/api/v1/networks",
+        json={"site_id": site_id, "name": "Single Host", "ranges": [{"cidr": "10.1.1.253/32"}]},
+        headers=admin_headers,
+    )
+    assert blocked.status_code == 409
+
+    # Delete the network — the range must go with it.
+    deleted = await client.delete(f"/api/v1/networks/{net_id}", headers=admin_headers)
+    assert deleted.status_code == 204
+
+    # Now the formerly-overlapping range can be added; no zombie is left behind.
+    freed = await client.post(
+        "/api/v1/networks",
+        json={"site_id": site_id, "name": "Single Host", "ranges": [{"cidr": "10.1.1.253/32"}]},
+        headers=admin_headers,
+    )
+    assert freed.status_code == 201, freed.text
+    assert [r["cidr"] for r in freed.json()["ranges"]] == ["10.1.1.253/32"]
+
+
 async def test_probe_policy_includes_bound_network_ranges(
     client: AsyncClient,
     admin_headers: dict[str, str],

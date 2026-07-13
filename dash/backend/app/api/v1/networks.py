@@ -15,7 +15,7 @@ import uuid
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.context import RequestContext, get_request_context
@@ -292,6 +292,11 @@ async def delete_network(
         target_type="network", target_id=net.id,
         source_ip=context.source_ip, user_agent=context.user_agent, request_id=context.request_id,
     )
+    # Remove the network's ranges too. The network_id FK is SET NULL on delete, so
+    # without this the ranges would be orphaned — invisible on the Networks page
+    # (which lists by network) yet still enforced by the site-wide overlap check,
+    # blocking a new range for the "deleted" CIDR.
+    await session.execute(delete(NetworkScope).where(NetworkScope.network_id == net.id))
     await session.delete(net)
 
 
