@@ -19,6 +19,45 @@ bounded attribute object, normalized identifiers, source timestamp, and payload
 hash. Source observations are never overwritten, so operators can explain how the
 current inventory was derived.
 
+### Microsoft Entra importer
+
+The Microsoft Entra source reads registered device objects through Microsoft Graph
+with app-only client credentials. Create a single-tenant app registration, grant it
+the least-privileged `Device.Read.All` **application** permission, obtain tenant and
+application client UUIDs, and store its client secret as the connector's one-way
+secret. Microsoft documents that permission for
+[`GET /devices`](https://learn.microsoft.com/en-us/graph/api/device-list?view=graph-rest-1.0)
+and the client-credentials token exchange with a resource-specific
+[`/.default` scope](https://learn.microsoft.com/en-us/graph/auth-v2-service).
+Vulna cannot prove that the app registration has no additional permissions, so the
+tenant administrator remains responsible for granting only `Device.Read.All`.
+
+Configure `tenant_id`, `client_id`, and one of `global`, `us_government`,
+`us_government_dod`, or `china` as `cloud`. Tenant aliases such as `common` are
+rejected: both IDs must be UUIDs. Each cloud maps to code-defined authority and
+Graph hosts from Microsoft's
+[national cloud table](https://learn.microsoft.com/en-us/graph/deployments).
+There is no base URL, authority, Graph version, operation, filter, expansion, or
+field selector in connector configuration. Private destinations are never allowed,
+each HTTPS destination is resolved and pinned, redirects are disabled, and the
+client secret and temporary bearer token remain absent from results, cursors,
+observations, task state, errors, logs, and portability exports.
+
+The adapter selects a fixed allowlist of device identity, OS, manufacturer/model,
+ownership, enrollment, management, compliance, trust, registration, and last-seen
+properties. Page size defaults to 500 and is capped at 999; a run is capped at
+10,000 records, 1 MiB per response, and a bounded timeout. Graph next links are
+followed only inside one worker call and must retain the exact HTTPS cloud host,
+`/v1.0/devices` path, selected fields, and allowed `$top`/`$skiptoken` query surface.
+Pagination tokens are never persisted in a task or API.
+
+Each observation uses the Graph object UUID as source provenance and a
+tenant-qualified device UUID as an immutable cloud identifier. Valid device names
+also become FQDN/hostname and SMB identifiers. Disabled device accounts are
+excluded by default; `include_disabled=true` retains them with their account state.
+Graph registration, sync, and approximate sign-in timestamps are context, while
+the worker collection time is the freshness timestamp for a still-present device.
+
 ### Active Directory importer
 
 The Active Directory source reads computer objects through verified LDAPS on fixed

@@ -146,6 +146,12 @@ directly. See also [`threat-model.md`](threat-model.md) and
   internal paging. Bind passwords and paging cookies never enter reads, results,
   task state, portability, observations, audit metadata, or errors
   (`tests/test_inventory_active_directory.py`).
+- [ ] Microsoft Entra accepts only UUID tenant/app IDs and four code-defined cloud
+  endpoints, uses client credentials with fixed Graph `/.default` scope, requests
+  only `GET /v1.0/devices` with `Device.Read.All` and a fixed field/query allowlist,
+  validates every internal next link, pins DNS, refuses private destinations and
+  redirects, and never retains the client secret, bearer token, or pagination token
+  (`tests/test_inventory_entra.py`).
 - [ ] Report export passwords use a separate HKDF purpose, appear only as
   `has_export_password`, never enter task payloads/portability/audit metadata, and
   AES-256 protection is applied only in renderer memory (`tests/test_passive_inventory.py`).

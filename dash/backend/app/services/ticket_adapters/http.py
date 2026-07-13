@@ -31,12 +31,16 @@ async def request_json(
     *,
     headers: dict[str, str],
     json_body: dict[str, Any] | None = None,
+    form_body: dict[str, str] | None = None,
     timeout_seconds: int = 15,
     allow_private: bool = False,
     user_agent: str = "Vulna-Ticket-Connector/1",
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> JsonResponse:
     """Send one HTTPS request after validation and connection-IP pinning."""
+
+    if json_body is not None and form_body is not None:
+        raise TicketHttpError("request cannot contain both JSON and form bodies")
 
     try:
         host, ip = notifications.resolve_validated(url, allow_private=allow_private)
@@ -50,26 +54,28 @@ async def request_json(
         "User-Agent": user_agent,
     }
     try:
-        async with httpx.AsyncClient(
-            timeout=float(timeout_seconds),
-            follow_redirects=False,
-            transport=transport,
-        ) as client, client.stream(
-            method,
-            pinned_url,
-            headers=request_headers,
-            json=json_body,
-            extensions={"sni_hostname": host},
-        ) as response:
+        async with (
+            httpx.AsyncClient(
+                timeout=float(timeout_seconds),
+                follow_redirects=False,
+                transport=transport,
+            ) as client,
+            client.stream(
+                method,
+                pinned_url,
+                headers=request_headers,
+                json=json_body,
+                data=form_body,
+                extensions={"sni_hostname": host},
+            ) as response,
+        ):
             body = bytearray()
             async for chunk in response.aiter_bytes():
                 body.extend(chunk)
                 if len(body) > MAX_RESPONSE_BYTES:
                     raise TicketHttpError("ticket provider response exceeded 1 MiB")
             if response.status_code < 200 or response.status_code >= 300:
-                raise TicketHttpError(
-                    f"ticket provider returned HTTP {response.status_code}"
-                )
+                raise TicketHttpError(f"ticket provider returned HTTP {response.status_code}")
             try:
                 data = json.loads(bytes(body)) if body else {}
             except (UnicodeDecodeError, ValueError) as exc:

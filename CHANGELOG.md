@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 44 connector: Microsoft Entra
+
+- A read-only Microsoft Entra importer now uses app-only client credentials and
+  the least-privileged Microsoft Graph `Device.Read.All` application permission to
+  collect bounded registered-device identity, operating-system, management,
+  compliance, ownership, registration, and sign-in context.
+- Global, US Government, US Government DoD, and China cloud authorities are a
+  code-defined allowlist. Graph hosts, the `/devices` operation, selected fields,
+  pagination query surface, and `/.default` scope cannot be overridden; every
+  HTTPS call is DNS-pinned and redirects remain disabled.
+
 ### Added — Phase 44 connector: Active Directory
 
 - A read-only Active Directory computer importer now uses verified LDAPS on fixed

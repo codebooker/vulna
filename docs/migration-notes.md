@@ -17,6 +17,13 @@ step is needed for schema changes unless noted.
 
 ## Unreleased (on `main`)
 
+- **Microsoft Entra passive inventory importer (Phase 44).** No schema migration
+  is required. Tenant/app UUIDs, the code-defined cloud selector, and bounded read
+  limits use existing public connector configuration; the app client secret uses
+  the existing purpose-encrypted one-way secret. Existing sources are unchanged,
+  and none is enabled automatically. Portability excludes the secret and temporary
+  Graph tokens; full connector continuity requires an encrypted backup.
+
 - **Active Directory passive inventory importer (Phase 44).** No schema migration
   is required. Controller, bind identity, base DN, public CA trust, and bounded
   paging settings use existing public connector configuration; the bind password

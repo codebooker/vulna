@@ -63,6 +63,9 @@ export function PassiveInventoryPage() {
     allowUnsigned: false,
     directoryBaseDn: '',
     trustPem: '',
+    entraTenantId: '',
+    entraClientId: '',
+    entraCloud: 'global',
   });
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [templateForm, setTemplateForm] = useState({
@@ -158,6 +161,13 @@ export function PassiveInventoryPage() {
       setError('Active Directory sources require a server, bind user, password, and base DN.');
       return;
     }
+    if (
+      connectorForm.type === 'entra' &&
+      (!connectorForm.entraTenantId || !connectorForm.entraClientId || !connectorForm.secret)
+    ) {
+      setError('Microsoft Entra sources require a tenant ID, application client ID, and secret.');
+      return;
+    }
     setBusy('connector');
     setError(null);
     let connectorCreated = false;
@@ -169,6 +179,7 @@ export function PassiveInventoryPage() {
         ...(connectorForm.type !== 'csv' &&
         connectorForm.type !== 'dns' &&
         connectorForm.type !== 'active_directory' &&
+        connectorForm.type !== 'entra' &&
         connectorForm.baseUrl
           ? { base_url: connectorForm.baseUrl }
           : {}),
@@ -211,6 +222,15 @@ export function PassiveInventoryPage() {
               },
             }
           : {}),
+        ...(connectorForm.type === 'entra'
+          ? {
+              config: {
+                tenant_id: connectorForm.entraTenantId,
+                client_id: connectorForm.entraClientId,
+                cloud: connectorForm.entraCloud,
+              },
+            }
+          : {}),
         interval_minutes: 1440,
       });
       connectorCreated = true;
@@ -230,6 +250,9 @@ export function PassiveInventoryPage() {
         allowUnsigned: false,
         directoryBaseDn: '',
         trustPem: '',
+        entraTenantId: '',
+        entraClientId: '',
+        entraCloud: 'global',
       }));
       setCsvFile(null);
       toast('success', 'Inventory source saved disabled. Test it before enabling collection.');
@@ -604,32 +627,81 @@ export function PassiveInventoryPage() {
                   </Field>
                 ) : (
                   <>
-                    <Field
-                      label={
-                        connectorForm.type === 'dns'
-                          ? 'Authoritative DNS server'
-                          : connectorForm.type === 'active_directory'
-                            ? 'Directory server'
-                            : 'HTTPS URL (when required)'
-                      }
-                    >
-                      <Input
-                        aria-label={
+                    {connectorForm.type !== 'entra' && (
+                      <Field
+                        label={
                           connectorForm.type === 'dns'
                             ? 'Authoritative DNS server'
                             : connectorForm.type === 'active_directory'
                               ? 'Directory server'
                               : 'HTTPS URL (when required)'
                         }
-                        value={connectorForm.baseUrl}
-                        onChange={(event) =>
-                          setConnectorForm((current) => ({
-                            ...current,
-                            baseUrl: event.target.value,
-                          }))
-                        }
-                      />
-                    </Field>
+                      >
+                        <Input
+                          aria-label={
+                            connectorForm.type === 'dns'
+                              ? 'Authoritative DNS server'
+                              : connectorForm.type === 'active_directory'
+                                ? 'Directory server'
+                                : 'HTTPS URL (when required)'
+                          }
+                          value={connectorForm.baseUrl}
+                          onChange={(event) =>
+                            setConnectorForm((current) => ({
+                              ...current,
+                              baseUrl: event.target.value,
+                            }))
+                          }
+                        />
+                      </Field>
+                    )}
+                    {connectorForm.type === 'entra' && (
+                      <>
+                        <Field label="Microsoft Entra tenant ID">
+                          <Input
+                            aria-label="Microsoft Entra tenant ID"
+                            placeholder="00000000-0000-0000-0000-000000000000"
+                            value={connectorForm.entraTenantId}
+                            onChange={(event) =>
+                              setConnectorForm((current) => ({
+                                ...current,
+                                entraTenantId: event.target.value,
+                              }))
+                            }
+                          />
+                        </Field>
+                        <Field label="Application client ID">
+                          <Input
+                            aria-label="Application client ID"
+                            placeholder="00000000-0000-0000-0000-000000000000"
+                            value={connectorForm.entraClientId}
+                            onChange={(event) =>
+                              setConnectorForm((current) => ({
+                                ...current,
+                                entraClientId: event.target.value,
+                              }))
+                            }
+                          />
+                        </Field>
+                        <Field label="Microsoft cloud">
+                          <Select
+                            aria-label="Microsoft cloud"
+                            value={connectorForm.entraCloud}
+                            onChange={(event) =>
+                              setConnectorForm((current) => ({
+                                ...current,
+                                entraCloud: event.target.value,
+                              }))
+                            }
+                          >
+                            <option value="global">Global</option>
+                            <option value="us_government">US Government</option>
+                            <option value="us_government_dod">US Government DoD</option>
+                            <option value="china">China (21Vianet)</option>
+                          </Select>
+                        </Field>
+                      </>
+                    )}
                     {connectorForm.type === 'dhcp' && (
                       <>
                         <Field label="Kea username">
@@ -790,7 +862,9 @@ export function PassiveInventoryPage() {
                             ? 'TSIG secret (base64)'
                             : connectorForm.type === 'active_directory'
                               ? 'Bind password'
-                              : 'Secret (optional)'
+                              : connectorForm.type === 'entra'
+                                ? 'Application client secret'
+                                : 'Secret (optional)'
                       }
                     >
                       <Input
@@ -801,7 +875,9 @@ export function PassiveInventoryPage() {
                               ? 'TSIG secret (base64)'
                               : connectorForm.type === 'active_directory'
                                 ? 'Bind password'
-                                : 'Secret (optional)'
+                                : connectorForm.type === 'entra'
+                                  ? 'Application client secret'
+                                  : 'Secret (optional)'
                         }
                         type="password"
                         value={connectorForm.secret}
@@ -836,7 +912,11 @@ export function PassiveInventoryPage() {
                         (!connectorForm.baseUrl ||
                           !connectorForm.username ||
                           !connectorForm.secret ||
-                          !connectorForm.directoryBaseDn))
+                          !connectorForm.directoryBaseDn)) ||
+                      (connectorForm.type === 'entra' &&
+                        (!connectorForm.entraTenantId ||
+                          !connectorForm.entraClientId ||
+                          !connectorForm.secret))
                     }
                   >
                     <Plus size={14} /> Save source

@@ -291,6 +291,40 @@ it('shows scoped analytics and keeps connector secrets one-way', async () => {
     expect(payload).not.toHaveProperty('base_url');
   });
 
+  fireEvent.change(screen.getByLabelText('Type'), { target: { value: 'entra' } });
+  fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Entra devices' } });
+  fireEvent.change(screen.getByLabelText('Microsoft Entra tenant ID'), {
+    target: { value: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' },
+  });
+  fireEvent.change(screen.getByLabelText('Application client ID'), {
+    target: { value: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' },
+  });
+  fireEvent.change(screen.getByLabelText('Microsoft cloud'), {
+    target: { value: 'us_government' },
+  });
+  fireEvent.change(screen.getByLabelText('Application client secret'), {
+    target: { value: 'entra-client-secret' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save source' }));
+  await waitFor(() => {
+    const entraCall = vi.mocked(fetch).mock.calls.find(([, init]) => {
+      if (init?.method !== 'POST' || typeof init.body !== 'string') return false;
+      return (JSON.parse(init.body) as { connector_type?: string }).connector_type === 'entra';
+    });
+    expect(entraCall).toBeDefined();
+    const payload = JSON.parse(String(entraCall?.[1]?.body)) as Record<string, unknown>;
+    expect(payload).toMatchObject({
+      connector_type: 'entra',
+      secret: 'entra-client-secret',
+      config: {
+        tenant_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        client_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        cloud: 'us_government',
+      },
+    });
+    expect(payload).not.toHaveProperty('base_url');
+  });
+
   fireEvent.click(screen.getByRole('tab', { name: /Reconciliation/ }));
   expect(await screen.findByText('75')).toBeInTheDocument();
   expect(screen.getByText('1 exact identifier match(es)')).toBeInTheDocument();

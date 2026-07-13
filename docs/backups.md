@@ -134,6 +134,14 @@ only with the inventory-connector purpose; and disabled/tested/enabled state is
 preserved exactly. Bind material and ephemeral paging cookies remain absent from
 portability, task state, observations, audit metadata, and errors after restore.
 
+Microsoft Entra restore coverage must preserve tenant/app UUIDs, the code-defined
+cloud selector, limits, and disabled/tested/enabled state exactly. The app client
+secret must decrypt only with the inventory-connector purpose. Temporary Graph
+bearer and pagination tokens are never backup data and must remain absent from
+portability, task state, observations, audit metadata, and errors after restore.
+A restore does not contact Microsoft until an operator explicitly tests, runs, or
+schedules the connector.
+
 CSV source uploads are included only in encrypted database backups. Restore tests
 must verify that source ciphertext decrypts under the CSV-specific purpose, its
 SHA-256 and size metadata still match, and a restored worker can derive the same

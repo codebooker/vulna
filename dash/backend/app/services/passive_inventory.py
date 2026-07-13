@@ -78,12 +78,14 @@ def register_builtin_adapters() -> None:
     from app.services.inventory_csv import CsvInventoryAdapter
     from app.services.inventory_dhcp import DhcpInventoryAdapter
     from app.services.inventory_dns import DnsInventoryAdapter
+    from app.services.inventory_entra import EntraInventoryAdapter
     from app.services.inventory_generic_api import GenericApiInventoryAdapter
 
     register_adapter(PassiveConnectorType.ACTIVE_DIRECTORY, ActiveDirectoryInventoryAdapter())
     register_adapter(PassiveConnectorType.CSV, CsvInventoryAdapter())
     register_adapter(PassiveConnectorType.DHCP, DhcpInventoryAdapter())
     register_adapter(PassiveConnectorType.DNS, DnsInventoryAdapter())
+    register_adapter(PassiveConnectorType.ENTRA, EntraInventoryAdapter())
     register_adapter(PassiveConnectorType.GENERIC_API, GenericApiInventoryAdapter())
 
 
