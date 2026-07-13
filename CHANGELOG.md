@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 43 connector: GitHub Issues
+
+- GitHub.com and GitHub Enterprise issue synchronization now implements the
+  common connector contract with repository tests, create/update/verified-close,
+  labels, assignees, milestones, and sanitized outcome metadata.
+- Creation retries search for a stable non-secret body marker before posting, while
+  updates use the stored issue number. HTTPS requests reject redirects, pin the
+  validated connection IP against DNS rebinding, preserve TLS hostname validation,
+  bound response size/time, and never include provider response bodies in errors.
+
 ### Added — Phase 43 core: remediation SLAs and ticket synchronization
 
 - Uniquely prioritized, first-match SLA policies now create immutable deadline

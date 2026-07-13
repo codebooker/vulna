@@ -65,6 +65,20 @@ verification scan, or when an authorized caller supplies an explicit reason that
 captured in the audit event. Provider adapters are delivered as separate stacked
 changes so each protocol can be reviewed and qualified independently.
 
+## Provider status
+
+| Provider | Status | Authentication | Idempotency strategy |
+|---|---|---|---|
+| GitHub Issues / GitHub Enterprise | Available | fine-grained token or GitHub App token | stored issue number; stable body-marker lookup before create |
+| GitLab Issues | Planned | — | — |
+| GLPI | Planned | — | — |
+| Jira | Planned | — | — |
+| Generic webhook/API | Planned | — | — |
+
+Provider requests use bounded time and response sizes, refuse redirects, resolve
+and validate every destination, pin the connection to the validated IP, and retain
+the original hostname for HTTP routing and TLS verification.
+
 ## Backup and portability
 
 Encrypted database backups contain SLA history, connector ciphertext, task state,

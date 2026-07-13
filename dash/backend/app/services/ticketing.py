@@ -79,6 +79,14 @@ def register_adapter(connector_type: TicketConnectorType, adapter: TicketAdapter
     ADAPTERS[connector_type] = adapter
 
 
+def register_builtin_adapters() -> None:
+    # Imported lazily to avoid a cycle: provider modules implement this module's
+    # protocol and return TicketResult values.
+    from app.services.ticket_adapters.github import GitHubIssuesAdapter
+
+    register_adapter(TicketConnectorType.GITHUB, GitHubIssuesAdapter())
+
+
 def validate_public_config(value: dict[str, Any]) -> dict[str, Any]:
     """Reject secret-shaped keys and unbounded/nested executable configuration."""
 
@@ -362,3 +370,6 @@ async def execute_sync_task(
         "status": event_status.value,
         "external_ticket_id": sync.external_ticket_id,
     }
+
+
+register_builtin_adapters()
