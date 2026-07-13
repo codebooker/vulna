@@ -126,7 +126,14 @@ func (w *Worker) Run(ctx context.Context, job *policy.Job) ([]byte, error) {
 	defer func() { _ = os.Remove(outPath) }()
 
 	args := BuildArgs(outPath, targetPath, w.TemplatesDir, w.Severities)
-	runCtx, cancel := context.WithTimeout(ctx, w.timeout())
+	// Bound the run by the policy-approved duration when present, so a legitimate
+	// vulnerability stage over many discovered hosts isn't killed by the fixed
+	// fallback timeout (nuclei is SIGKILLed at the deadline, failing the job).
+	timeout := w.timeout()
+	if secs := job.Limits.MaxDurationSeconds; secs > 0 {
+		timeout = time.Duration(secs) * time.Second
+	}
+	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(runCtx, w.binary(), args...)
 	var stderr bytes.Buffer
