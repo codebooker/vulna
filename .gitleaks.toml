@@ -1,0 +1,11 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Phase 43 test-only idempotency labels"
+regexTarget = "match"
+regexes = [
+  '''^phase43-failure$''',
+  '''^phase43-premature-close$''',
+]
+paths = ['''^dash/backend/tests/test_sla_ticketing\.py$''']
