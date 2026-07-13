@@ -19,6 +19,32 @@ bounded attribute object, normalized identifiers, source timestamp, and payload
 hash. Source observations are never overwritten, so operators can explain how the
 current inventory was derived.
 
+### UniFi Network importer
+
+The UniFi source reads adopted devices and connected clients through Ubiquiti's
+official [Network Integration API](https://help.ui.com/hc/en-us/articles/30076656117655-Getting-Started-with-the-Official-UniFi-API).
+Configure the exact API root, site UUID, and API key. A local root must end exactly
+in `/proxy/network/integration`; a Site Manager root must use the fixed
+`/v1/connector/consoles/{console}/proxy/network/integration` form. HTTPS is
+mandatory. Arbitrary paths, operations, query parameters, credentials in the URL,
+and redirects are not available.
+
+The adapter issues only `GET /v1/sites/{siteId}/devices` and
+`GET /v1/sites/{siteId}/clients`, as defined by Ubiquiti's
+[adopted-device](https://developer.ui.com/network/v10.1.84/getadopteddeviceoverviewpage)
+and [connected-client](https://developer.ui.com/network/v10.1.84/getconnectedclientoverviewpage)
+resources. Offset paging stays inside one worker call. Page size is capped at 200,
+the combined run at 10,000 records and 1,000 pages, and each response at 1 MiB.
+Device and client identifiers, uplink UUIDs, IP addresses, MAC addresses, names,
+and bounded context are validated before becoming observations.
+
+The API key is a one-way connector secret sent only in `X-API-Key`. The API root is
+DNS-pinned on every call; private controllers require `allow_private=true`.
+Configuration can disable either fixed resource but cannot introduce a source
+mutation surface. Provider object IDs remain provenance only: reconciliation uses
+MAC, IP, and valid host names so a UniFi record cannot fabricate another provider's
+immutable cloud identity.
+
 ### Microsoft Entra importer
 
 The Microsoft Entra source reads registered device objects through Microsoft Graph
@@ -244,8 +270,10 @@ For CSV sources this includes only presence, filename, SHA-256, size, and upload
 time. DNS connectors export the server, explicit zones, public TSIG metadata, and
 `has_secret`, but never the TSIG value or ciphertext. Active Directory connectors
 likewise export public server/base/trust configuration and `has_secret`, never the
-bind password or ciphertext. It excludes connector and source ciphertext, export
-passwords, analytics
-cache entries, task payloads, and leases. Restoring a usable CSV source or secret
-requires a verified encrypted backup. Downgrade removes Phase 44 history and cannot
-reconstruct source links, so verify a backup first.
+bind password or ciphertext. UniFi connectors export only their public API root,
+site UUID, bounds, resource selectors, private-network opt-in, and `has_secret`;
+the API key and ciphertext are excluded. It excludes connector and source
+ciphertext, export passwords, analytics cache entries, task payloads, and leases.
+Restoring a usable CSV source or secret requires a verified encrypted backup.
+Downgrade removes Phase 44 history and cannot reconstruct source links, so verify a
+backup first.

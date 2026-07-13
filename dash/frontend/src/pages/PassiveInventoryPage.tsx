@@ -66,6 +66,7 @@ export function PassiveInventoryPage() {
     entraTenantId: '',
     entraClientId: '',
     entraCloud: 'global',
+    unifiSiteId: '',
   });
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [templateForm, setTemplateForm] = useState({
@@ -168,6 +169,13 @@ export function PassiveInventoryPage() {
       setError('Microsoft Entra sources require a tenant ID, application client ID, and secret.');
       return;
     }
+    if (
+      connectorForm.type === 'unifi' &&
+      (!connectorForm.baseUrl || !connectorForm.unifiSiteId || !connectorForm.secret)
+    ) {
+      setError('UniFi sources require a Network Integration API root, site ID, and API key.');
+      return;
+    }
     setBusy('connector');
     setError(null);
     let connectorCreated = false;
@@ -231,6 +239,16 @@ export function PassiveInventoryPage() {
               },
             }
           : {}),
+        ...(connectorForm.type === 'unifi'
+          ? {
+              config: {
+                site_id: connectorForm.unifiSiteId,
+                allow_private: connectorForm.allowPrivate,
+                include_devices: true,
+                include_clients: true,
+              },
+            }
+          : {}),
         interval_minutes: 1440,
       });
       connectorCreated = true;
@@ -253,6 +271,7 @@ export function PassiveInventoryPage() {
         entraTenantId: '',
         entraClientId: '',
         entraCloud: 'global',
+        unifiSiteId: '',
       }));
       setCsvFile(null);
       toast('success', 'Inventory source saved disabled. Test it before enabling collection.');
@@ -634,7 +653,9 @@ export function PassiveInventoryPage() {
                             ? 'Authoritative DNS server'
                             : connectorForm.type === 'active_directory'
                               ? 'Directory server'
-                              : 'HTTPS URL (when required)'
+                              : connectorForm.type === 'unifi'
+                                ? 'UniFi Network API root'
+                                : 'HTTPS URL (when required)'
                         }
                       >
                         <Input
@@ -643,7 +664,9 @@ export function PassiveInventoryPage() {
                               ? 'Authoritative DNS server'
                               : connectorForm.type === 'active_directory'
                                 ? 'Directory server'
-                                : 'HTTPS URL (when required)'
+                                : connectorForm.type === 'unifi'
+                                  ? 'UniFi Network API root'
+                                  : 'HTTPS URL (when required)'
                           }
                           value={connectorForm.baseUrl}
                           onChange={(event) =>
@@ -733,6 +756,21 @@ export function PassiveInventoryPage() {
                         </Field>
                       </>
                     )}
+                    {connectorForm.type === 'unifi' && (
+                      <Field label="UniFi site ID">
+                        <Input
+                          aria-label="UniFi site ID"
+                          placeholder="00000000-0000-0000-0000-000000000000"
+                          value={connectorForm.unifiSiteId}
+                          onChange={(event) =>
+                            setConnectorForm((current) => ({
+                              ...current,
+                              unifiSiteId: event.target.value,
+                            }))
+                          }
+                        />
+                      </Field>
+                    )}
                     {connectorForm.type === 'active_directory' && (
                       <>
                         <Field label="Bind user">
@@ -778,14 +816,17 @@ export function PassiveInventoryPage() {
                     )}
                     {(connectorForm.type === 'dhcp' ||
                       connectorForm.type === 'dns' ||
-                      connectorForm.type === 'active_directory') && (
+                      connectorForm.type === 'active_directory' ||
+                      connectorForm.type === 'unifi') && (
                       <Field
                         label={
                           connectorForm.type === 'dns'
                             ? 'Private network server'
                             : connectorForm.type === 'active_directory'
                               ? 'Private directory server'
-                              : 'Private network URL'
+                              : connectorForm.type === 'unifi'
+                                ? 'Private UniFi controller'
+                                : 'Private network URL'
                         }
                       >
                         <Select
@@ -794,7 +835,9 @@ export function PassiveInventoryPage() {
                               ? 'Private network server'
                               : connectorForm.type === 'active_directory'
                                 ? 'Private directory server'
-                                : 'Private network URL'
+                                : connectorForm.type === 'unifi'
+                                  ? 'Private UniFi controller'
+                                  : 'Private network URL'
                           }
                           value={connectorForm.allowPrivate ? 'yes' : 'no'}
                           onChange={(event) =>
@@ -864,7 +907,9 @@ export function PassiveInventoryPage() {
                               ? 'Bind password'
                               : connectorForm.type === 'entra'
                                 ? 'Application client secret'
-                                : 'Secret (optional)'
+                                : connectorForm.type === 'unifi'
+                                  ? 'UniFi API key'
+                                  : 'Secret (optional)'
                       }
                     >
                       <Input
@@ -877,7 +922,9 @@ export function PassiveInventoryPage() {
                                 ? 'Bind password'
                                 : connectorForm.type === 'entra'
                                   ? 'Application client secret'
-                                  : 'Secret (optional)'
+                                  : connectorForm.type === 'unifi'
+                                    ? 'UniFi API key'
+                                    : 'Secret (optional)'
                         }
                         type="password"
                         value={connectorForm.secret}
@@ -916,6 +963,10 @@ export function PassiveInventoryPage() {
                       (connectorForm.type === 'entra' &&
                         (!connectorForm.entraTenantId ||
                           !connectorForm.entraClientId ||
+                          !connectorForm.secret)) ||
+                      (connectorForm.type === 'unifi' &&
+                        (!connectorForm.baseUrl ||
+                          !connectorForm.unifiSiteId ||
                           !connectorForm.secret))
                     }
                   >

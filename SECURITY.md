@@ -74,4 +74,7 @@ VULNA_RELEASE_PUBKEY=release_ed25519.pub deploy/release/verify.sh dist/
 This checks the signature over `SHA256SUMS` (authenticity) and then every
 artifact's checksum (integrity); it fails if either does not match. Dependency
 audits (`pip-audit`, `npm audit`, `govulncheck`), the backup/restore round-trip,
-and release signing run in the `security` CI workflow.
+and release signing run in the `security` CI workflow. Because
+[GO-2026-5932](https://pkg.go.dev/vuln/GO-2026-5932) has no fixed
+`x/crypto/openpgp` release, CI also proves that the affected OpenPGP package and its
+subpackages are absent from every supported CLI and Scout build graph.

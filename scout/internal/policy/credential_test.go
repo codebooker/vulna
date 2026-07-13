@@ -3,16 +3,16 @@ package policy
 import (
 	"crypto/ecdh"
 	"crypto/ed25519"
+	"crypto/hkdf"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
-	"io"
 	"strings"
 	"testing"
 
 	"golang.org/x/crypto/chacha20poly1305"
-	"golang.org/x/crypto/hkdf"
 )
 
 func encryptedCredentialEnvelope(t *testing.T, job *Job, recipient *ecdh.PublicKey) *CredentialEnvelope {
@@ -25,11 +25,14 @@ func encryptedCredentialEnvelope(t *testing.T, job *Job, recipient *ecdh.PublicK
 	if err != nil {
 		t.Fatal(err)
 	}
-	key := make([]byte, chacha20poly1305.KeySize)
-	if _, err := io.ReadFull(
-		hkdf.New(sha256.New, shared, nil, []byte("vulna-scout-credential-envelope-v1")),
-		key,
-	); err != nil {
+	key, err := hkdf.Key(
+		sha256.New,
+		shared,
+		nil,
+		"vulna-scout-credential-envelope-v1",
+		chacha20poly1305.KeySize,
+	)
+	if err != nil {
 		t.Fatal(err)
 	}
 	aead, err := chacha20poly1305.New(key)
@@ -67,6 +70,27 @@ func encryptedCredentialEnvelope(t *testing.T, job *Job, recipient *ecdh.PublicK
 		EphemeralPublicKeyB64: base64.StdEncoding.EncodeToString(ephemeral.PublicKey().Bytes()),
 		NonceB64:              base64.StdEncoding.EncodeToString(nonce),
 		CiphertextB64:         base64.StdEncoding.EncodeToString(ciphertext),
+	}
+}
+
+func TestCredentialEnvelopeHKDFMatchesBackendProtocolVector(t *testing.T) {
+	shared := make([]byte, 32)
+	for index := range shared {
+		shared[index] = byte(index)
+	}
+	key, err := hkdf.Key(
+		sha256.New,
+		shared,
+		nil,
+		"vulna-scout-credential-envelope-v1",
+		chacha20poly1305.KeySize,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const want = "bed740552102e98381b710f2f78c9b3f078c5b219c485c049a31df8d61d54946"
+	if got := hex.EncodeToString(key); got != want {
+		t.Fatalf("credential-envelope HKDF changed: got %s want %s", got, want)
 	}
 }
 

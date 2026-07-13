@@ -41,12 +41,14 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: "1.26"
+      - name: Reject unsafe OpenPGP packages (GO-2026-5932)
+        run: python3 deploy/security/check_go_openpgp.py
       - name: Probe vulnerability scan (govulncheck)
         working-directory: scout
-        # scout is standard-library-only (no third-party modules), so a called
-        # *dependency* vulnerability must fail the build. Go stdlib advisories are
-        # a toolchain concern — patched by upgrading Go — so they are reported but
-        # do not fail CI when only a newer, not-yet-available Go fixes them.
+        # A called dependency vulnerability must fail the build. Go stdlib
+        # advisories are a toolchain concern — patched by upgrading Go — so they
+        # are reported but do not fail CI when only a newer, not-yet-available Go
+        # fixes them.
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
           "$(go env GOPATH)/bin/govulncheck" -format json ./... > govulncheck.json || true
@@ -80,7 +82,7 @@ jobs:
           if std:
               print("NOTE: Go stdlib advisories in the current toolchain "
                     "(patched by upgrading Go):", sorted(std))
-          print("OK: no called dependency vulnerabilities (scout is stdlib-only).")
+          print("OK: no called dependency vulnerabilities in Scout.")
           PY
 
   hardening-tests:

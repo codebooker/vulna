@@ -58,6 +58,9 @@ limits, public CA trust, and `has_secret`, but never the bind password or cipher
 Microsoft Entra connectors export only tenant/app UUIDs, the cloud selector, public
 limits, and `has_secret`; client secrets, temporary bearer tokens, pagination tokens,
 and ciphertext are never portable.
+UniFi connectors export only the public Integration API root, site UUID, resource
+selectors, bounds, private-network opt-in, and `has_secret`; API keys and ciphertext
+are never portable.
 Background task payloads, leases, retries, dead letters, results, and process
 heartbeats are operational state and are excluded from portability exports. They
 remain available only through encrypted database backup/restore.

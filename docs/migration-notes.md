@@ -17,6 +17,18 @@ step is needed for schema changes unless noted.
 
 ## Unreleased (on `main`)
 
+- **UniFi Network passive inventory importer (Phase 44).** No schema migration is
+  required. The public Integration API root, site UUID, resource selectors, and
+  safety limits use existing connector configuration; the API key uses the existing
+  purpose-encrypted one-way secret. Existing sources are unchanged and none is
+  enabled automatically. Portability omits the API key, and full continuity
+  requires an encrypted backup.
+
+- **GO-2026-5932 dependency hardening.** No schema or operator action is required.
+  Vulna does not use the affected OpenPGP package; CI now fails if it enters a
+  supported Go build graph. Scout HKDF moved to the compatible standard-library
+  implementation, and the indirect `x/net` module was upgraded to v0.55.0.
+
 - **Microsoft Entra passive inventory importer (Phase 44).** No schema migration
   is required. Tenant/app UUIDs, the code-defined cloud selector, and bounded read
   limits use existing public connector configuration; the app client secret uses

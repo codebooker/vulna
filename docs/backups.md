@@ -142,6 +142,13 @@ portability, task state, observations, audit metadata, and errors after restore.
 A restore does not contact Microsoft until an operator explicitly tests, runs, or
 schedules the connector.
 
+UniFi restore coverage must preserve the exact public Integration API root, site
+UUID, resource selectors, bounds, private-network opt-in, and
+disabled/tested/enabled state. The API key must decrypt only with the
+inventory-connector purpose and remain absent from portability, task state,
+observations, cursors, audit metadata, errors, and logs. Restore must not contact a
+controller until an operator explicitly tests, runs, or schedules the connector.
+
 CSV source uploads are included only in encrypted database backups. Restore tests
 must verify that source ciphertext decrypts under the CSV-specific purpose, its
 SHA-256 and size metadata still match, and a restored worker can derive the same

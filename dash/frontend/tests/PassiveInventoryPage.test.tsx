@@ -325,6 +325,41 @@ it('shows scoped analytics and keeps connector secrets one-way', async () => {
     expect(payload).not.toHaveProperty('base_url');
   });
 
+  fireEvent.change(screen.getByLabelText('Type'), { target: { value: 'unifi' } });
+  fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'UniFi inventory' } });
+  fireEvent.change(screen.getByLabelText('UniFi Network API root'), {
+    target: { value: 'https://unifi.internal.test/proxy/network/integration' },
+  });
+  fireEvent.change(screen.getByLabelText('UniFi site ID'), {
+    target: { value: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' },
+  });
+  fireEvent.change(screen.getByLabelText('UniFi API key'), {
+    target: { value: 'unifi-api-key' },
+  });
+  fireEvent.change(screen.getByLabelText('Private UniFi controller'), {
+    target: { value: 'yes' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save source' }));
+  await waitFor(() => {
+    const unifiCall = vi.mocked(fetch).mock.calls.find(([, init]) => {
+      if (init?.method !== 'POST' || typeof init.body !== 'string') return false;
+      return (JSON.parse(init.body) as { connector_type?: string }).connector_type === 'unifi';
+    });
+    expect(unifiCall).toBeDefined();
+    const payload = JSON.parse(String(unifiCall?.[1]?.body)) as Record<string, unknown>;
+    expect(payload).toMatchObject({
+      connector_type: 'unifi',
+      base_url: 'https://unifi.internal.test/proxy/network/integration',
+      secret: 'unifi-api-key',
+      config: {
+        site_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        allow_private: true,
+        include_devices: true,
+        include_clients: true,
+      },
+    });
+  });
+
   fireEvent.click(screen.getByRole('tab', { name: /Reconciliation/ }));
   expect(await screen.findByText('75')).toBeInTheDocument();
   expect(screen.getByText('1 exact identifier match(es)')).toBeInTheDocument();

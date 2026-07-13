@@ -152,6 +152,11 @@ directly. See also [`threat-model.md`](threat-model.md) and
   validates every internal next link, pins DNS, refuses private destinations and
   redirects, and never retains the client secret, bearer token, or pagination token
   (`tests/test_inventory_entra.py`).
+- [ ] UniFi Network accepts only exact local or Site Manager Integration API roots
+  and one site UUID; issues fixed `GET` requests for adopted devices and connected
+  clients; validates bounded offset paging and record fields; pins DNS; requires
+  private-network opt-in; and never retains its `X-API-Key` value in results,
+  cursors, observations, tasks, logs, or exports (`tests/test_inventory_unifi.py`).
 - [ ] Report export passwords use a separate HKDF purpose, appear only as
   `has_export_password`, never enter task payloads/portability/audit metadata, and
   AES-256 protection is applied only in renderer memory (`tests/test_passive_inventory.py`).
@@ -162,6 +167,9 @@ directly. See also [`threat-model.md`](threat-model.md) and
 
 ## Supply chain & release
 - [ ] `pip-audit`, `npm audit --audit-level=high`, and `govulncheck` are clean (the `security` CI job).
+- [ ] `deploy/security/check_go_openpgp.py` rejects the GO-2026-5932-affected
+  `golang.org/x/crypto/openpgp` package and subpackages from every CLI and Scout
+  build graph for supported operating systems.
 - [ ] SBOMs generated for backend, frontend, and probe (`deploy/sbom/generate-sbom.sh`).
 - [ ] Release artifacts are checksummed and Ed25519-signed; `verify.sh` rejects tampered artifacts and wrong-key signatures.
 - [ ] Backup/restore round-trips identity/policy and refuses a tampered archive (`deploy/backup/smoke_test.sh`).

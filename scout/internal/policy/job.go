@@ -3,16 +3,15 @@ package policy
 import (
 	"crypto/ecdh"
 	"crypto/ed25519"
+	"crypto/hkdf"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"time"
 
 	"golang.org/x/crypto/chacha20poly1305"
-	"golang.org/x/crypto/hkdf"
 )
 
 // ErrExpired indicates a job's expiry time has passed.
@@ -200,11 +199,14 @@ func DecryptCredentialEnvelope(job *Job, privateKeyBytes []byte) error {
 	if err != nil {
 		return errors.New("credential envelope key agreement failed")
 	}
-	key := make([]byte, 32)
-	if _, err := io.ReadFull(
-		hkdf.New(sha256.New, shared, nil, []byte("vulna-scout-credential-envelope-v1")),
-		key,
-	); err != nil {
+	key, err := hkdf.Key(
+		sha256.New,
+		shared,
+		nil,
+		"vulna-scout-credential-envelope-v1",
+		chacha20poly1305.KeySize,
+	)
+	if err != nil {
 		return errors.New("credential envelope key derivation failed")
 	}
 	aead, err := chacha20poly1305.New(key)
