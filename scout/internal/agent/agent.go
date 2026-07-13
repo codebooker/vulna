@@ -195,11 +195,7 @@ func (a *Agent) PollAndStart(ctx context.Context) (*RunningJob, error) {
 }
 
 func (a *Agent) runWithProgress(ctx context.Context, job *policy.Job) (executor.Result, error) {
-	progressRunner, ok := a.worker.(executor.ProgressJobRunner)
-	if !ok {
-		return a.worker.Run(ctx, job)
-	}
-	return progressRunner.RunWithProgress(ctx, job, func(progress executor.Progress) {
+	reportProgress := func(progress executor.Progress) {
 		_ = a.client.ReportJobStatus(ctx, job.JobID, api.JobStatusReport{
 			Status: "running",
 			Progress: &api.JobProgressReport{
@@ -211,7 +207,22 @@ func (a *Agent) runWithProgress(ctx context.Context, job *policy.Job) (executor.
 				ElapsedSeconds: progress.ElapsedSeconds, ETASeconds: progress.ETASeconds,
 			},
 		})
-	})
+	}
+	// Stream per-chunk results through the durable queue when one is attached: the
+	// run loop drains the queue every second while the job runs, so assets and
+	// findings appear live instead of only at the end. Content-derived idempotency
+	// keys keep each chunk a distinct, de-duplicated upload.
+	if streamer, ok := a.worker.(executor.StreamingJobRunner); ok && a.queue != nil {
+		return streamer.RunStreaming(ctx, job, reportProgress, func(out executor.StageOutput) error {
+			return a.queue.Enqueue(queue.Item{
+				JobID: job.JobID, Stage: out.Stage, Scanner: out.Scanner, Raw: out.Raw,
+			})
+		})
+	}
+	if progressRunner, ok := a.worker.(executor.ProgressJobRunner); ok {
+		return progressRunner.RunWithProgress(ctx, job, reportProgress)
+	}
+	return a.worker.Run(ctx, job)
 }
 
 // Finalize delivers each stage's scanner output and reports the terminal status.
