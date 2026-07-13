@@ -118,6 +118,7 @@ async def create_job(
             expires_at=payload.expires_at,
             web_profile=web_profile,
             web_start_urls=web_start_urls,
+            network_id=payload.network_id,
         )
     except JobValidationError as exc:
         raise HTTPException(
@@ -136,6 +137,7 @@ async def create_job(
         request_id=context.request_id,
         metadata={
             "probe_id": str(probe.id),
+            "network_id": str(payload.network_id) if payload.network_id else None,
             "mode": job.mode.value,
             "targets": job.requested_targets_json,
         },

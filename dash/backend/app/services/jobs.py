@@ -15,12 +15,14 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlsplit
 
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
 from app.models.enums import JobMode, JobStatus, WebScanProfile
-from app.models.network import Network
+from app.models.network import Network, NetworkScout
+from app.models.network_scope import NetworkScope
 from app.models.probe import Probe
 from app.models.scan_job import ScanJob
 from app.services.policy import build_policy_document
@@ -93,6 +95,61 @@ def _build_web_stage(
 
 class JobValidationError(ValueError):
     """Raised when a job request is invalid or out of scope."""
+
+
+async def _validate_network_job(
+    session: AsyncSession, probe: Probe, network_id: uuid.UUID
+) -> list[str]:
+    """Validate a network-targeted job and return that network's enabled ranges.
+
+    This check belongs in the job service so API, scheduler, and workflow callers
+    cannot accidentally create a site-wide job while claiming network semantics.
+    """
+    network = await session.get(Network, network_id)
+    if network is None or network.organization_id != probe.organization_id:
+        raise JobValidationError("Network not found")
+    if not network.enabled:
+        raise JobValidationError("The network is disabled")
+
+    binding = (
+        await session.execute(
+            select(NetworkScout.id).where(
+                NetworkScout.network_id == network_id,
+                NetworkScout.probe_id == probe.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if binding is None:
+        raise JobValidationError("The probe is not bound to this network")
+
+    active = (
+        await session.execute(
+            select(ScanJob.id)
+            .where(
+                ScanJob.network_id == network_id,
+                ScanJob.status.in_(
+                    (JobStatus.QUEUED, JobStatus.OFFERED, JobStatus.ACCEPTED, JobStatus.RUNNING)
+                ),
+            )
+            .limit(1)
+        )
+    ).first()
+    if active is not None:
+        raise JobValidationError("the network is already under test")
+
+    ranges = list(
+        (
+            await session.execute(
+                select(NetworkScope.cidr).where(
+                    NetworkScope.network_id == network_id,
+                    NetworkScope.enabled.is_(True),
+                )
+            )
+        ).scalars()
+    )
+    if not ranges:
+        raise JobValidationError("The network has no enabled ranges")
+    return ranges
 
 
 async def _persist_job(session: AsyncSession, job: ScanJob) -> ScanJob:
@@ -232,6 +289,9 @@ async def create_scan_job(
     approved = list(policy["approved_cidrs"])
     if not approved:
         raise JobValidationError("The probe has no approved scopes; approve a scope first")
+
+    if network_id is not None:
+        approved = await _validate_network_job(session, probe, network_id)
 
     normalized_targets = _validate_targets(
         targets, approved, allow_public=bool(policy["allow_public_addresses"])

@@ -25,6 +25,7 @@ export interface Job {
   id: string;
   site_id: string;
   probe_id: string;
+  network_id: string | null;
   mode: string;
   status: string;
   requested_targets_json: string[];

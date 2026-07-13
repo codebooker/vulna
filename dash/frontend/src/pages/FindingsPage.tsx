@@ -32,7 +32,7 @@ export function FindingsPage() {
     setError(null);
     try {
       const [page, assets] = await Promise.all([
-        api.listFindings(token, 500),
+        api.listAllFindings(token),
         api.listAssets(token).catch(() => null),
       ]);
       setFindings(page.items);

@@ -554,7 +554,7 @@ function CreateScanModal({
     setError(null);
     setSubmitting(true);
     try {
-      await api.createJob(token, scout.probe_id, list);
+      await api.createJob(token, scout.probe_id, list, net.id);
       setNetworkId('');
       setTargets('');
       toast('success', 'Scan started.');

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import csv
 import io
 import json
@@ -162,6 +163,17 @@ def test_assets_and_services_csv_columns() -> None:
     s = _rows(exporters.services_csv(SNAPSHOT))
     assert list(s[0].keys()) == exporters.SERVICES_COLUMNS
     assert s[0]["product"] == "nginx" and s[0]["port"] == "443"
+
+
+def test_csv_neutralizes_spreadsheet_formulas() -> None:
+    snapshot = copy.deepcopy(SNAPSHOT)
+    snapshot["findings"][0]["title"] = '=HYPERLINK("https://attacker.invalid", "click")'
+    snapshot["services"][0]["product"] = "  @SUM(1+1)"
+
+    finding = _rows(exporters.findings_csv(snapshot))[0]
+    service = _rows(exporters.services_csv(snapshot))[0]
+    assert finding["title"].startswith("'=")
+    assert service["product"].startswith("'  @")
 
 
 def test_cve_exposure_csv() -> None:

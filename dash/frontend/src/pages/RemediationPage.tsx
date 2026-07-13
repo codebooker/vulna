@@ -59,7 +59,7 @@ export function RemediationPage() {
     setLoading(true);
     setError(null);
     try {
-      const page = await api.listFindings(token, 500);
+      const page = await api.listAllFindings(token);
       setFindings(page.items.filter((f) => isWorkStatus(f.status)));
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) return;

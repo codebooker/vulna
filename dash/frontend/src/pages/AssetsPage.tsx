@@ -43,7 +43,7 @@ export function AssetsPage() {
       const [a, s, f] = await Promise.all([
         api.listAssets(token),
         api.listSites(token),
-        api.listFindings(token, 500).catch(() => null),
+        api.listAllFindings(token).catch(() => null),
       ]);
       setAssets(a.items);
       setSites(s.items);
