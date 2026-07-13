@@ -14,13 +14,14 @@ import (
 )
 
 const (
-	keyFile         = "client_key.pem"
-	certFile        = "client_cert.pem"
-	caFile          = "ca_cert.pem"
-	stateFile       = "state.json"
-	policyFile      = "policy.json"
-	stopFile        = "stop.flag"
-	diagnosticsFile = "last-reset-diagnostics.json"
+	keyFile           = "client_key.pem"
+	certFile          = "client_cert.pem"
+	caFile            = "ca_cert.pem"
+	stateFile         = "state.json"
+	policyFile        = "policy.json"
+	credentialKeyFile = "credential_encryption.key"
+	stopFile          = "stop.flag"
+	diagnosticsFile   = "last-reset-diagnostics.json"
 )
 
 // State is the persisted enrollment state.
@@ -55,6 +56,17 @@ func (s *Store) path(name string) string { return filepath.Join(s.dir, name) }
 func (s *Store) KeyPath() string  { return s.path(keyFile) }
 func (s *Store) CertPath() string { return s.path(certFile) }
 func (s *Store) CAPath() string   { return s.path(caFile) }
+
+// SaveCredentialKey stores the raw X25519 private key used only to decrypt
+// per-job credential envelopes. Vault values themselves are never stored.
+func (s *Store) SaveCredentialKey(raw []byte) error {
+	return writeFile(s.path(credentialKeyFile), raw, 0o600)
+}
+
+// LoadCredentialKey reads the raw X25519 private key into process memory.
+func (s *Store) LoadCredentialKey() ([]byte, error) {
+	return os.ReadFile(s.path(credentialKeyFile))
+}
 
 // IsEnrolled reports whether the client key, certificate, and state exist.
 func (s *Store) IsEnrolled() bool {
@@ -164,7 +176,9 @@ func (s *Store) Reset(diagnostics []byte) error {
 			return err
 		}
 	}
-	for _, f := range []string{keyFile, certFile, caFile, stateFile, policyFile, stopFile} {
+	for _, f := range []string{
+		keyFile, certFile, caFile, stateFile, policyFile, credentialKeyFile, stopFile,
+	} {
 		if err := os.Remove(s.path(f)); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("remove %s: %w", f, err)
 		}

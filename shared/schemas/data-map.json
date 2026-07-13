@@ -2,8 +2,8 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://vulna.dev/schemas/data-map.json",
   "title": "Vulna Data Map",
-  "description": "Machine-readable map of what data Vulna stores, where, its sensitivity, and whether it can leave the deployment (updated through Phase 41). Not a JSON Schema for validation; a documented data inventory.",
-  "version": "2",
+  "description": "Machine-readable map of what data Vulna stores, where, its sensitivity, and whether it can leave the deployment (updated through Phase 42). Not a JSON Schema for validation; a documented data inventory.",
+  "version": "3",
   "leaves_deployment": {
     "intelligence_feeds": {
       "destinations": ["services.nvd.nist.gov", "www.cisa.gov", "epss.cyentia.com"],
@@ -76,6 +76,11 @@
     { "category": "background task payloads, leases, results, errors, and worker heartbeats", "store": "database", "sensitivity": "medium", "in_export": false },
     { "category": "personal/service API-token values and hashes", "store": "value shown once / hash in database", "sensitivity": "critical", "in_export": false },
     { "category": "API-token lifecycle metadata", "store": "database", "sensitivity": "high", "in_export": "metadata_only" },
+    { "category": "credential vault metadata, assignments, sanitized tests, and usage", "store": "database", "sensitivity": "high", "in_export": "metadata_only" },
+    { "category": "credential secret versions", "store": "database (purpose-bound encrypted)", "sensitivity": "critical", "in_export": false },
+    { "category": "Scout credential-encryption private key", "store": "Scout state (0600)", "sensitivity": "critical", "in_export": false },
+    { "category": "signed Scout credential envelopes", "store": "database (Scout-bound ciphertext)", "sensitivity": "critical", "in_export": false },
+    { "category": "software inventory, history, and EOL overrides", "store": "database", "sensitivity": "medium", "in_export": true },
     { "category": "internal CA + signing keys", "store": "keys volume", "sensitivity": "critical", "in_export": false },
     { "category": "notification/SMTP secrets", "store": "database (encrypted)", "sensitivity": "high", "in_export": false }
   ]

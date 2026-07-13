@@ -23,6 +23,13 @@ from app.models.authorization import (
 )
 from app.models.background_task import BackgroundTask, WorkerHeartbeat
 from app.models.change_event import ChangeEvent
+from app.models.credential import (
+    CredentialAssignment,
+    CredentialRecord,
+    CredentialSecretVersion,
+    CredentialTest,
+    CredentialUsageAudit,
+)
 from app.models.cve import CveRecord, ThreatIntelEnrichment
 from app.models.enrollment_token import EnrollmentToken
 from app.models.enums import (
@@ -38,7 +45,13 @@ from app.models.enums import (
     AuthenticationSource,
     BackgroundTaskStatus,
     ChangeEventType,
+    CredentialAssignmentTarget,
+    CredentialAuthType,
+    CredentialProtocol,
+    CredentialTestStatus,
+    CredentialUsageStatus,
     DataClassification,
+    EolStatus,
     FeedSource,
     FeedStatus,
     FindingDecisionStatus,
@@ -68,6 +81,8 @@ from app.models.enums import (
     ServiceTransport,
     Severity,
     SiteAccessMode,
+    SoftwareChangeType,
+    SoftwareInventorySource,
     SsoPolicyMode,
     UserRole,
     ValidationStatus,
@@ -121,6 +136,12 @@ from app.models.scim import (
 from app.models.service import Service
 from app.models.session import SessionRefreshToken, UserSession
 from app.models.site import Site
+from app.models.software import (
+    EolIntelligenceRecord,
+    EolOverride,
+    SoftwareInventoryHistory,
+    SoftwareInventoryItem,
+)
 from app.models.sso import (
     ExternalIdentityLink,
     IdentityGroupMapping,
@@ -165,8 +186,21 @@ __all__ = [
     "AuditEvent",
     "ChangeEvent",
     "ChangeEventType",
+    "CredentialAssignment",
+    "CredentialAssignmentTarget",
+    "CredentialAuthType",
+    "CredentialProtocol",
+    "CredentialRecord",
+    "CredentialSecretVersion",
+    "CredentialTest",
+    "CredentialTestStatus",
+    "CredentialUsageAudit",
+    "CredentialUsageStatus",
     "CveRecord",
     "DataClassification",
+    "EolIntelligenceRecord",
+    "EolOverride",
+    "EolStatus",
     "DepartmentOwner",
     "EnrollmentToken",
     "ExternalIdentityLink",
@@ -239,6 +273,10 @@ __all__ = [
     "Severity",
     "Site",
     "SiteAccessMode",
+    "SoftwareChangeType",
+    "SoftwareInventoryHistory",
+    "SoftwareInventoryItem",
+    "SoftwareInventorySource",
     "SsoPolicy",
     "SsoPolicyMode",
     "SsoProtocolState",

@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 42: authenticated scanning and software inventory
+
+- Purpose-bound SSH and WinRM vault records now use append-only encrypted secret
+  versions, deterministic asset/group/tag/network/site/preset assignments,
+  conflict-blocking resolution previews, one-way API responses, rotation, tests,
+  usage audit, and step-up-protected lifecycle operations.
+- Scout enrollment now creates an X25519 encryption key. Credential jobs are
+  single-host, signed, scope-checked, and encrypted to one explicitly opted-in
+  Scout with ephemeral X25519, HKDF-SHA256, and ChaCha20-Poly1305 binding the job,
+  Scout, and expiry. Secrets exist only in collector memory.
+- Built-in SSH Linux and WinRM Windows collectors use fixed read-only command
+  allowlists, strict host-key/TLS verification, time/output limits, and normalized
+  OS/package output. Scanner output, evidence, state, argv, environment, and logs
+  never contain reusable credentials.
+- Materialized software inventory retains append-only add/change/remove history,
+  provider-neutral EOL intelligence, and expiring audited manual overrides. The new
+  UI covers vault metadata, assignments, resolution, Scout opt-in, usage, and
+  software state.
+- The additive migration, backup/restore guidance, portability schema v6,
+  capability matrix, OpenAPI/job schema, Go/backend/frontend security tests, and
+  release gate are updated. Production readiness remains false pending final
+  qualification.
+
 ### Added — Phase 41: explainable priority and remediation grouping
 
 - Versioned organization risk profiles now score findings from a fixed factor

@@ -64,6 +64,11 @@ class Probe(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # not explicitly enabled fails closed on any pentest job — even from a
     # compromised orchestrator.
     pentest_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Separate, explicit opt-in for credential delivery. Existing Scouts remain
+    # unable to receive vault material until an administrator enables this and
+    # the Scout has enrolled an X25519 public key.
+    credentialed_scans_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    encryption_public_key_b64: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     # Lifecycle timestamps.
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

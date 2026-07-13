@@ -43,6 +43,8 @@ REQUIRED_GATE_MODULES = [
     "test_background_tasks.py",
     "test_asset_context.py",
     "test_explainable_risk.py",
+    "test_authenticated_inventory.py",
+    "test_phase42_migration.py",
 ]
 
 

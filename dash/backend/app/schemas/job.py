@@ -8,7 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models.enums import JobMode, JobStatus, WebScanProfile
+from app.models.enums import CredentialProtocol, JobMode, JobStatus, WebScanProfile
 
 
 class WebScanRequest(BaseModel):
@@ -27,6 +27,10 @@ class JobCreate(BaseModel):
     not_before: datetime | None = None
     expires_at: datetime | None = None
     web_scan: WebScanRequest | None = None
+    asset_id: uuid.UUID | None = None
+    network_id: uuid.UUID | None = None
+    authenticated_protocols: list[CredentialProtocol] = Field(default_factory=list, max_length=2)
+    preset_key: str | None = Field(default=None, max_length=128)
 
 
 class JobRead(BaseModel):
@@ -38,6 +42,7 @@ class JobRead(BaseModel):
     organization_id: uuid.UUID
     site_id: uuid.UUID
     probe_id: uuid.UUID
+    asset_id: uuid.UUID | None
     mode: JobMode
     status: JobStatus
     requested_targets_json: list[str]
@@ -53,6 +58,7 @@ class JobRead(BaseModel):
     error_code: str | None
     error_message: str | None
     summary_json: dict[str, Any]
+    credential_protocols_json: list[str]
     created_at: datetime
     updated_at: datetime
 
@@ -78,4 +84,8 @@ class ResultIngestSummary(BaseModel):
     findings_created: int = 0
     findings_updated: int = 0
     findings_reopened: int = 0
+    packages_seen: int = 0
+    packages_added: int = 0
+    packages_updated: int = 0
+    packages_removed: int = 0
     duplicate: bool = False

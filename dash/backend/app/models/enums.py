@@ -510,6 +510,73 @@ class RemediationSuggestionStatus(StrEnum):
     REJECTED = "rejected"
 
 
+class CredentialProtocol(StrEnum):
+    """Read-only authenticated collection protocols supported by VulnaScout."""
+
+    SSH = "ssh"
+    WINRM = "winrm"
+
+
+class CredentialAuthType(StrEnum):
+    """Secret material shape stored in the purpose-bound vault."""
+
+    PASSWORD = "password"  # noqa: S105 - authentication type label
+    SSH_PRIVATE_KEY = "ssh_private_key"
+
+
+class CredentialAssignmentTarget(StrEnum):
+    """Specificity levels used by deterministic credential resolution."""
+
+    ASSET = "asset"
+    GROUP = "group"
+    TAG = "tag"
+    NETWORK = "network"
+    SITE = "site"
+    PRESET = "preset"
+
+
+class CredentialTestStatus(StrEnum):
+    """Result of a credential connectivity test."""
+
+    PENDING = "pending"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+
+
+class CredentialUsageStatus(StrEnum):
+    """Non-secret credential-delivery/collector outcome."""
+
+    ENCRYPTED_FOR_JOB = "encrypted_for_job"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+
+
+class SoftwareInventorySource(StrEnum):
+    """Collector that produced a software inventory observation."""
+
+    SSH = "ssh"
+    WINRM = "winrm"
+    MANUAL = "manual"
+
+
+class SoftwareChangeType(StrEnum):
+    """Append-only software inventory change classification."""
+
+    ADDED = "added"
+    VERSION_CHANGED = "version_changed"
+    REMOVED = "removed"
+    OBSERVED = "observed"
+
+
+class EolStatus(StrEnum):
+    """Support state derived from EOL intelligence or an explicit override."""
+
+    UNKNOWN = "unknown"
+    SUPPORTED = "supported"
+    SECURITY_ONLY = "security_only"
+    END_OF_LIFE = "end_of_life"
+
+
 class RelayStatus(StrEnum):
     """Administrative lifecycle state of a VulnaRelay (Phase 16, opt-in).
 

@@ -127,8 +127,38 @@ PERMISSIONS: tuple[PermissionDefinition, ...] = (
         "jobs.create", "Create jobs", "Start authorized assessment jobs.", site_scoped=True
     ),
     _permission("jobs.manage", "Manage jobs", "Cancel and reap assessment jobs.", site_scoped=True),
+    _permission(
+        "credentials.read",
+        "View credential metadata",
+        "View vault metadata, assignments, tests, and usage without secret values.",
+    ),
+    _permission(
+        "credentials.manage",
+        "Manage credential vault",
+        "Create, rotate, assign, test, and deactivate vault credentials.",
+        high_risk=True,
+    ),
+    _permission(
+        "credentials.use",
+        "Run authenticated inventory",
+        "Resolve and deliver a credential to an authorized Scout job.",
+        site_scoped=True,
+        high_risk=True,
+    ),
     _permission("assets.read", "View assets", "View assessed assets.", site_scoped=True),
     _permission("assets.manage", "Manage assets", "Change asset records.", site_scoped=True),
+    _permission(
+        "software.read",
+        "View software inventory",
+        "View installed software and EOL state.",
+        site_scoped=True,
+    ),
+    _permission(
+        "software.manage",
+        "Manage software inventory",
+        "Create manual EOL overrides and administer software inventory.",
+        site_scoped=True,
+    ),
     _permission("findings.read", "View findings", "View findings and evidence.", site_scoped=True),
     _permission(
         "findings.manage", "Manage findings", "Change finding workflow state.", site_scoped=True
@@ -261,6 +291,7 @@ BUILTIN_ROLE_PERMISSIONS: dict[UserRole, frozenset[str]] = {
             "schedules.manage",
             "jobs.create",
             "jobs.manage",
+            "credentials.use",
             "assets.manage",
             "findings.manage",
             "remediation.manage",

@@ -17,6 +17,16 @@ step is needed for schema changes unless noted.
 
 ## Unreleased (on `main`)
 
+- **Authenticated scanning and software inventory (Phase 42).** The additive
+  upgrade adds an opt-out-by-default Scout flag/public X25519 key, nullable asset
+  and credential-protocol job projections, purpose-encrypted credential versions,
+  deterministic assignments, tests/usage, normalized software inventory/history,
+  EOL intelligence, and expiring overrides. Existing Scouts stay opted out and
+  have no encryption key; re-enroll each Scout before enabling credential delivery.
+  Existing jobs receive neutral null/empty values. Portability moves to schema v6
+  and still validates v1–v5, but never exports vault ciphertext or encrypted job
+  envelopes. Downgrade removes credential/software history and cannot reproduce a
+  Scout key or vault version; take and verify an encrypted backup first.
 - **Explainable risk and remediation units (Phase 41).** The additive upgrade creates
   one default versioned risk profile per organization and backfills every finding
   with an immutable score snapshot. Inputs are normalized to `[-1,1]`; each source,

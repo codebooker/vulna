@@ -13,6 +13,7 @@ before the ``/{probe_id}`` routes so they are matched correctly.
 
 from __future__ import annotations
 
+import base64
 import contextlib
 import json
 import uuid
@@ -31,8 +32,17 @@ from app.auth.dependencies import StepUpIdentity, require_permission
 from app.auth.site_scope import get_accessible_site, site_scope_clause
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
+from app.models.credential import CredentialTest, CredentialUsageAudit
 from app.models.enrollment_token import EnrollmentToken
-from app.models.enums import ActorType, JobMode, JobStatus, ProbeStatus
+from app.models.enums import (
+    ActorType,
+    CredentialTestStatus,
+    CredentialUsageStatus,
+    JobMode,
+    JobStatus,
+    ProbeStatus,
+    SoftwareInventorySource,
+)
 from app.models.probe import Probe
 from app.models.probe_result_upload import ProbeResultUpload
 from app.models.scan_job import ScanJob
@@ -49,6 +59,7 @@ from app.schemas.enrollment import (
 from app.schemas.job import JobStatusUpdate, ResultIngestSummary
 from app.schemas.probe import (
     CertificateStatus,
+    CredentialedScanToggle,
     HeartbeatRequest,
     HeartbeatResponse,
     PentestToggle,
@@ -73,6 +84,7 @@ from app.services.policy import build_policy_document
 from app.services.remediation import apply_verification
 from app.services.remote_scout import build_install_commands
 from app.services.signing import document_hash, get_signer
+from app.services.software_inventory import SoftwareInventoryError, ingest_inventory
 from app.services.testssl_parser import TestsslParseError, parse_testssl_json
 from app.services.zap_parser import ZapParseError, parse_zap_json
 
@@ -106,9 +118,7 @@ async def create_enrollment_token(
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> EnrollmentTokenCreated:
     """Mint a single-use enrollment token for a site (Administrator only)."""
-    await get_accessible_site(
-        session, admin, payload.site_id, permission_key="scouts.manage"
-    )
+    await get_accessible_site(session, admin, payload.site_id, permission_key="scouts.manage")
 
     generated = generate_token()
     expires_at = datetime.now(UTC) + timedelta(minutes=settings.enrollment_token_ttl_minutes)
@@ -166,9 +176,7 @@ async def create_enrollment_command(
     commands. The token is short-lived, hashed centrally, and passed via the
     environment (not argv) so it does not linger in process listings. Every command
     routes through the signature-verifying bootstrap."""
-    await get_accessible_site(
-        session, admin, payload.site_id, permission_key="scouts.manage"
-    )
+    await get_accessible_site(session, admin, payload.site_id, permission_key="scouts.manage")
 
     generated = generate_token()
     expires_at = datetime.now(UTC) + timedelta(minutes=settings.enrollment_token_ttl_minutes)
@@ -206,9 +214,7 @@ async def create_enrollment_command(
         short_code=generated.short_code,
         expires_at=expires_at,
         server_url=server_url,
-        commands=build_install_commands(
-            settings, server_url, generated.secret, token.probe_name
-        ),
+        commands=build_install_commands(settings, server_url, generated.secret, token.probe_name),
         verification=(
             f"Confirm the short code '{generated.short_code}' matches on the Scout at "
             "enrollment. Enrolling does NOT authorize any target — approve a scope "
@@ -266,6 +272,21 @@ async def enroll_probe(
         expires_at = expires_at.replace(tzinfo=UTC)
     if expires_at < now:
         raise invalid
+    if payload.encryption_public_key_b64 is not None:
+        try:
+            encryption_public_key = base64.b64decode(
+                payload.encryption_public_key_b64, validate=True
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Scout credential-encryption public key is invalid",
+            ) from exc
+        if len(encryption_public_key) != 32:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Scout credential-encryption public key must be 32 raw bytes",
+            )
 
     # Assign the probe's identity server-side and sign its CSR into a client cert.
     probe_id = uuid.uuid4()
@@ -299,6 +320,7 @@ async def enroll_probe(
         certificate_expires_at=cert_expires,
         enrolled_at=now,
         approved_at=now if token.auto_approve else None,
+        encryption_public_key_b64=payload.encryption_public_key_b64,
     )
     session.add(probe)
 
@@ -397,9 +419,7 @@ async def get_probe(
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> ProbeRead:
-    probe = await _get_owned_probe(
-        session, probe_id, current_user, permission_key="scouts.read"
-    )
+    probe = await _get_owned_probe(session, probe_id, current_user, permission_key="scouts.read")
     return serialize_probe(probe, offline_after_seconds=settings.probe_offline_after_seconds)
 
 
@@ -413,9 +433,7 @@ async def update_probe(
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> ProbeRead:
     """Update an appliance's editable fields (name, description). Administrator only."""
-    probe = await _get_owned_probe(
-        session, probe_id, admin, permission_key="scouts.manage"
-    )
+    probe = await _get_owned_probe(session, probe_id, admin, permission_key="scouts.manage")
     changed: dict[str, str] = {}
     if payload.name is not None and payload.name != probe.name:
         changed["name"] = payload.name
@@ -480,9 +498,7 @@ async def approve_probe(
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> ProbeRead:
     """Approve a pending probe, moving it to the ``enrolled`` (active) state."""
-    probe = await _get_owned_probe(
-        session, probe_id, admin, permission_key="scouts.manage"
-    )
+    probe = await _get_owned_probe(session, probe_id, admin, permission_key="scouts.manage")
     if probe.status not in (ProbeStatus.PENDING_ENROLLMENT, ProbeStatus.DISABLED):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -510,9 +526,7 @@ async def revoke_probe(
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> ProbeRead:
     """Revoke a probe's certificate; it can no longer heartbeat or poll jobs."""
-    probe = await _get_owned_probe(
-        session, probe_id, admin, permission_key="scouts.manage"
-    )
+    probe = await _get_owned_probe(session, probe_id, admin, permission_key="scouts.manage")
     return await _lifecycle_transition(
         probe=probe,
         new_status=ProbeStatus.REVOKED,
@@ -526,7 +540,8 @@ async def revoke_probe(
 
 
 @router.post(
-    "/{probe_id}/pentest", response_model=ProbeRead,
+    "/{probe_id}/pentest",
+    response_model=ProbeRead,
     summary="Enable or disable controlled-pentest execution on a scout",
 )
 async def set_pentest_enabled(
@@ -542,18 +557,57 @@ async def set_pentest_enabled(
     scout's signed policy permits the controlled_pentest mode, so a disabled scout
     fails closed on any pentest job (even from a compromised orchestrator). Bumps
     no scope, but the policy hash changes so the scout re-syncs."""
-    probe = await _get_owned_probe(
-        session, probe_id, admin, permission_key="scouts.manage"
-    )
+    probe = await _get_owned_probe(session, probe_id, admin, permission_key="scouts.manage")
     probe.pentest_enabled = payload.enabled
     record_audit(
         session,
         action="probe.pentest_" + ("enabled" if payload.enabled else "disabled"),
-        actor=admin, organization_id=admin.organization_id,
-        target_type="probe", target_id=probe.id,
-        source_ip=context.source_ip, user_agent=context.user_agent, request_id=context.request_id,
+        actor=admin,
+        organization_id=admin.organization_id,
+        target_type="probe",
+        target_id=probe.id,
+        source_ip=context.source_ip,
+        user_agent=context.user_agent,
+        request_id=context.request_id,
     )
     await session.flush()
+    return serialize_probe(probe, offline_after_seconds=settings.probe_offline_after_seconds)
+
+
+@router.post(
+    "/{probe_id}/credentialed-scans",
+    response_model=ProbeRead,
+    summary="Enable or disable authenticated inventory on a Scout",
+)
+async def set_credentialed_scans_enabled(
+    probe_id: uuid.UUID,
+    payload: CredentialedScanToggle,
+    admin: Annotated[User, Depends(require_permission("scouts.manage"))],
+    _step_up: StepUpIdentity,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    context: Annotated[RequestContext, Depends(get_request_context)],
+) -> ProbeRead:
+    probe = await _get_owned_probe(session, probe_id, admin, permission_key="scouts.manage")
+    if payload.enabled and not probe.encryption_public_key_b64:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Scout must re-enroll with an X25519 encryption key before credential delivery",
+        )
+    probe.credentialed_scans_enabled = payload.enabled
+    await session.flush()
+    record_audit(
+        session,
+        action="probe.credentialed_scans_changed",
+        actor=admin,
+        organization_id=admin.organization_id,
+        target_type="probe",
+        target_id=probe.id,
+        source_ip=context.source_ip,
+        user_agent=context.user_agent,
+        request_id=context.request_id,
+        metadata={"enabled": payload.enabled},
+    )
     return serialize_probe(probe, offline_after_seconds=settings.probe_offline_after_seconds)
 
 
@@ -567,9 +621,7 @@ async def disable_probe(
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> ProbeRead:
     """Temporarily disable a probe (reversible via approve)."""
-    probe = await _get_owned_probe(
-        session, probe_id, admin, permission_key="scouts.manage"
-    )
+    probe = await _get_owned_probe(session, probe_id, admin, permission_key="scouts.manage")
     return await _lifecycle_transition(
         probe=probe,
         new_status=ProbeStatus.DISABLED,
@@ -816,6 +868,36 @@ async def report_job_status(
             job.error_message = payload.error_message
         if payload.summary is not None:
             job.summary_json = payload.summary
+        usage_rows = list(
+            (
+                await session.execute(
+                    select(CredentialUsageAudit).where(CredentialUsageAudit.scan_job_id == job.id)
+                )
+            ).scalars()
+        )
+        usage_status = (
+            CredentialUsageStatus.SUCCEEDED
+            if payload.status == JobStatus.COMPLETED
+            else CredentialUsageStatus.FAILED
+        )
+        for usage in usage_rows:
+            usage.status = usage_status
+            usage.detail = payload.error_code
+        tests = list(
+            (
+                await session.execute(
+                    select(CredentialTest).where(CredentialTest.scan_job_id == job.id)
+                )
+            ).scalars()
+        )
+        for credential_test in tests:
+            credential_test.status = (
+                CredentialTestStatus.SUCCEEDED
+                if payload.status == JobStatus.COMPLETED
+                else CredentialTestStatus.FAILED
+            )
+            credential_test.message = payload.error_code
+            credential_test.finished_at = now
         await _emit_scan_event(session, job, payload.status)
         # A workflow's scan job finished: advance its stage and chain the next.
         await workflow_dispatch.on_scan_job_terminal(session, settings, job, payload.status)
@@ -823,8 +905,11 @@ async def report_job_status(
         # minimized again server-side; cleanup state follows the teardown guarantee).
         if job.mode == JobMode.CONTROLLED_PENTEST:
             await pentest_service.complete_session_for_job(
-                session, job=job, job_status=payload.status,
-                evidence=payload.summary, now=now,
+                session,
+                job=job,
+                job_status=payload.status,
+                evidence=payload.summary,
+                now=now,
             )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -925,8 +1010,13 @@ async def upload_job_results(
     try:
         if scanner == "nmap":
             nmap_summary = await ingest_nmap_result(
-                session, job=job, xml_bytes=body, probe_id=probe.id, stage=stage,
-                scanner=scanner, master_key=settings.master_key,
+                session,
+                job=job,
+                xml_bytes=body,
+                probe_id=probe.id,
+                stage=stage,
+                scanner=scanner,
+                master_key=settings.master_key,
             )
             result = ResultIngestSummary(
                 hosts_seen=nmap_summary.hosts_seen,
@@ -937,8 +1027,14 @@ async def upload_job_results(
             )
         elif scanner in ("nuclei", "testssl", "zap"):
             store_scan_artifact(
-                session, job=job, probe_id=probe.id, stage=stage, scanner=scanner,
-                raw=body, content_type="application/json", master_key=settings.master_key,
+                session,
+                job=job,
+                probe_id=probe.id,
+                stage=stage,
+                scanner=scanner,
+                raw=body,
+                content_type="application/json",
+                master_key=settings.master_key,
             )
             if scanner == "nuclei":
                 parsed = parse_nuclei_jsonl(body)
@@ -963,8 +1059,14 @@ async def upload_job_results(
             # which is where they must land — the terminal status summary carries only
             # stage counts.
             store_scan_artifact(
-                session, job=job, probe_id=probe.id, stage=stage, scanner=scanner,
-                raw=body, content_type="application/json", master_key=settings.master_key,
+                session,
+                job=job,
+                probe_id=probe.id,
+                stage=stage,
+                scanner=scanner,
+                raw=body,
+                content_type="application/json",
+                master_key=settings.master_key,
             )
             try:
                 output = json.loads(body)
@@ -976,12 +1078,36 @@ async def upload_job_results(
             if isinstance(output, dict):
                 await pentest_service.record_pentest_result(session, job=job, output=output)
             result = ResultIngestSummary()
+        elif scanner in ("ssh_inventory", "winrm_inventory"):
+            expected_protocol = scanner.removesuffix("_inventory")
+            if expected_protocol not in job.credential_protocols_json or job.asset_id is None:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Inventory result does not match the signed authenticated job",
+                )
+            inventory = await ingest_inventory(
+                session,
+                job=job,
+                raw=body,
+                source=(
+                    SoftwareInventorySource.SSH
+                    if scanner == "ssh_inventory"
+                    else SoftwareInventorySource.WINRM
+                ),
+                now=now,
+            )
+            result = ResultIngestSummary(
+                packages_seen=inventory.packages_seen,
+                packages_added=inventory.packages_added,
+                packages_updated=inventory.packages_updated,
+                packages_removed=inventory.packages_removed,
+            )
         else:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=f"Unsupported scanner '{scanner}'",
             )
-    except (NmapParseError, TestsslParseError, ZapParseError) as exc:
+    except (NmapParseError, SoftwareInventoryError, TestsslParseError, ZapParseError) as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
@@ -989,7 +1115,5 @@ async def upload_job_results(
     if job.started_at is None:
         job.started_at = now
     if idempotency_key:
-        session.add(
-            ProbeResultUpload(scan_job_id=job.id, idempotency_key=idempotency_key)
-        )
+        session.add(ProbeResultUpload(scan_job_id=job.id, idempotency_key=idempotency_key))
     return result

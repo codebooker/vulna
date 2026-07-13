@@ -10,11 +10,13 @@ package enrollment
 import (
 	"bytes"
 	"context"
+	"crypto/ecdh"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
@@ -54,8 +56,9 @@ func CreateCSR(key *ecdsa.PrivateKey) ([]byte, error) {
 }
 
 type enrollRequest struct {
-	Token  string `json:"token"`
-	CSRPEM string `json:"csr_pem"`
+	Token                  string `json:"token"`
+	CSRPEM                 string `json:"csr_pem"`
+	EncryptionPublicKeyB64 string `json:"encryption_public_key_b64"`
 }
 
 type enrollResponse struct {
@@ -87,7 +90,17 @@ func Enroll(
 		return state, err
 	}
 
-	payload, err := json.Marshal(enrollRequest{Token: token, CSRPEM: string(csrPEM)})
+	credentialPrivateKey, err := ecdh.X25519().GenerateKey(rand.Reader)
+	if err != nil {
+		return state, fmt.Errorf("generate credential encryption key: %w", err)
+	}
+	payload, err := json.Marshal(enrollRequest{
+		Token:  token,
+		CSRPEM: string(csrPEM),
+		EncryptionPublicKeyB64: base64.StdEncoding.EncodeToString(
+			credentialPrivateKey.PublicKey().Bytes(),
+		),
+	})
 	if err != nil {
 		return state, fmt.Errorf("encode enroll request: %w", err)
 	}
@@ -127,6 +140,9 @@ func Enroll(
 		return state, err
 	}
 	if err := store.SaveCA([]byte(er.CACertificatePEM)); err != nil {
+		return state, err
+	}
+	if err := store.SaveCredentialKey(credentialPrivateKey.Bytes()); err != nil {
 		return state, err
 	}
 

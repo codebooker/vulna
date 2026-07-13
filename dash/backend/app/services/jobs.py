@@ -15,14 +15,25 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlsplit
 
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
-from app.models.enums import JobMode, JobStatus, WebScanProfile
+from app.models.asset import Asset, AssetIdentifier
+from app.models.credential import CredentialUsageAudit
+from app.models.enums import (
+    CredentialProtocol,
+    CredentialUsageStatus,
+    IdentifierType,
+    JobMode,
+    JobStatus,
+    WebScanProfile,
+)
 from app.models.network import Network
 from app.models.probe import Probe
 from app.models.scan_job import ScanJob
+from app.services import credentials as credential_service
 from app.services.policy import build_policy_document
 from app.services.scopes import ScopeValidationError, normalize_cidr
 from app.services.signing import get_signer
@@ -187,9 +198,10 @@ def build_job_envelope(
     policy_version: int,
     not_before: datetime,
     expires_at: datetime,
+    credential_envelope: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Build the unsigned job envelope payload (build plan Section 11.3)."""
-    return {
+    envelope: dict[str, Any] = {
         "job_id": str(job_id),
         "probe_id": str(probe.id),
         "site_id": str(probe.site_id),
@@ -201,6 +213,9 @@ def build_job_envelope(
         "workflow": workflow,
         "limits": limits,
     }
+    if credential_envelope is not None:
+        envelope["credential_envelope"] = credential_envelope
+    return envelope
 
 
 async def create_scan_job(
@@ -218,6 +233,10 @@ async def create_scan_job(
     verifies_finding_ids: list[str] | None = None,
     stages: list[str] | None = None,
     network_id: uuid.UUID | None = None,
+    asset_id: uuid.UUID | None = None,
+    authenticated_protocols: list[CredentialProtocol] | None = None,
+    preset_key: str | None = None,
+    include_default_workflow: bool = True,
 ) -> ScanJob:
     """Validate, build, sign, and persist a scan job for a probe (status queued).
 
@@ -238,7 +257,55 @@ async def create_scan_job(
     )
     _enforce_host_limit(normalized_targets, policy["limits"])
 
-    workflow = list(_DEFAULT_WORKFLOW)
+    protocols = list(dict.fromkeys(authenticated_protocols or []))
+    asset: Asset | None = None
+    resolved_credentials: list[credential_service.ResolvedCredential] = []
+    if protocols:
+        if not probe.credentialed_scans_enabled:
+            raise JobValidationError(
+                "Credentialed scans are not enabled on this Scout; an administrator must opt it in"
+            )
+        if not probe.encryption_public_key_b64:
+            raise JobValidationError(
+                "Scout has no credential-encryption key; re-enroll it before credentialed scans"
+            )
+        if asset_id is None:
+            raise JobValidationError("asset_id is required for authenticated inventory")
+        asset = await session.scalar(
+            select(Asset).where(
+                Asset.id == asset_id,
+                Asset.organization_id == probe.organization_id,
+            )
+        )
+        if asset is None:
+            raise JobValidationError("Authenticated inventory asset was not found")
+        job_site_id = await _job_site_id(session, probe, network_id)
+        if asset.site_id != job_site_id:
+            raise JobValidationError("Authenticated inventory asset is outside the job site")
+        if len(normalized_targets) != 1 or normalize_cidr(normalized_targets[0]).num_addresses != 1:
+            raise JobValidationError("Authenticated inventory requires exactly one host target")
+        target_ip = str(normalize_cidr(normalized_targets[0]).network_address)
+        owns_ip = await session.scalar(
+            select(AssetIdentifier.id).where(
+                AssetIdentifier.asset_id == asset.id,
+                AssetIdentifier.identifier_type == IdentifierType.IP_ADDRESS,
+                AssetIdentifier.identifier_value == target_ip,
+            )
+        )
+        if owns_ip is None:
+            raise JobValidationError("Authenticated inventory target is not an IP of the asset")
+        try:
+            resolved_credentials = await credential_service.resolve_required_credentials(
+                session,
+                asset,
+                protocols,
+                network_id=network_id,
+                preset_key=preset_key,
+            )
+        except credential_service.CredentialResolutionError as exc:
+            raise JobValidationError(str(exc)) from exc
+
+    workflow = list(_DEFAULT_WORKFLOW) if include_default_workflow else []
     if stages is not None:
         wanted = set(stages)
         workflow = [s for s in workflow if s["stage"] in wanted]
@@ -247,6 +314,18 @@ async def create_scan_job(
     if web_profile is not None and web_start_urls:
         validated_urls = _validate_web_start_urls(web_start_urls, approved)
         workflow.append(_build_web_stage(web_profile, validated_urls, policy["limits"]))
+    for protocol in protocols:
+        workflow.append(
+            {
+                "stage": "inventory",
+                "plugin": f"{protocol.value}_inventory",
+                "config": {
+                    "asset_id": str(asset_id),
+                    "protocol": protocol.value,
+                    "read_only": True,
+                },
+            }
+        )
 
     now = datetime.now(UTC)
     start = not_before or now
@@ -255,6 +334,23 @@ async def create_scan_job(
         raise JobValidationError("expires_at must be after not_before")
 
     job_id = uuid.uuid4()
+    credential_envelope: dict[str, str] | None = None
+    if resolved_credentials:
+        master_secret = settings.require_secret_key()
+        plaintext = [
+            (
+                item,
+                credential_service.decrypt_resolved_secret(item, master_secret=master_secret),
+            )
+            for item in resolved_credentials
+        ]
+        credential_envelope = credential_service.build_scout_credential_envelope(
+            job_id=job_id,
+            probe_id=probe.id,
+            probe_public_key_b64=probe.encryption_public_key_b64 or "",
+            expires_at=end.isoformat(),
+            credentials=plaintext,
+        )
     envelope = build_job_envelope(
         job_id=job_id,
         probe=probe,
@@ -265,6 +361,7 @@ async def create_scan_job(
         policy_version=int(policy["policy_version"]),
         not_before=start,
         expires_at=end,
+        credential_envelope=credential_envelope,
     )
     signed = get_signer().sign_document(envelope)
 
@@ -274,6 +371,7 @@ async def create_scan_job(
         site_id=await _job_site_id(session, probe, network_id),
         probe_id=probe.id,
         network_id=network_id,
+        asset_id=asset_id,
         mode=mode,
         status=JobStatus.QUEUED,
         requested_targets_json=normalized_targets,
@@ -286,8 +384,26 @@ async def create_scan_job(
         expires_at=end,
         created_by=created_by,
         verifies_finding_ids_json=list(verifies_finding_ids or []),
+        credential_protocols_json=[protocol.value for protocol in protocols],
     )
-    return await _persist_job(session, job)
+    await _persist_job(session, job)
+    if asset is not None:
+        for item in resolved_credentials:
+            if item.record is None or item.version is None:
+                raise JobValidationError("credential resolution changed while creating the job")
+            session.add(
+                CredentialUsageAudit(
+                    organization_id=job.organization_id,
+                    credential_id=item.record.id,
+                    secret_version_id=item.version.id,
+                    asset_id=asset.id,
+                    probe_id=probe.id,
+                    scan_job_id=job.id,
+                    protocol=item.protocol,
+                    status=CredentialUsageStatus.ENCRYPTED_FOR_JOB,
+                )
+            )
+    return job
 
 
 async def create_pentest_job(

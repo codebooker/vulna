@@ -30,11 +30,12 @@ type Orchestrator interface {
 
 // Agent processes jobs for a single probe.
 type Agent struct {
-	client Orchestrator
-	store  *storage.Store
-	pubkey ed25519.PublicKey
-	worker executor.JobRunner
-	queue  *queue.Queue
+	client               Orchestrator
+	store                *storage.Store
+	pubkey               ed25519.PublicKey
+	worker               executor.JobRunner
+	queue                *queue.Queue
+	credentialPrivateKey []byte
 
 	policy     *policy.Policy
 	policyHash string
@@ -52,6 +53,12 @@ func New(
 // link and resumes without duplicating observations. When nil, results upload
 // directly.
 func (a *Agent) SetQueue(q *queue.Queue) { a.queue = q }
+
+// SetCredentialPrivateKey supplies the enrollment X25519 key. It is kept only
+// in process memory while the Scout runs.
+func (a *Agent) SetCredentialPrivateKey(key []byte) {
+	a.credentialPrivateKey = append([]byte(nil), key...)
+}
 
 // uploadItem uploads one queued result batch.
 func (a *Agent) uploadItem(ctx context.Context, it queue.Item) error {
@@ -164,6 +171,14 @@ func (a *Agent) PollAndStart(ctx context.Context) (*RunningJob, error) {
 		})
 		return nil, nil
 	}
+	if err := policy.DecryptCredentialEnvelope(job, a.credentialPrivateKey); err != nil {
+		_ = a.client.ReportJobStatus(ctx, job.JobID, api.JobStatusReport{
+			Status:       "rejected_by_probe",
+			ErrorCode:    "credential_envelope_failed",
+			ErrorMessage: err.Error(),
+		})
+		return nil, nil
+	}
 
 	if err := a.client.ReportJobStatus(ctx, job.JobID, api.JobStatusReport{Status: "accepted"}); err != nil {
 		return nil, err
@@ -172,6 +187,7 @@ func (a *Agent) PollAndStart(ctx context.Context) (*RunningJob, error) {
 	done := make(chan executor.Result, 1)
 	_ = a.client.ReportJobStatus(ctx, job.JobID, api.JobStatusReport{Status: "running"})
 	go func() {
+		defer job.ClearCredentials()
 		res, _ := a.worker.Run(jobCtx, job)
 		done <- res
 	}()

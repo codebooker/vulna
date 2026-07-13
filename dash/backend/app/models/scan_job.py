@@ -53,6 +53,9 @@ class ScanJob(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     network_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("networks.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    asset_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("assets.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     mode: Mapped[JobMode] = mapped_column(
         Enum(JobMode, native_enum=False, length=32, validate_strings=True), nullable=False
@@ -70,9 +73,10 @@ class ScanJob(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # Finding IDs this job re-checks (targeted verification rescan, Phase 10). When
     # a scanner's results arrive, a verified finding it no longer observes is
     # resolved as fixed.
-    verifies_finding_ids_json: Mapped[list[str]] = mapped_column(
-        JSON, nullable=False, default=list
-    )
+    verifies_finding_ids_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    # Non-secret references only. The actual credential material exists solely
+    # inside the Scout-specific encrypted envelope in ``envelope_json``.
+    credential_protocols_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
 
     policy_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     # The exact signed job envelope delivered to the probe (source of truth).

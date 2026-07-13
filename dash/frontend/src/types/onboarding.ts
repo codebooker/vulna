@@ -83,6 +83,8 @@ export interface ProbeSummary {
   status: string;
   site_id: string;
   pentest_enabled?: boolean;
+  credentialed_scans_enabled?: boolean;
+  has_encryption_key?: boolean;
 }
 
 export interface ProbeDetail {
@@ -99,6 +101,8 @@ export interface ProbeDetail {
   hostname: string | null;
   primary_ip: string | null;
   pentest_enabled: boolean;
+  credentialed_scans_enabled: boolean;
+  has_encryption_key: boolean;
   last_seen_at: string | null;
   enrolled_at: string | null;
   approved_at: string | null;

@@ -53,6 +53,12 @@ class EnrollRequest(BaseModel):
 
     token: str = Field(min_length=1, max_length=512)
     csr_pem: str = Field(description="PEM-encoded PKCS#10 certificate-signing request")
+    encryption_public_key_b64: str | None = Field(
+        default=None,
+        min_length=44,
+        max_length=44,
+        description="Base64 raw X25519 public key used only for per-job credential envelopes",
+    )
 
 
 class EnrollResponse(BaseModel):

@@ -10,6 +10,7 @@ import {
   LayoutDashboard,
   ListChecks,
   Network,
+  PackageSearch,
   Radar,
   Rocket,
   Rss,
@@ -49,6 +50,7 @@ import { IdentityProvidersPage } from '../pages/IdentityProvidersPage';
 import { ScimProvisioningPage } from '../pages/ScimProvisioningPage';
 import { AuthorizationPage } from '../pages/AuthorizationPage';
 import { TaskOperationsPage } from '../pages/TaskOperationsPage';
+import { AuthenticatedInventoryPage } from '../pages/AuthenticatedInventoryPage';
 import type { Role } from '../types/auth';
 
 export interface RouteDef {
@@ -149,6 +151,14 @@ export const ROUTE_CATALOGUE: RouteSection[] = [
         icon: HardDrive,
         Component: AppliancesPage,
         permission: 'scouts.read',
+      },
+      {
+        id: 'authenticated-inventory',
+        visibilityKey: 'authenticated_inventory',
+        label: 'Authenticated inventory',
+        icon: PackageSearch,
+        Component: AuthenticatedInventoryPage,
+        permission: 'credentials.read',
       },
       {
         id: 'networks',

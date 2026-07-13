@@ -29,7 +29,9 @@ import (
 	"github.com/codebooker/vulna/scout/internal/scanners/metasploit"
 	"github.com/codebooker/vulna/scout/internal/scanners/nmap"
 	"github.com/codebooker/vulna/scout/internal/scanners/nuclei"
+	"github.com/codebooker/vulna/scout/internal/scanners/ssh_inventory"
 	"github.com/codebooker/vulna/scout/internal/scanners/testssl"
+	"github.com/codebooker/vulna/scout/internal/scanners/winrm_inventory"
 	"github.com/codebooker/vulna/scout/internal/scanners/zap"
 	"github.com/codebooker/vulna/scout/internal/selftest"
 	"github.com/codebooker/vulna/scout/internal/storage"
@@ -304,6 +306,11 @@ func runRun(args []string, stdout, stderr io.Writer) int {
 	}
 	workflow := scanners.NewWorkflow(workers...)
 	scout := agent.New(client, store, pubkey, workflow)
+	if credentialKey, keyErr := store.LoadCredentialKey(); keyErr == nil {
+		scout.SetCredentialPrivateKey(credentialKey)
+	} else if !os.IsNotExist(keyErr) {
+		fmt.Fprintln(stderr, "vulnascout: credential encryption key unavailable:", keyErr)
+	}
 
 	// Durable result queue: finished work survives an intermittent WAN link and
 	// resumes upload without duplicating observations.
@@ -470,6 +477,12 @@ func standardScannerWorkers(capabilities []string) []scanners.Scanner {
 	}
 	if present["zap"] {
 		workers = append(workers, zap.NewWorker())
+	}
+	if present["ssh_inventory"] {
+		workers = append(workers, ssh_inventory.NewWorker())
+	}
+	if present["winrm_inventory"] {
+		workers = append(workers, winrm_inventory.NewWorker())
 	}
 	return workers
 }

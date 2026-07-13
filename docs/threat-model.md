@@ -27,6 +27,8 @@
 7. Browser / VulnaDash ↔ operator-configured OIDC or SAML identity provider.
 8. Directory provisioning client ↔ `/scim/v2` (organization bearer token).
 9. Personal/service automation client ↔ `/api/v1` (expiring API token).
+10. VulnaScout authenticated collector ↔ one assessed host (ephemeral in-memory
+    credential, pinned host identity, fixed read-only command allowlist).
 
 ## Threats and controls (STRIDE summary)
 
@@ -90,6 +92,14 @@
 - Service-account impersonation or attribution loss → no password/SSO/SCIM login,
   explicit service-principal audit actor type, organization isolation, and nullable
   legacy user foreign keys rather than forged user attribution.
+- Vault credential disclosure or cross-Scout replay → distinct SSH/WinRM encryption
+  purposes, no read API, deterministic organization/site-bound resolution, explicit
+  per-Scout opt-in, X25519/HKDF/ChaCha20-Poly1305 job envelopes with authenticated
+  job/Scout/expiry binding, and decrypt-after-signature/policy/scope validation.
+- Authenticated collector command injection or credential residue → exactly one
+  asset-bound IP, fixed SSH/PowerShell commands, verified host keys/TLS, bounded
+  time/output, memory-only secret handling, clearing after collection, strict
+  normalized result parsing, and no secret-bearing output/evidence/logging.
 
 ## Required controls (baseline)
 

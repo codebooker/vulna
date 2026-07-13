@@ -49,6 +49,11 @@ cross-installation identifier.
 | Personal/service API-token values and hashes | value shown once / hash in database | critical | no |
 | API-token lifecycle metadata (expiry, revocation, restrictions, last use) | database | high | yes, metadata only |
 | Background task payloads, leases, results, errors, and worker heartbeats | database | medium | no |
+| Credential vault metadata, assignments, sanitized tests, and usage | database | high | metadata only |
+| Credential secret versions | database (purpose-bound encrypted) | critical | no |
+| Scout credential-encryption private key | Scout state (`0600`) | critical | no |
+| Software inventory, history, and EOL overrides | database | medium | yes |
+| Signed Scout credential envelopes | database (Scout-bound ciphertext) | critical | no |
 | Internal CA + signing keys | keys volume | critical | no |
 | Notification / SMTP secrets | database (encrypted) | high | no |
 

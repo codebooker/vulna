@@ -74,6 +74,16 @@ func TestEnrollPersistsMaterial(t *testing.T) {
 	if got.CSRPEM == "" {
 		t.Error("CSR was not sent")
 	}
+	if got.EncryptionPublicKeyB64 == "" {
+		t.Error("credential encryption public key was not sent")
+	}
+	credentialKey, err := store.LoadCredentialKey()
+	if err != nil {
+		t.Fatalf("credential encryption key was not persisted: %v", err)
+	}
+	if len(credentialKey) != 32 {
+		t.Fatalf("credential encryption key length = %d, want 32", len(credentialKey))
+	}
 	if !store.IsEnrolled() {
 		t.Error("store should be enrolled after successful enroll")
 	}
@@ -95,5 +105,8 @@ func TestEnrollRejectsErrorStatus(t *testing.T) {
 	}
 	if store.IsEnrolled() {
 		t.Error("store must not be enrolled after a failed enroll")
+	}
+	if _, err := store.LoadCredentialKey(); err == nil {
+		t.Error("failed enrollment must not persist the credential encryption key")
 	}
 }

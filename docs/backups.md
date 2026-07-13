@@ -96,6 +96,14 @@ are intact, and active/revoked/expired finding decisions retain their evidence,
 expiry, and prior-status projection. Re-running the expiry sweep after restore must
 be idempotent.
 
+A Phase 42 restore test must verify that each vault ciphertext still decrypts only
+under its SSH or WinRM purpose, version/retirement history and assignments are
+unchanged, deactivated credentials do not resolve, and usage/software/EOL history
+is intact. Scout public keys and opt-in state must remain bound to their original
+Scout; Scout private X25519 keys live only in Scout state. A restored active vault
+must create an envelope decryptable by that Scout without exposing plaintext in the
+job row, export, report, evidence, or logs.
+
 Post-Phase-39 background tasks, lease/retry/dead-letter state, and worker heartbeats
 are ordinary PostgreSQL records and are included in the encrypted database backup.
 After restore, start the API/migrations before the scheduler and worker. Leases from

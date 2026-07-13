@@ -82,6 +82,10 @@ directly. See also [`threat-model.md`](threat-model.md) and
 - [ ] No free-form command strings; every adapter uses allowlisted, typed arguments (`scout/internal/scanners/*`).
 - [ ] Targets are validated as IP/CIDR (argument-injection defense) before any scanner runs.
 - [ ] Nuclei uses the safe template policy (no dos/intrusive/fuzzing/brute-force); ZAP passive has no active scan, limited-active uses a rule allowlist; ZAP scope is bound to in-scope hosts so redirects cannot leave scope.
+- [ ] SSH/WinRM inventory accepts exactly one in-scope asset IP, uses fixed read-only
+  commands, bounded time/output, pinned SSH host keys or verified WinRM HTTPS, and
+  rejects job-supplied command material (`tests/test_authenticated_inventory.py`,
+  `scout/internal/scanners/*_inventory`).
 
 ## Controlled pentest
 - [ ] Module policy is allowlist-only; DoS and exploit categories are categorically blocked; the default pack is auxiliary/validation only, with no exploit lists in the repo (`app/services/pentest_policy.py`, `scout/internal/pentest`).
@@ -101,6 +105,11 @@ directly. See also [`threat-model.md`](threat-model.md) and
 - [ ] Background task types are allowlisted in code; payloads contain no secrets or
   executable expressions, leases expire/renew, attempts are bounded, and dead
   letters/cancellation/retry require `tasks.*` permissions and audit events.
+- [ ] Vault APIs are one-way; SSH and WinRM use distinct HKDF purposes. Resolution
+  precedence is deterministic and same-level conflicts block. A signed credential
+  envelope is X25519/HKDF/ChaCha20-Poly1305 bound to one job/Scout/expiry and is
+  decrypted only after Scout signature/policy/scope/opt-in checks. Plaintext never
+  enters Scout state, argv, environment, output, evidence, logs, or portability.
 - [ ] Scheduler replicas use PostgreSQL advisory-lock leader election and unique
   idempotency keys; queue backpressure is configured before connector workloads.
 - [ ] Untrusted scanner output parsed defensively (defusedxml for XML; malformed lines skipped).

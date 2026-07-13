@@ -115,6 +115,18 @@ import type {
 } from '../types/authorization';
 import type { BackgroundTask, TaskHealth, TaskPage } from '../types/task';
 import type { FindingDecision, FindingScore, RemediationUnit, RiskProfile } from '../types/risk';
+import type {
+  Credential,
+  CredentialAssignment,
+  CredentialAssignmentPage,
+  CredentialCreate,
+  CredentialPage,
+  CredentialProtocol,
+  CredentialResolution,
+  CredentialTargetType,
+  CredentialUsagePage,
+  SoftwarePage,
+} from '../types/credentials';
 
 // In development, Vite proxies /api to the backend (see vite.config.ts).
 // In production the frontend is served behind the same reverse proxy as the API.
@@ -1005,6 +1017,115 @@ export const api = {
       method: 'POST',
       token,
       body: { enabled },
+    });
+  },
+  setProbeCredentialedScanning(
+    token: string,
+    probeId: string,
+    enabled: boolean,
+  ): Promise<ProbeSummary> {
+    return request<ProbeSummary>(`/api/v1/probes/${probeId}/credentialed-scans`, {
+      method: 'POST',
+      token,
+      body: { enabled },
+    });
+  },
+  // --- Authenticated inventory (Phase 42) ---
+  listCredentials(token: string): Promise<CredentialPage> {
+    return request<CredentialPage>('/api/v1/credentials?limit=200', { token });
+  },
+  createCredential(token: string, payload: CredentialCreate): Promise<Credential> {
+    return request<Credential>('/api/v1/credentials', { method: 'POST', token, body: payload });
+  },
+  updateCredential(
+    token: string,
+    credentialId: string,
+    payload: Partial<Pick<Credential, 'name' | 'description' | 'username' | 'is_active'>>,
+  ): Promise<Credential> {
+    return request<Credential>(`/api/v1/credentials/${credentialId}`, {
+      method: 'PATCH',
+      token,
+      body: payload,
+    });
+  },
+  rotateCredential(token: string, credentialId: string, secret: string): Promise<Credential> {
+    return request<Credential>(`/api/v1/credentials/${credentialId}/rotate`, {
+      method: 'POST',
+      token,
+      body: { secret },
+    });
+  },
+  listCredentialAssignments(token: string): Promise<CredentialAssignmentPage> {
+    return request<CredentialAssignmentPage>('/api/v1/credentials/assignments?limit=500', {
+      token,
+    });
+  },
+  createCredentialAssignment(
+    token: string,
+    credentialId: string,
+    targetType: CredentialTargetType,
+    targetId: string,
+  ): Promise<CredentialAssignment> {
+    return request<CredentialAssignment>(`/api/v1/credentials/${credentialId}/assignments`, {
+      method: 'POST',
+      token,
+      body: { target_type: targetType, target_id: targetId },
+    });
+  },
+  deleteCredentialAssignment(token: string, assignmentId: string): Promise<void> {
+    return request<void>(`/api/v1/credentials/assignments/${assignmentId}`, {
+      method: 'DELETE',
+      token,
+    });
+  },
+  resolveCredentials(
+    token: string,
+    assetId: string,
+    protocols: CredentialProtocol[],
+  ): Promise<CredentialResolution[]> {
+    return request<CredentialResolution[]>('/api/v1/credentials/resolve-preview', {
+      method: 'POST',
+      token,
+      body: { asset_id: assetId, protocols },
+    });
+  },
+  credentialUsage(token: string): Promise<CredentialUsagePage> {
+    return request<CredentialUsagePage>('/api/v1/credentials/usage?limit=100', { token });
+  },
+  listSoftware(token: string, assetId?: string): Promise<SoftwarePage> {
+    const query = assetId ? `&asset_id=${encodeURIComponent(assetId)}` : '';
+    return request<SoftwarePage>(`/api/v1/software?limit=500${query}`, { token });
+  },
+  createEolOverride(
+    token: string,
+    softwareId: string,
+    payload: {
+      status: string;
+      reason: string;
+      eol_date?: string | null;
+      expires_at?: string | null;
+    },
+  ): Promise<unknown> {
+    return request(`/api/v1/software/${softwareId}/eol-overrides`, {
+      method: 'POST',
+      token,
+      body: payload,
+    });
+  },
+  createAuthenticatedJob(
+    token: string,
+    payload: {
+      probe_id: string;
+      asset_id: string;
+      network_id?: string;
+      targets: string[];
+      authenticated_protocols: CredentialProtocol[];
+    },
+  ): Promise<JobSummary> {
+    return request<JobSummary>('/api/v1/jobs/authenticated', {
+      method: 'POST',
+      token,
+      body: { ...payload, mode: 'vulnerability_assessment' },
     });
   },
   // --- Controlled pentest ---

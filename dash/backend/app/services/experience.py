@@ -35,6 +35,7 @@ ADVANCED_ROUTES: tuple[str, ...] = (
     "provisioning",
     "authorization",
     "tasks",
+    "authenticated_inventory",
     "system_health",
 )
 
@@ -117,8 +118,8 @@ CAPABILITIES: tuple[dict[str, Any], ...] = (
     },
     {
         "key": "authenticated_scanning",
-        "name": "Authenticated scanning",
-        "status": "planned",
+        "name": "Authenticated scanning and software inventory",
+        "status": "available",
         "production_ready": False,
     },
     {

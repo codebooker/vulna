@@ -37,6 +37,8 @@ class ProbeRead(BaseModel):
     policy_hash: str | None
     upgrade_channel: str
     pentest_enabled: bool = False
+    credentialed_scans_enabled: bool = False
+    has_encryption_key: bool = False
     last_seen_at: datetime | None
     last_job_at: datetime | None
     enrolled_at: datetime | None
@@ -47,6 +49,12 @@ class ProbeRead(BaseModel):
 
 class PentestToggle(BaseModel):
     """Enable or disable controlled-pentest execution on a scout."""
+
+    enabled: bool
+
+
+class CredentialedScanToggle(BaseModel):
+    """Enable or disable delivery of Scout-encrypted vault credentials."""
 
     enabled: bool
 
@@ -93,6 +101,8 @@ def serialize_probe(probe: Probe, *, offline_after_seconds: int) -> ProbeRead:
         policy_hash=probe.policy_hash,
         upgrade_channel=probe.upgrade_channel,
         pentest_enabled=probe.pentest_enabled,
+        credentialed_scans_enabled=probe.credentialed_scans_enabled,
+        has_encryption_key=bool(probe.encryption_public_key_b64),
         last_seen_at=probe.last_seen_at,
         last_job_at=probe.last_job_at,
         enrolled_at=probe.enrolled_at,

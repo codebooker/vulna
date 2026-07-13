@@ -72,6 +72,14 @@ review. Bounded finding decisions are evidence-backed and expire through the dur
 worker sweep. See [Explainable risk and remediation](explainable-risk.md) and
 [ADR 0042](adr/0042-explainable-risk-remediation.md).
 
+Authenticated inventory resolves one purpose-bound credential per protocol through
+asset → group → tag → network → site → preset precedence. A signed job carries only
+an authenticated ciphertext envelope bound to its id, expiry, and one opted-in
+Scout's enrollment X25519 key. The Scout decrypts after its normal policy/scope
+checks and runs fixed read-only SSH or WinRM collectors without persisting secret
+material. See [Authenticated inventory](authenticated-inventory.md) and
+[ADR 0043](adr/0043-authenticated-inventory-credentials.md).
+
 ### VulnaScout (`scout/`)
 
 A single statically linked Go binary deployed as a systemd service, container,

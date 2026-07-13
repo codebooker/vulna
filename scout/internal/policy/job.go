@@ -1,11 +1,18 @@
 package policy
 
 import (
+	"crypto/ecdh"
 	"crypto/ed25519"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"time"
+
+	"golang.org/x/crypto/chacha20poly1305"
+	"golang.org/x/crypto/hkdf"
 )
 
 // ErrExpired indicates a job's expiry time has passed.
@@ -25,16 +32,39 @@ const hostSaturation = 1 << 30
 
 // Job is a verified job envelope (build plan Section 11.3).
 type Job struct {
-	JobID         string           `json:"job_id"`
-	ProbeID       string           `json:"probe_id"`
-	SiteID        string           `json:"site_id"`
-	Mode          string           `json:"mode"`
-	PolicyVersion int              `json:"policy_version"`
-	NotBefore     string           `json:"not_before"`
-	ExpiresAt     string           `json:"expires_at"`
-	Targets       []string         `json:"targets"`
-	Workflow      []map[string]any `json:"workflow"`
-	Limits        Limits           `json:"limits"`
+	JobID              string              `json:"job_id"`
+	ProbeID            string              `json:"probe_id"`
+	SiteID             string              `json:"site_id"`
+	Mode               string              `json:"mode"`
+	PolicyVersion      int                 `json:"policy_version"`
+	NotBefore          string              `json:"not_before"`
+	ExpiresAt          string              `json:"expires_at"`
+	Targets            []string            `json:"targets"`
+	Workflow           []map[string]any    `json:"workflow"`
+	Limits             Limits              `json:"limits"`
+	CredentialEnvelope *CredentialEnvelope `json:"credential_envelope,omitempty"`
+	Credentials        []Credential        `json:"-"`
+}
+
+// CredentialEnvelope is signed with the job but encrypted to one Scout's
+// enrollment key. It never contains plaintext credential material.
+type CredentialEnvelope struct {
+	Version               string `json:"version"`
+	Algorithm             string `json:"algorithm"`
+	EphemeralPublicKeyB64 string `json:"ephemeral_public_key_b64"`
+	NonceB64              string `json:"nonce_b64"`
+	CiphertextB64         string `json:"ciphertext_b64"`
+}
+
+// Credential exists only in memory for the lifetime of one verified job.
+type Credential struct {
+	CredentialID    string         `json:"credential_id"`
+	SecretVersionID string         `json:"secret_version_id"`
+	Protocol        string         `json:"protocol"`
+	AuthType        string         `json:"auth_type"`
+	Username        string         `json:"username"`
+	Secret          string         `json:"secret"`
+	Metadata        map[string]any `json:"metadata"`
 }
 
 // VerifyJob verifies a signed job envelope and enforces it against the local
@@ -134,7 +164,109 @@ func VerifyJob(raw []byte, pub ed25519.PublicKey, p *Policy, now time.Time) (*Jo
 	if err := p.AllowsPlugins(job.Workflow); err != nil {
 		return nil, err
 	}
+	if job.CredentialEnvelope != nil && !p.CredentialedScansAllowed {
+		return nil, errors.New("credentialed scans are not permitted by local policy")
+	}
 	return &job, nil
+}
+
+// DecryptCredentialEnvelope decrypts a signed envelope after VerifyJob has
+// already enforced signature, expiry, scope, mode, limits, and plugin policy.
+// The returned values are attached only to the in-memory Job.
+func DecryptCredentialEnvelope(job *Job, privateKeyBytes []byte) error {
+	if job.CredentialEnvelope == nil {
+		return nil
+	}
+	if len(privateKeyBytes) == 0 {
+		return errors.New("credential envelope present but Scout has no encryption key")
+	}
+	envelope := job.CredentialEnvelope
+	if envelope.Version != "1" || envelope.Algorithm != "X25519-HKDF-SHA256-CHACHA20POLY1305" {
+		return errors.New("unsupported credential envelope")
+	}
+	privateKey, err := ecdh.X25519().NewPrivateKey(privateKeyBytes)
+	if err != nil {
+		return fmt.Errorf("invalid Scout credential key: %w", err)
+	}
+	publicBytes, err := base64.StdEncoding.DecodeString(envelope.EphemeralPublicKeyB64)
+	if err != nil {
+		return errors.New("invalid credential envelope public key")
+	}
+	publicKey, err := ecdh.X25519().NewPublicKey(publicBytes)
+	if err != nil {
+		return errors.New("invalid credential envelope public key")
+	}
+	shared, err := privateKey.ECDH(publicKey)
+	if err != nil {
+		return errors.New("credential envelope key agreement failed")
+	}
+	key := make([]byte, 32)
+	if _, err := io.ReadFull(
+		hkdf.New(sha256.New, shared, nil, []byte("vulna-scout-credential-envelope-v1")),
+		key,
+	); err != nil {
+		return errors.New("credential envelope key derivation failed")
+	}
+	aead, err := chacha20poly1305.New(key)
+	if err != nil {
+		return errors.New("credential envelope cipher unavailable")
+	}
+	nonce, err := base64.StdEncoding.DecodeString(envelope.NonceB64)
+	if err != nil {
+		return errors.New("invalid credential envelope nonce")
+	}
+	ciphertext, err := base64.StdEncoding.DecodeString(envelope.CiphertextB64)
+	if err != nil {
+		return errors.New("invalid credential envelope ciphertext")
+	}
+	aad := []byte(job.JobID + ":" + job.ProbeID)
+	plaintext, err := aead.Open(nil, nonce, ciphertext, aad)
+	if err != nil {
+		return errors.New("credential envelope authentication failed")
+	}
+	defer func() {
+		for i := range plaintext {
+			plaintext[i] = 0
+		}
+	}()
+	var payload struct {
+		Version     int          `json:"version"`
+		JobID       string       `json:"job_id"`
+		ProbeID     string       `json:"probe_id"`
+		ExpiresAt   string       `json:"expires_at"`
+		Credentials []Credential `json:"credentials"`
+	}
+	if err := json.Unmarshal(plaintext, &payload); err != nil {
+		return errors.New("credential envelope payload is invalid")
+	}
+	if payload.Version != 1 || payload.JobID != job.JobID || payload.ProbeID != job.ProbeID || payload.ExpiresAt != job.ExpiresAt {
+		return errors.New("credential envelope is not bound to this job")
+	}
+	seen := make(map[string]bool, len(payload.Credentials))
+	for _, credential := range payload.Credentials {
+		if credential.Protocol != "ssh" && credential.Protocol != "winrm" {
+			return errors.New("credential envelope contains an unsupported protocol")
+		}
+		if credential.Secret == "" || credential.Username == "" || seen[credential.Protocol] {
+			return errors.New("credential envelope contains invalid or duplicate credentials")
+		}
+		seen[credential.Protocol] = true
+	}
+	if len(payload.Credentials) == 0 {
+		return errors.New("credential envelope contains no credentials")
+	}
+	job.Credentials = payload.Credentials
+	return nil
+}
+
+// ClearCredentials drops in-memory references as soon as the collector exits.
+func (j *Job) ClearCredentials() {
+	for i := range j.Credentials {
+		j.Credentials[i].Secret = ""
+		j.Credentials[i].Username = ""
+		j.Credentials[i].Metadata = nil
+	}
+	j.Credentials = nil
 }
 
 // hostCount returns the number of addresses a target IP or CIDR spans, saturated

@@ -40,6 +40,9 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	if err := s.SaveCA([]byte("CAPEM")); err != nil {
 		t.Fatal(err)
 	}
+	if err := s.SaveCredentialKey([]byte("X25519PRIVATEKEY")); err != nil {
+		t.Fatal(err)
+	}
 	want := State{ProbeID: "p1", SiteID: "s1", Fingerprint: "fp", ServerURL: "https://x"}
 	if err := s.SaveState(want); err != nil {
 		t.Fatal(err)
@@ -60,5 +63,15 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	}
 	if perm := fi.Mode().Perm(); perm != 0o600 {
 		t.Errorf("key file perms = %o, want 600", perm)
+	}
+	credentialKey, err := s.LoadCredentialKey()
+	if err != nil || string(credentialKey) != "X25519PRIVATEKEY" {
+		t.Fatalf("credential key round-trip failed: %q, %v", credentialKey, err)
+	}
+	if err := s.Reset([]byte(`{"probe_id":"p1"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.LoadCredentialKey(); err == nil {
+		t.Fatal("reset did not remove credential encryption key")
 	}
 }

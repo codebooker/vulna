@@ -9,6 +9,7 @@ from app.api.v1 import (
     auth,
     authorization,
     changes,
+    credentials,
     cve,
     dashboard,
     demo,
@@ -38,6 +39,7 @@ from app.api.v1 import (
     scim,
     scopes,
     sites,
+    software,
     sso,
     system,
     tasks,
@@ -60,6 +62,7 @@ api_router.include_router(networks.router)
 api_router.include_router(schedules.router)
 api_router.include_router(probes.router)
 api_router.include_router(relays.router)
+api_router.include_router(credentials.router)
 api_router.include_router(jobs.router)
 api_router.include_router(dashboard.router)
 api_router.include_router(diagnostics.router)
@@ -82,6 +85,7 @@ api_router.include_router(asset_context.tag_router)
 api_router.include_router(asset_context.group_router)
 api_router.include_router(asset_context.department_router)
 api_router.include_router(assets.router)
+api_router.include_router(software.router)
 api_router.include_router(changes.router)
 api_router.include_router(risk.profile_router)
 api_router.include_router(risk.score_router)

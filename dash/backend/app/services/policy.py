@@ -93,6 +93,12 @@ async def build_policy_document(
     if getattr(probe, "pentest_enabled", False):
         allowed_modes.append("controlled_pentest")
         allowed_plugins.append("metasploit")
+    credentialed_scans_allowed = bool(
+        getattr(probe, "credentialed_scans_enabled", False)
+        and getattr(probe, "encryption_public_key_b64", None)
+    )
+    if credentialed_scans_allowed:
+        allowed_plugins.extend(["ssh_inventory", "winrm_inventory"])
 
     # The document is deterministic given the probe's scopes/limits so its hash
     # is stable across fetches; the probe uses that hash for change detection.
@@ -105,5 +111,6 @@ async def build_policy_document(
         "allow_public_addresses": allow_public,
         "allowed_modes": allowed_modes,
         "allowed_plugins": allowed_plugins,
+        "credentialed_scans_allowed": credentialed_scans_allowed,
         "limits": limits,
     }

@@ -30,6 +30,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from app.core.config import Settings
 from app.models.asset import Asset
 from app.models.authorization import ApiToken
+from app.models.credential import CredentialRecord
 from app.models.enums import Severity, UserRole
 from app.models.finding import Finding
 from app.models.notification import CHANNEL_EMAIL, CHANNEL_WEBHOOK, NotificationChannel
@@ -82,23 +83,31 @@ async def outbound_connections(
 
     out: list[dict[str, Any]] = [
         {
-            "name": "NVD (CVE data)", "category": "intelligence",
-            "destination": _host(settings.nvd_api_url), "enabled": feeds_on,
+            "name": "NVD (CVE data)",
+            "category": "intelligence",
+            "destination": _host(settings.nvd_api_url),
+            "enabled": feeds_on,
             "purpose": "Download CVE records to enrich findings.",
         },
         {
-            "name": "CISA KEV", "category": "intelligence",
-            "destination": _host(settings.kev_feed_url), "enabled": feeds_on,
+            "name": "CISA KEV",
+            "category": "intelligence",
+            "destination": _host(settings.kev_feed_url),
+            "enabled": feeds_on,
             "purpose": "Download the known-exploited-vulnerabilities catalog.",
         },
         {
-            "name": "EPSS", "category": "intelligence",
-            "destination": _host(settings.epss_feed_url), "enabled": feeds_on,
+            "name": "EPSS",
+            "category": "intelligence",
+            "destination": _host(settings.epss_feed_url),
+            "enabled": feeds_on,
             "purpose": "Download exploitation-probability scores.",
         },
         {
-            "name": "Update checks", "category": "updates",
-            "destination": None, "enabled": False,
+            "name": "Update checks",
+            "category": "updates",
+            "destination": None,
+            "enabled": False,
             "purpose": (
                 "The application never contacts a release server. Updates are run by "
                 "the operator with the signed `vulna` CLI."
@@ -107,34 +116,49 @@ async def outbound_connections(
     ]
 
     channels = (
-        await session.execute(
-            select(NotificationChannel).where(
-                NotificationChannel.organization_id == org.id,
-                NotificationChannel.enabled.is_(True),
+        (
+            await session.execute(
+                select(NotificationChannel).where(
+                    NotificationChannel.organization_id == org.id,
+                    NotificationChannel.enabled.is_(True),
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     for ch in channels:
         if ch.channel_type == CHANNEL_EMAIL:
-            out.append({
-                "name": f"SMTP: {ch.name}", "category": "notifications",
-                "destination": ch.config_json.get("host"), "enabled": True,
-                "purpose": "Send email notifications you configured.",
-            })
+            out.append(
+                {
+                    "name": f"SMTP: {ch.name}",
+                    "category": "notifications",
+                    "destination": ch.config_json.get("host"),
+                    "enabled": True,
+                    "purpose": "Send email notifications you configured.",
+                }
+            )
         elif ch.channel_type == CHANNEL_WEBHOOK:
-            out.append({
-                "name": f"Webhook: {ch.name}", "category": "notifications",
-                "destination": _host(str(ch.config_json.get("url", ""))), "enabled": True,
-                "purpose": "Send webhook notifications you configured.",
-            })
+            out.append(
+                {
+                    "name": f"Webhook: {ch.name}",
+                    "category": "notifications",
+                    "destination": _host(str(ch.config_json.get("url", ""))),
+                    "enabled": True,
+                    "purpose": "Send webhook notifications you configured.",
+                }
+            )
 
     if toggles["telemetry_enabled"]:
-        out.append({
-            "name": "Anonymous telemetry", "category": "telemetry",
-            "destination": (org.settings_json or {}).get("telemetry_endpoint"),
-            "enabled": True,
-            "purpose": "Send strictly anonymous, aggregate usage counts (opt-in).",
-        })
+        out.append(
+            {
+                "name": "Anonymous telemetry",
+                "category": "telemetry",
+                "destination": (org.settings_json or {}).get("telemetry_endpoint"),
+                "enabled": True,
+                "purpose": "Send strictly anonymous, aggregate usage counts (opt-in).",
+            }
+        )
     return out
 
 
@@ -184,26 +208,73 @@ async def secret_inventory(
             ApiToken.revoked_at.is_(None),
         )
     )
+    vault_credentials = await session.scalar(
+        select(func.count())
+        .select_from(CredentialRecord)
+        .where(
+            CredentialRecord.organization_id == org.id,
+            CredentialRecord.is_active.is_(True),
+        )
+    )
     return [
-        {"name": "Application secret key", "present": settings.secret_key is not None,
-         "category": "core", "rotatable": True},
-        {"name": "Administrator account", "present": bool(admin_count),
-         "category": "core", "rotatable": True},
-        {"name": "Internal CA private key", "present": Path(settings.ca_key_path).exists(),
-         "category": "pki", "rotatable": True},
-        {"name": "Job/policy signing key", "present": Path(settings.job_signing_key_path).exists(),
-         "category": "pki", "rotatable": True},
-        {"name": "NVD API key", "present": settings.nvd_api_key is not None,
-         "category": "intelligence", "rotatable": True},
-        {"name": "Notification channel secrets", "present": bool(channel_secrets),
-         "category": "notifications", "rotatable": True,
-         "count": int(channel_secrets or 0)},
-        {"name": "SCIM bearer tokens", "present": bool(scim_tokens),
-         "category": "identity", "rotatable": True,
-         "count": int(scim_tokens or 0)},
-        {"name": "Personal and service API tokens", "present": bool(api_tokens),
-         "category": "authorization", "rotatable": True,
-         "count": int(api_tokens or 0)},
+        {
+            "name": "Application secret key",
+            "present": settings.secret_key is not None,
+            "category": "core",
+            "rotatable": True,
+        },
+        {
+            "name": "Administrator account",
+            "present": bool(admin_count),
+            "category": "core",
+            "rotatable": True,
+        },
+        {
+            "name": "Internal CA private key",
+            "present": Path(settings.ca_key_path).exists(),
+            "category": "pki",
+            "rotatable": True,
+        },
+        {
+            "name": "Job/policy signing key",
+            "present": Path(settings.job_signing_key_path).exists(),
+            "category": "pki",
+            "rotatable": True,
+        },
+        {
+            "name": "NVD API key",
+            "present": settings.nvd_api_key is not None,
+            "category": "intelligence",
+            "rotatable": True,
+        },
+        {
+            "name": "Notification channel secrets",
+            "present": bool(channel_secrets),
+            "category": "notifications",
+            "rotatable": True,
+            "count": int(channel_secrets or 0),
+        },
+        {
+            "name": "SCIM bearer tokens",
+            "present": bool(scim_tokens),
+            "category": "identity",
+            "rotatable": True,
+            "count": int(scim_tokens or 0),
+        },
+        {
+            "name": "Personal and service API tokens",
+            "present": bool(api_tokens),
+            "category": "authorization",
+            "rotatable": True,
+            "count": int(api_tokens or 0),
+        },
+        {
+            "name": "Authenticated scanning credentials",
+            "present": bool(vault_credentials),
+            "category": "scanning",
+            "rotatable": True,
+            "count": int(vault_credentials or 0),
+        },
     ]
 
 
@@ -227,22 +298,16 @@ async def _aggregate_counts(
         asset_filters.append(Asset.site_id.in_(site_ids))
         scan_filters.append(ScanJob.site_id.in_(site_ids))
         finding_filters.append(Finding.site_id.in_(site_ids))
-    sites = await session.scalar(
-        select(func.count()).select_from(Site).where(*site_filters)
-    )
-    assets = await session.scalar(
-        select(func.count()).select_from(Asset).where(*asset_filters)
-    )
-    scans = await session.scalar(
-        select(func.count()).select_from(ScanJob).where(*scan_filters)
-    )
+    sites = await session.scalar(select(func.count()).select_from(Site).where(*site_filters))
+    assets = await session.scalar(select(func.count()).select_from(Asset).where(*asset_filters))
+    scans = await session.scalar(select(func.count()).select_from(ScanJob).where(*scan_filters))
     findings = await session.scalar(
         select(func.count()).select_from(Finding).where(*finding_filters)
     )
     criticals = await session.scalar(
-        select(func.count()).select_from(Finding).where(
-            *finding_filters, Finding.severity == Severity.CRITICAL
-        )
+        select(func.count())
+        .select_from(Finding)
+        .where(*finding_filters, Finding.severity == Severity.CRITICAL)
     )
     return {
         "sites": int(sites or 0),
@@ -273,8 +338,15 @@ async def telemetry_preview(
         "vulna_version": settings.version,
         "counts": counts,
         "excluded": [
-            "ip_addresses", "hostnames", "usernames", "findings", "cves",
-            "evidence", "credentials", "report_contents", "install_identifier",
+            "ip_addresses",
+            "hostnames",
+            "usernames",
+            "findings",
+            "cves",
+            "evidence",
+            "credentials",
+            "report_contents",
+            "install_identifier",
         ],
     }
 

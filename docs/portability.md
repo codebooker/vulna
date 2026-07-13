@@ -39,7 +39,11 @@ exported as validated non-secret mappings. Credential continuity still requires
 encrypted backup/restore. Schema v5 adds
 versioned risk profiles, immutable finding-score snapshots with factor contributions,
 remediation units/membership and reviewed suggestions, plus expiring finding-decision
-history. Validation accepts schema v1 through v5.
+history. Schema v6 adds credential metadata (`has_secret`, version number, protocol,
+username, and safe connection metadata), assignments, sanitized tests/usage,
+software inventory/history, and EOL overrides. It excludes encrypted secret-version
+values, Scout private keys, and job credential ciphertext. Validation accepts schema
+v1 through v6; restoring usable vault secrets still requires an encrypted backup.
 Background task payloads, leases, retries, dead letters, results, and process
 heartbeats are operational state and are excluded from portability exports. They
 remain available only through encrypted database backup/restore.

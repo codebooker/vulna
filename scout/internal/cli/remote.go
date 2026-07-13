@@ -333,7 +333,9 @@ func missingScanners() []string {
 // scannerCapabilities returns the scanner tools present on PATH, reported to the
 // orchestrator so the capability manager and preset previews know what can run.
 func scannerCapabilities() []string {
-	var present []string
+	// Authenticated collectors are built into the Scout binary. Their execution
+	// remains disabled by signed policy until an administrator opts the Scout in.
+	present := []string{"ssh_inventory", "winrm_inventory"}
 	for _, c := range selftest.Run() {
 		name := strings.TrimPrefix(c.Name, "scanner:")
 		if name == c.Name {

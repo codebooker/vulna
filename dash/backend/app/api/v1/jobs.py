@@ -16,10 +16,16 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.context import RequestContext, get_request_context
-from app.auth.dependencies import CurrentUser, require_permission
+from app.auth.dependencies import (
+    AuthenticatedIdentity,
+    CurrentUser,
+    require_permission,
+    require_step_up_permission,
+)
 from app.auth.site_scope import accessible_site_ids, require_site_access, site_scope_clause
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
+from app.models.asset import Asset
 from app.models.enums import GrantScopeType, JobStatus, ProbeStatus, WebScanProfile
 from app.models.organization import Organization
 from app.models.probe import Probe
@@ -58,9 +64,7 @@ async def _get_owned_job(
         select(ScanJob).where(
             ScanJob.id == job_id,
             ScanJob.organization_id == current_user.organization_id,
-            site_scope_clause(
-                current_user, ScanJob.site_id, permission_key=permission_key
-            ),
+            site_scope_clause(current_user, ScanJob.site_id, permission_key=permission_key),
         )
     )
     if job is None:
@@ -87,6 +91,45 @@ async def create_job(
     an active web assessment is intrusive and requires approval — only an
     administrator or pentest approver may request the limited-active profile.
     """
+    if payload.authenticated_protocols:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Use /api/v1/jobs/authenticated for credentialed inventory",
+        )
+    return await _create_job_impl(payload, operator, session, settings, context)
+
+
+@router.post(
+    "/authenticated",
+    response_model=JobRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a Scout-encrypted authenticated inventory job",
+)
+async def create_authenticated_job(
+    payload: JobCreate,
+    operator: Annotated[User, Depends(_require_job_creator)],
+    _credential_access: Annotated[
+        AuthenticatedIdentity, Depends(require_step_up_permission("credentials.use"))
+    ],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    context: Annotated[RequestContext, Depends(get_request_context)],
+) -> JobRead:
+    if not payload.authenticated_protocols:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="authenticated_protocols is required",
+        )
+    return await _create_job_impl(payload, operator, session, settings, context)
+
+
+async def _create_job_impl(
+    payload: JobCreate,
+    operator: User,
+    session: AsyncSession,
+    settings: Settings,
+    context: RequestContext,
+) -> JobRead:
     org = await session.get(Organization, operator.organization_id)
     if org is not None and is_demo_mode(org):
         raise HTTPException(
@@ -112,6 +155,27 @@ async def create_job(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Probe must be enrolled/approved to receive jobs (is '{probe.status.value}')",
         )
+    if payload.authenticated_protocols:
+        if payload.asset_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="asset_id is required for authenticated inventory",
+            )
+        asset = await session.scalar(
+            select(Asset).where(
+                Asset.id == payload.asset_id,
+                Asset.organization_id == operator.organization_id,
+            )
+        )
+        if asset is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found")
+        await require_site_access(
+            session,
+            operator,
+            asset.site_id,
+            not_found_detail="Asset not found",
+            permission_key="credentials.use",
+        )
 
     web_profile = payload.web_scan.profile if payload.web_scan else None
     web_start_urls = payload.web_scan.start_urls if payload.web_scan else None
@@ -126,8 +190,7 @@ async def create_job(
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=(
-                    "An active web assessment requires administrator or "
-                    "pentest-approver approval"
+                    "An active web assessment requires administrator or pentest-approver approval"
                 ),
             )
     elif not await authorization.has_permission(
@@ -154,6 +217,10 @@ async def create_job(
             expires_at=payload.expires_at,
             web_profile=web_profile,
             web_start_urls=web_start_urls,
+            network_id=payload.network_id,
+            asset_id=payload.asset_id,
+            authenticated_protocols=payload.authenticated_protocols,
+            preset_key=payload.preset_key,
         )
     except JobValidationError as exc:
         raise HTTPException(
@@ -174,6 +241,8 @@ async def create_job(
             "probe_id": str(probe.id),
             "mode": job.mode.value,
             "targets": job.requested_targets_json,
+            "asset_id": str(job.asset_id) if job.asset_id else None,
+            "credential_protocols": job.credential_protocols_json,
         },
     )
     return JobRead.model_validate(job)
@@ -191,9 +260,7 @@ async def reap_jobs(
         session,
         settings,
         organization_id=current_user.organization_id,
-        site_ids=await accessible_site_ids(
-            session, current_user, permission_key="jobs.manage"
-        ),
+        site_ids=await accessible_site_ids(session, current_user, permission_key="jobs.manage"),
     )
     return {"reaped": reaped}
 
@@ -218,7 +285,11 @@ async def list_jobs(
         filters.append(ScanJob.status == job_status)
     total = await session.scalar(select(func.count()).select_from(ScanJob).where(*filters))
     result = await session.execute(
-        select(ScanJob).where(*filters).order_by(ScanJob.created_at.desc()).limit(limit).offset(offset)
+        select(ScanJob)
+        .where(*filters)
+        .order_by(ScanJob.created_at.desc())
+        .limit(limit)
+        .offset(offset)
     )
     jobs = result.scalars().all()
     return Page[JobRead](
@@ -251,9 +322,7 @@ async def cancel_job(
     A job that has not yet been delivered is cancelled immediately; an active
     job is flagged so the probe stops it and confirms via a status report.
     """
-    job = await _get_owned_job(
-        session, job_id, operator, permission_key="jobs.manage"
-    )
+    job = await _get_owned_job(session, job_id, operator, permission_key="jobs.manage")
     if job.status not in _CANCELLABLE:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

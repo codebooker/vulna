@@ -63,6 +63,28 @@
         "max_duration_seconds": { "type": "integer", "minimum": 1 }
       }
     },
+    "credential_envelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "algorithm",
+        "ephemeral_public_key_b64",
+        "nonce_b64",
+        "ciphertext_b64"
+      ],
+      "properties": {
+        "version": { "type": "string", "const": "1" },
+        "algorithm": {
+          "type": "string",
+          "const": "X25519-HKDF-SHA256-CHACHA20POLY1305"
+        },
+        "ephemeral_public_key_b64": { "type": "string" },
+        "nonce_b64": { "type": "string" },
+        "ciphertext_b64": { "type": "string" }
+      },
+      "description": "Signed, authenticated ciphertext bound to this job and one Scout. Plaintext credentials are never part of the job document."
+    },
     "signature": {
       "type": "string",
       "description": "Base64-encoded Ed25519 signature over the canonical job payload"

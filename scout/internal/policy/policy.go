@@ -18,15 +18,16 @@ type Limits struct {
 
 // Policy is a verified local policy document.
 type Policy struct {
-	PolicyVersion        int      `json:"policy_version"`
-	ProbeID              string   `json:"probe_id"`
-	SiteID               string   `json:"site_id"`
-	ApprovedCIDRs        []string `json:"approved_cidrs"`
-	DeniedCIDRs          []string `json:"denied_cidrs"`
-	AllowPublicAddresses bool     `json:"allow_public_addresses"`
-	AllowedModes         []string `json:"allowed_modes"`
-	AllowedPlugins       []string `json:"allowed_plugins"`
-	Limits               Limits   `json:"limits"`
+	PolicyVersion            int      `json:"policy_version"`
+	ProbeID                  string   `json:"probe_id"`
+	SiteID                   string   `json:"site_id"`
+	ApprovedCIDRs            []string `json:"approved_cidrs"`
+	DeniedCIDRs              []string `json:"denied_cidrs"`
+	AllowPublicAddresses     bool     `json:"allow_public_addresses"`
+	AllowedModes             []string `json:"allowed_modes"`
+	AllowedPlugins           []string `json:"allowed_plugins"`
+	CredentialedScansAllowed bool     `json:"credentialed_scans_allowed"`
+	Limits                   Limits   `json:"limits"`
 
 	approved []netip.Prefix
 	denied   []netip.Prefix

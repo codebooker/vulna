@@ -41,6 +41,13 @@ from app.models.authorization import (
     ScopedGrant,
     ServiceAccount,
 )
+from app.models.credential import (
+    CredentialAssignment,
+    CredentialRecord,
+    CredentialSecretVersion,
+    CredentialTest,
+    CredentialUsageAudit,
+)
 from app.models.finding import Finding
 from app.models.finding_note import FindingNote
 from app.models.network_scope import NetworkScope
@@ -64,11 +71,12 @@ from app.models.scim import (
 )
 from app.models.service import Service
 from app.models.site import Site
+from app.models.software import EolOverride, SoftwareInventoryHistory, SoftwareInventoryItem
 from app.models.user import User
 from app.models.user_lifecycle import UserSiteAssignment
 
-EXPORT_SCHEMA_VERSION = "5"
-SUPPORTED_IMPORT_SCHEMA_VERSIONS = {"1", "2", "3", "4", EXPORT_SCHEMA_VERSION}
+EXPORT_SCHEMA_VERSION = "6"
+SUPPORTED_IMPORT_SCHEMA_VERSIONS = {"1", "2", "3", "4", "5", EXPORT_SCHEMA_VERSION}
 CHECKSUM_FIELD = "checksum"
 
 
@@ -112,6 +120,10 @@ async def build_export(
         "scoped_grants": await _scoped_grants(session, org_id),
         "service_accounts": await _service_accounts(session, org_id),
         "api_tokens": await _api_tokens(session, org_id),
+        "credential_records": await _credential_records(session, org_id),
+        "credential_assignments": await _credential_assignments(session, org_id),
+        "credential_tests": await _credential_tests(session, org_id),
+        "credential_usage": await _credential_usage(session, org_id),
         "scim_groups": await _scim_groups(session, org_id),
         "scim_group_members": await _scim_group_members(session, org_id),
         "scim_group_site_mappings": await _scim_group_site_mappings(session, org_id),
@@ -127,6 +139,9 @@ async def build_export(
         "department_owners": await _department_owners(session, org_id),
         "asset_ownership_history": await _asset_ownership_history(session, org_id),
         "services": await _services(session, org_id),
+        "software_inventory": await _software_inventory(session, org_id),
+        "software_history": await _software_history(session, org_id),
+        "eol_overrides": await _eol_overrides(session, org_id),
         "findings": await _findings(session, org_id),
         "risk_profiles": await _risk_profiles(session, org_id),
         "finding_score_snapshots": await _finding_score_snapshots(session, org_id),
@@ -261,6 +276,121 @@ async def _api_tokens(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str
     ]
 
 
+async def _credential_records(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, Any]]:
+    """Export metadata and version numbers only; encrypted secret values never leave storage."""
+    records = list(
+        (
+            await session.execute(
+                select(CredentialRecord).where(CredentialRecord.organization_id == org_id)
+            )
+        ).scalars()
+    )
+    versions = list(
+        (
+            await session.execute(
+                select(CredentialSecretVersion).where(
+                    CredentialSecretVersion.organization_id == org_id
+                )
+            )
+        ).scalars()
+    )
+    latest: dict[uuid.UUID, int] = {}
+    for version in versions:
+        latest[version.credential_id] = max(latest.get(version.credential_id, 0), version.version)
+    return [
+        {
+            "id": str(row.id),
+            "name": row.name,
+            "description": row.description,
+            "protocol": row.protocol.value,
+            "auth_type": row.auth_type.value,
+            "username": row.username,
+            "metadata": row.metadata_json,
+            "is_active": row.is_active,
+            "has_secret": row.id in latest,
+            "current_version": latest.get(row.id, 0),
+            "created_at": _iso(row.created_at),
+            "updated_at": _iso(row.updated_at),
+        }
+        for row in records
+    ]
+
+
+async def _credential_assignments(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, Any]]:
+    rows = (
+        await session.execute(
+            select(CredentialAssignment).where(CredentialAssignment.organization_id == org_id)
+        )
+    ).scalars()
+    return [
+        {
+            "id": str(row.id),
+            "credential_id": str(row.credential_id),
+            "target_type": row.target_type.value,
+            "target_id": row.target_id,
+            "site_id": str(row.site_id) if row.site_id else None,
+            "enabled": row.enabled,
+        }
+        for row in rows
+    ]
+
+
+async def _credential_tests(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, Any]]:
+    rows = list(
+        (
+            await session.execute(
+                select(CredentialTest).where(CredentialTest.organization_id == org_id)
+            )
+        ).scalars()
+    )
+    versions = {
+        row.id: row.version
+        for row in (
+            await session.execute(
+                select(CredentialSecretVersion).where(
+                    CredentialSecretVersion.organization_id == org_id
+                )
+            )
+        ).scalars()
+    }
+    return [
+        {
+            "id": str(row.id),
+            "credential_id": str(row.credential_id),
+            "secret_version": versions.get(row.secret_version_id),
+            "asset_id": str(row.asset_id),
+            "scan_job_id": str(row.scan_job_id) if row.scan_job_id else None,
+            "status": row.status.value,
+            "message": row.message,
+            "created_at": _iso(row.created_at),
+            "finished_at": _iso(row.finished_at),
+        }
+        for row in rows
+    ]
+
+
+async def _credential_usage(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, Any]]:
+    rows = (
+        await session.execute(
+            select(CredentialUsageAudit).where(CredentialUsageAudit.organization_id == org_id)
+        )
+    ).scalars()
+    return [
+        {
+            "id": str(row.id),
+            "credential_id": str(row.credential_id),
+            "asset_id": str(row.asset_id),
+            "probe_id": str(row.probe_id),
+            "scan_job_id": str(row.scan_job_id) if row.scan_job_id else None,
+            "protocol": row.protocol.value,
+            "status": row.status.value,
+            "detail": row.detail,
+            "created_at": _iso(row.created_at),
+        }
+        for row in rows
+    ]
+
+
 async def _scim_groups(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, Any]]:
     rows = (
         await session.execute(select(ScimGroup).where(ScimGroup.organization_id == org_id))
@@ -375,6 +505,8 @@ async def _scouts(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, An
             "status": p.status.value,
             "certificate_fingerprint": p.certificate_fingerprint,
             "agent_version": p.agent_version,
+            "credentialed_scans_enabled": p.credentialed_scans_enabled,
+            "has_encryption_key": bool(p.encryption_public_key_b64),
             "last_seen_at": _iso(p.last_seen_at),
         }
         for p in rows
@@ -533,6 +665,79 @@ async def _services(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, 
             "state": s.state.value,
         }
         for s in rows
+    ]
+
+
+async def _software_inventory(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, Any]]:
+    rows = (
+        await session.execute(
+            select(SoftwareInventoryItem).where(SoftwareInventoryItem.organization_id == org_id)
+        )
+    ).scalars()
+    return [
+        {
+            "id": str(row.id),
+            "site_id": str(row.site_id),
+            "asset_id": str(row.asset_id),
+            "source": row.source.value,
+            "name": row.name,
+            "package_key": row.package_key,
+            "version": row.version,
+            "architecture": row.architecture,
+            "publisher": row.publisher,
+            "product_key": row.product_key,
+            "install_date": row.install_date.isoformat() if row.install_date else None,
+            "first_seen_at": _iso(row.first_seen_at),
+            "last_seen_at": _iso(row.last_seen_at),
+            "removed_at": _iso(row.removed_at),
+            "metadata": row.metadata_json,
+        }
+        for row in rows
+    ]
+
+
+async def _software_history(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, Any]]:
+    rows = (
+        await session.execute(
+            select(SoftwareInventoryHistory).where(
+                SoftwareInventoryHistory.organization_id == org_id
+            )
+        )
+    ).scalars()
+    return [
+        {
+            "id": str(row.id),
+            "site_id": str(row.site_id),
+            "asset_id": str(row.asset_id),
+            "software_item_id": str(row.software_item_id),
+            "scan_job_id": str(row.scan_job_id) if row.scan_job_id else None,
+            "change_type": row.change_type.value,
+            "previous_version": row.previous_version,
+            "observed_version": row.observed_version,
+            "observation": row.observation_json,
+            "created_at": _iso(row.created_at),
+        }
+        for row in rows
+    ]
+
+
+async def _eol_overrides(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, Any]]:
+    rows = (
+        await session.execute(select(EolOverride).where(EolOverride.organization_id == org_id))
+    ).scalars()
+    return [
+        {
+            "id": str(row.id),
+            "software_item_id": str(row.software_item_id),
+            "status": row.status.value,
+            "eol_date": row.eol_date.isoformat() if row.eol_date else None,
+            "reason": row.reason,
+            "expires_at": _iso(row.expires_at),
+            "active": row.active,
+            "created_at": _iso(row.created_at),
+            "updated_at": _iso(row.updated_at),
+        }
+        for row in rows
     ]
 
 
