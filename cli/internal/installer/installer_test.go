@@ -12,9 +12,9 @@ import (
 
 func TestInteractiveParsesChoices(t *testing.T) {
 	o := config.Defaults("/opt/vulna")
-	// answers: install dir (accept default), data dir (accept), mode=public,
+	// answers: install dir (accept default), data dir (accept), profile=enterprise, mode=public,
 	// url, acme email, admin email, update checks = no
-	input := "\n\npublic\nvulna.example.com\nops@example.com\nadmin@example.com\nno\n"
+	input := "\n\n2\npublic\nvulna.example.com\nops@example.com\nadmin@example.com\nno\n"
 	var out bytes.Buffer
 	got, err := Interactive(strings.NewReader(input), &out, o)
 	if err != nil {
@@ -22,6 +22,9 @@ func TestInteractiveParsesChoices(t *testing.T) {
 	}
 	if got.AccessMode != config.AccessPublic {
 		t.Fatalf("access mode = %q", got.AccessMode)
+	}
+	if got.DeploymentProfile != config.DeploymentEnterprise {
+		t.Fatalf("deployment profile = %q", got.DeploymentProfile)
 	}
 	if got.URL != "vulna.example.com" || got.ACMEEmail != "ops@example.com" {
 		t.Fatalf("url/acme not captured: %+v", got)
@@ -48,7 +51,7 @@ func TestPrintPlanListsServicesPortsCapabilities(t *testing.T) {
 	var b bytes.Buffer
 	PrintPlan(&b, plan, o)
 	s := b.String()
-	for _, want := range []string{"local-scout", "postgres", "443", "capabilit", "0600"} {
+	for _, want := range []string{"small_business", "local-scout", "postgres", "443", "capabilit", "0600"} {
 		if !strings.Contains(s, want) {
 			t.Fatalf("plan output missing %q:\n%s", want, s)
 		}

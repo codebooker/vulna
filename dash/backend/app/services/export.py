@@ -69,6 +69,8 @@ async def build_export(
         "organization": {
             "id": str(org.id), "name": org.name, "slug": org.slug,
             "default_timezone": org.default_timezone,
+            "experience_profile": org.experience_profile.value,
+            "feature_overrides": org.feature_overrides_json,
         },
         "sites": await _sites(session, org_id),
         "network_scopes": await _scopes(session, org_id),

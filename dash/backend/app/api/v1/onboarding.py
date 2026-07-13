@@ -16,16 +16,21 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.dependencies import CurrentUser
+from app.api.context import RequestContext, get_request_context
+from app.auth.dependencies import CurrentUser, require_admin
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
 from app.models.enums import ProbeStatus
+from app.models.organization import Organization
 from app.models.probe import Probe
+from app.models.user import User
 from app.schemas.onboarding import (
     CompleteStepRequest,
     DemoTargetResponse,
     NetworkCandidatesResponse,
     OnboardingStateRead,
+    ProfilePlanRead,
+    ProfilePlanUpdate,
     RecoveryCodesResponse,
     ScanPreset,
     ScanPresetsResponse,
@@ -35,9 +40,31 @@ from app.schemas.onboarding import (
     ScopePreviewResponse,
 )
 from app.services import onboarding as ob
+from app.services.audit import record_audit
+from app.services.experience import (
+    profile_questions,
+    recommendations,
+    validate_plan_answers,
+)
 from app.services.scopes import ScopeValidationError
 
 router = APIRouter(prefix="/onboarding", tags=["onboarding"])
+
+
+def _profile_plan_payload(org: Organization, extra: dict[str, object]) -> dict[str, object]:
+    profile = org.experience_profile
+    plans = extra.get("profile_plans")
+    plan = plans.get(profile.value, {}) if isinstance(plans, dict) else {}
+    answers = plan.get("answers", {}) if isinstance(plan, dict) else {}
+    if not isinstance(answers, dict):
+        answers = {}
+    return {
+        "experience_profile": profile.value,
+        "questions": profile_questions(profile),
+        "answers": answers,
+        "recommendations": recommendations(profile, answers),
+        "updated_at": plan.get("updated_at") if isinstance(plan, dict) else None,
+    }
 
 
 def _unprocessable(exc: Exception) -> HTTPException:
@@ -52,6 +79,72 @@ async def get_state(
     state = await ob.get_or_create_state(session, current_user.organization_id)
     await session.commit()
     return OnboardingStateRead.model_validate(state)
+
+
+@router.get(
+    "/profile-plan",
+    response_model=ProfilePlanRead,
+    summary="Get profile planning questions and recommendations",
+)
+async def get_profile_plan(
+    admin: Annotated[User, Depends(require_admin)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> ProfilePlanRead:
+    state = await ob.get_or_create_state(session, admin.organization_id)
+    org = await session.get(Organization, admin.organization_id)
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
+    return ProfilePlanRead.model_validate(_profile_plan_payload(org, state.extra_json or {}))
+
+
+@router.put(
+    "/profile-plan",
+    response_model=ProfilePlanRead,
+    summary="Save profile planning answers",
+)
+async def update_profile_plan(
+    payload: ProfilePlanUpdate,
+    admin: Annotated[User, Depends(require_admin)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    context: Annotated[RequestContext, Depends(get_request_context)],
+) -> ProfilePlanRead:
+    state = await ob.get_or_create_state(session, admin.organization_id)
+    org = await session.get(Organization, admin.organization_id)
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
+    try:
+        answers = validate_plan_answers(org.experience_profile, payload.answers)
+    except ValueError as exc:
+        raise _unprocessable(exc) from exc
+
+    now = datetime.now(UTC)
+    extra = dict(state.extra_json or {})
+    plans = dict(extra.get("profile_plans") or {})
+    plans[org.experience_profile.value] = {
+        "answers": answers,
+        "recommendations": recommendations(org.experience_profile, answers),
+        "updated_at": now.isoformat(),
+    }
+    extra["profile_plans"] = plans
+    state.extra_json = extra
+    session.add(state)
+    await session.flush()
+    record_audit(
+        session,
+        action="onboarding.profile_plan_updated",
+        actor=admin,
+        organization_id=admin.organization_id,
+        target_type="onboarding_state",
+        target_id=state.id,
+        source_ip=context.source_ip,
+        user_agent=context.user_agent,
+        request_id=context.request_id,
+        metadata={
+            "experience_profile": org.experience_profile.value,
+            "answer_keys": sorted(answers),
+        },
+    )
+    return ProfilePlanRead.model_validate(_profile_plan_payload(org, extra))
 
 
 @router.post(

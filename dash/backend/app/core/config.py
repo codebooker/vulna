@@ -8,7 +8,7 @@ settings are given defaults here; anything sensitive must be supplied explicitly
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -94,6 +94,7 @@ class Settings(BaseSettings):
     # organization but the schema preserves organization boundaries throughout.
     default_org_name: str = "Default Organization"
     default_org_slug: str = "default"
+    deployment_profile: Literal["small_business", "enterprise", "custom"] = "small_business"
 
     # Public base URL of the orchestrator (e.g. https://vulna.example.com), used
     # to build remote-Scout install commands. Falls back to the request's base URL

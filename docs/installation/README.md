@@ -25,9 +25,11 @@ less install.sh
 VULNA_VERSION=v1.0.0 sh install.sh -- install
 ```
 
-The installer prompts only for: installation directory, data directory, access
-mode (`localhost` / `lan` / `public`), hostname or URL, and whether to enable
-update checks. It then runs preflight and installs.
+The installer prompts only for: installation directory, data directory,
+deployment profile (`1` Small Business / `2` Enterprise), access mode
+(`localhost` / `lan` / `public`), hostname or URL, and whether to enable update
+checks. The profile changes initial dashboard organization only; it never disables
+a capability or security control. It then runs preflight and installs.
 
 ## Option B — Manual installation (no shell pipeline)
 
@@ -71,13 +73,14 @@ Provide a versioned answer file:
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "install_dir": "/opt/vulna",
   "data_dir": "/opt/vulna/data",
   "config_dir": "/opt/vulna/config",
   "access_mode": "localhost",
   "admin_email": "admin@example.com",
-  "update_checks": true
+  "update_checks": true,
+  "deployment_profile": "small_business"
 }
 ```
 
@@ -85,13 +88,21 @@ Provide a versioned answer file:
 vulna install --non-interactive --answers answers.json --start
 ```
 
+Schema-v1 answer files remain accepted and migrate in memory to
+`small_business`. New saves always use schema v2. A flag can override either an
+answer file or the interactive default:
+
+```bash
+vulna install --deployment-profile enterprise --dry-run
+```
+
 `vulna install --save-answers answers.json` writes the effective (non-secret)
 answer file from an interactive run for later reuse.
 
 ## Dry run
 
-See exactly what an install would do — files, directories, services, ports, and
-capabilities — without making any change:
+See exactly what an install would do — including the selected profile, files,
+directories, services, ports, and capabilities — without making any change:
 
 ```bash
 vulna install --dry-run

@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 33: adaptive installation and experience profiles
+
+- Installer answer schema v2 adds `deployment_profile`; schema v1 remains
+  readable and defaults to Small Business. Interactive installs offer the 1/2
+  profile choice, `--deployment-profile` supports automation, and dry-run/final
+  summaries name the effective profile.
+- Organizations now store a typed experience profile and allowlisted navigation
+  overrides. Existing organizations backfill to Small Business; only a newly
+  bootstrapped organization consumes `VULNA_DEPLOYMENT_PROFILE`.
+- A centralized, role-aware route catalogue presents Small Business core routes
+  with a collapsed Advanced section, all implemented Enterprise routes, or Custom
+  visibility. Presentation never substitutes for API authorization and hidden
+  routes remain directly addressable when authorized.
+- General Settings provides an audited preview/confirmation flow; a read-only
+  administrator Users inventory establishes the Phase 34 surface.
+- New installations include an advisory profile-planning onboarding step.
+  Answers stay in onboarding state, unavailable recommendations are labelled
+  `planned`, and no high-impact policy is automatically applied.
+- A public [capability status matrix](docs/capabilities.md), migration/portability
+  updates, and release-gated profile security regressions.
+
 ### Added — Phase 32: release qualification and self-hosting ecosystem packaging
 
 Make the easy path consistently work across a small, honest support matrix and

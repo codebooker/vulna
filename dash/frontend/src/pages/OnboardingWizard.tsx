@@ -6,12 +6,13 @@ import { cn } from '../lib/utils';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
-import { Field, Input } from '../components/ui/input';
+import { Field, Input, Select } from '../components/ui/input';
 import { Code, Progress } from '../components/ui/misc';
 import { EmptyState, InlineError } from '../components/ui/states';
 import type {
   CompleteStepPayload,
   OnboardingState,
+  ProfilePlan,
   ScanPreset,
   ScanSummary,
   ScopePreview,
@@ -19,6 +20,7 @@ import type {
 
 const STEP_LABELS: Record<string, string> = {
   admin: 'Welcome',
+  profile_plan: 'Profile plan',
   recovery_codes: 'Recovery codes',
   health: 'System health',
   site: 'Name your site',
@@ -136,6 +138,13 @@ export function OnboardingWizard({ onFinished }: { onFinished: () => void }) {
         {step === 'admin' && (
           <WelcomeStep busy={busy} onNext={() => void advance({ step: 'admin' })} />
         )}
+        {step === 'profile_plan' && (
+          <ProfilePlanStep
+            token={token}
+            busy={busy}
+            onNext={() => void advance({ step: 'profile_plan' })}
+          />
+        )}
         {step === 'recovery_codes' && (
           <RecoveryStep
             token={token}
@@ -203,6 +212,130 @@ function WelcomeStep({ busy, onNext }: { busy: boolean; onNext: () => void }) {
       <Button variant="primary" disabled={busy} onClick={onNext}>
         Get started
       </Button>
+    </div>
+  );
+}
+
+function ProfilePlanStep({
+  token,
+  busy,
+  onNext,
+}: {
+  token: string;
+  busy: boolean;
+  onNext: () => void;
+}) {
+  const [plan, setPlan] = useState<ProfilePlan | null>(null);
+  const [answers, setAnswers] = useState<Record<string, unknown>>({});
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void api
+      .profilePlan(token)
+      .then((value) => {
+        setPlan(value);
+        setAnswers(value.answers);
+        setSaved(value.updated_at !== null);
+      })
+      .catch((err) =>
+        setError(err instanceof Error ? err.message : 'Could not load profile planning.'),
+      );
+  }, [token]);
+
+  const save = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      const value = await api.updateProfilePlan(token, answers);
+      setPlan(value);
+      setSaved(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save planning answers.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!plan) return error ? <InlineError message={error} /> : <p className={detail}>Loading…</p>;
+
+  return (
+    <div className="flex flex-col items-start gap-4">
+      <p className={detail}>
+        Tell us about your environment. Recommendations are advisory: nothing here changes a policy,
+        enables a high-impact control, or sends data off-host.
+      </p>
+      {error && <InlineError message={error} />}
+      <div className="grid w-full gap-3 sm:grid-cols-2">
+        {plan.questions.map((question) => (
+          <Field key={question.key} label={question.label} htmlFor={`plan-${question.key}`}>
+            {question.kind === 'boolean' || question.kind === 'select' ? (
+              <Select
+                id={`plan-${question.key}`}
+                value={String(answers[question.key] ?? '')}
+                onChange={(event) => {
+                  const value =
+                    question.kind === 'boolean'
+                      ? event.target.value === 'true'
+                      : event.target.value;
+                  setAnswers((current) => ({ ...current, [question.key]: value }));
+                  setSaved(false);
+                }}
+              >
+                <option value="">Select…</option>
+                {(question.kind === 'boolean' ? ['true', 'false'] : question.options).map(
+                  (option) => (
+                    <option key={option} value={option}>
+                      {option === 'true' ? 'Yes' : option === 'false' ? 'No' : option}
+                    </option>
+                  ),
+                )}
+              </Select>
+            ) : (
+              <Input
+                id={`plan-${question.key}`}
+                type={question.kind === 'number' ? 'number' : 'text'}
+                min={question.kind === 'number' ? 0 : undefined}
+                value={String(answers[question.key] ?? '')}
+                onChange={(event) => {
+                  const value =
+                    question.kind === 'number' ? Number(event.target.value) : event.target.value;
+                  setAnswers((current) => ({ ...current, [question.key]: value }));
+                  setSaved(false);
+                }}
+              />
+            )}
+          </Field>
+        ))}
+      </div>
+      {!saved ? (
+        <Button variant="primary" loading={saving} onClick={() => void save()}>
+          Show recommendations
+        </Button>
+      ) : (
+        <>
+          <ul className="flex w-full flex-col gap-2">
+            {plan.recommendations.map((recommendation) => (
+              <li
+                key={`${recommendation.capability}-${recommendation.status}`}
+                className="rounded-lg border border-border px-3 py-2.5"
+              >
+                <span className="flex items-center gap-2 text-[13px] font-medium text-text">
+                  {recommendation.capability}
+                  <Badge tone={recommendation.status === 'available' ? 'ok' : 'neutral'}>
+                    {recommendation.status}
+                  </Badge>
+                </span>
+                <p className="mt-1 text-xs text-muted">{recommendation.reason}</p>
+              </li>
+            ))}
+          </ul>
+          <Button variant="primary" disabled={busy} onClick={onNext}>
+            Continue
+          </Button>
+        </>
+      )}
     </div>
   );
 }

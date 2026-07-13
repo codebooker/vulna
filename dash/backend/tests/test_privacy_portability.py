@@ -107,6 +107,8 @@ async def test_export_is_versioned_checksummed_and_schema_valid(
     # Independently validatable against the published schema and its checksum.
     jsonschema.Draft202012Validator(EXPORT_SCHEMA).validate(bundle)
     assert bundle["checksum"] == export_svc.checksum(bundle)
+    assert bundle["organization"]["experience_profile"] == "small_business"
+    assert bundle["organization"]["feature_overrides"] == {}
     # No secret material leaks into the export.
     text = json.dumps(bundle).lower()
     for banned in ("private key", "begin rsa", "password", "encrypted_secret", "signing_key"):

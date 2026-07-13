@@ -31,6 +31,20 @@ func Interactive(in io.Reader, out io.Writer, o config.Options) (config.Options,
 	o.InstallDir = ask("Installation directory", o.InstallDir)
 	o.DataDir = ask("Data directory", o.DataDir)
 
+	profileDefault := "1"
+	if o.DeploymentProfile == config.DeploymentEnterprise {
+		profileDefault = "2"
+	}
+	profile := ask("Deployment profile (1 = Small Business, 2 = Enterprise)", profileDefault)
+	switch strings.ToLower(profile) {
+	case "1", "small business", "small_business":
+		o.DeploymentProfile = config.DeploymentSmallBusiness
+	case "2", "enterprise":
+		o.DeploymentProfile = config.DeploymentEnterprise
+	default:
+		o.DeploymentProfile = config.DeploymentProfile(profile)
+	}
+
 	mode := ask("Access mode (localhost/lan/public)", string(o.AccessMode))
 	o.AccessMode = config.AccessMode(strings.ToLower(mode))
 

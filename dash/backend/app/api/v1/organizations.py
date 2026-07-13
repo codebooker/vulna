@@ -17,8 +17,15 @@ from app.auth.dependencies import CurrentUser, require_admin
 from app.db.session import get_session
 from app.models.organization import Organization
 from app.models.user import User
-from app.schemas.organization import OrganizationRead, OrganizationUpdate
+from app.schemas.organization import (
+    ExperienceChange,
+    ExperiencePreview,
+    ExperienceRead,
+    OrganizationRead,
+    OrganizationUpdate,
+)
 from app.services.audit import record_audit
+from app.services.experience import experience_payload
 
 router = APIRouter(prefix="/organizations", tags=["organizations"])
 
@@ -37,6 +44,95 @@ async def get_current_org(
 ) -> OrganizationRead:
     org = await _get_own_org(session, current_user.organization_id)
     return OrganizationRead.model_validate(org)
+
+
+@router.get(
+    "/current/experience",
+    response_model=ExperienceRead,
+    summary="Get the dashboard experience profile",
+)
+async def get_current_experience(
+    current_user: CurrentUser,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> ExperienceRead:
+    org = await _get_own_org(session, current_user.organization_id)
+    return ExperienceRead.model_validate(
+        experience_payload(org.experience_profile, org.feature_overrides_json)
+    )
+
+
+@router.post(
+    "/current/experience/preview",
+    response_model=ExperiencePreview,
+    summary="Preview a dashboard experience change",
+)
+async def preview_current_experience(
+    payload: ExperienceChange,
+    admin: Annotated[User, Depends(require_admin)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> ExperiencePreview:
+    org = await _get_own_org(session, admin.organization_id)
+    try:
+        result = experience_payload(
+            payload.experience_profile,
+            payload.feature_overrides,
+            previous=(org.experience_profile, org.feature_overrides_json),
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+    return ExperiencePreview.model_validate(result)
+
+
+@router.patch(
+    "/current/experience",
+    response_model=ExperienceRead,
+    summary="Update the dashboard experience profile",
+)
+async def update_current_experience(
+    payload: ExperienceChange,
+    admin: Annotated[User, Depends(require_admin)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    context: Annotated[RequestContext, Depends(get_request_context)],
+) -> ExperienceRead:
+    org = await _get_own_org(session, admin.organization_id)
+    old_profile = org.experience_profile
+    old_overrides = dict(org.feature_overrides_json or {})
+    try:
+        result = experience_payload(
+            payload.experience_profile,
+            payload.feature_overrides,
+            previous=(old_profile, old_overrides),
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+
+    org.experience_profile = payload.experience_profile
+    org.feature_overrides_json = dict(payload.feature_overrides)
+    session.add(org)
+    await session.flush()
+    record_audit(
+        session,
+        action="organization.experience_profile_updated",
+        actor=admin,
+        organization_id=org.id,
+        target_type="organization",
+        target_id=org.id,
+        source_ip=context.source_ip,
+        user_agent=context.user_agent,
+        request_id=context.request_id,
+        metadata={
+            "old_profile": old_profile.value,
+            "new_profile": payload.experience_profile.value,
+            "old_overrides": old_overrides,
+            "new_overrides": payload.feature_overrides,
+            "changed_routes": result["changed_routes"],
+        },
+    )
+    return ExperienceRead.model_validate(result)
 
 
 @router.get("/{org_id}", response_model=OrganizationRead, summary="Get an organization")

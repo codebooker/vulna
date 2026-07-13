@@ -27,7 +27,8 @@ func TestRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.AccessMode != o.AccessMode || got.AdminEmail != o.AdminEmail {
+	if got.AccessMode != o.AccessMode || got.AdminEmail != o.AdminEmail ||
+		got.DeploymentProfile != DeploymentSmallBusiness {
 		t.Fatalf("round trip mismatch: %+v vs %+v", got, o)
 	}
 }
@@ -35,9 +36,10 @@ func TestRoundTrip(t *testing.T) {
 func TestSchemaVersionMismatch(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "answers.json")
-	o := validLocalhost()
-	o.SchemaVersion = 999
-	if err := Save(path, o); err != nil {
+	content := `{"schema_version":999,"install_dir":"/opt/vulna","data_dir":"/opt/vulna/data",` +
+		`"config_dir":"/opt/vulna/config","access_mode":"localhost",` +
+		`"admin_email":"a@b.com","update_checks":true,"deployment_profile":"small_business"}`
+	if err := writeFile(path, content); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Load(path); err == nil {
@@ -119,12 +121,37 @@ func TestLoadRejectsUnknownFields(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "answers.json")
 	// hand-write JSON with an unexpected key
-	content := `{"schema_version":1,"install_dir":"/opt/vulna","data_dir":"/opt/vulna/data",` +
+	content := `{"schema_version":2,"install_dir":"/opt/vulna","data_dir":"/opt/vulna/data",` +
 		`"access_mode":"localhost","admin_email":"a@b.com","surprise":true}`
 	if err := writeFile(path, content); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Load(path); err == nil {
 		t.Fatal("unknown field should be rejected")
+	}
+}
+
+func TestLoadV1DefaultsDeploymentProfile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "answers-v1.json")
+	content := `{"schema_version":1,"install_dir":"/opt/vulna","data_dir":"/opt/vulna/data",` +
+		`"config_dir":"/opt/vulna/config","access_mode":"localhost",` +
+		`"admin_email":"a@b.com","update_checks":true}`
+	if err := writeFile(path, content); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SchemaVersion != SchemaVersion || got.DeploymentProfile != DeploymentSmallBusiness {
+		t.Fatalf("v1 migration mismatch: %+v", got)
+	}
+}
+
+func TestValidateDeploymentProfile(t *testing.T) {
+	o := validLocalhost()
+	o.DeploymentProfile = "security-off"
+	if err := o.Validate(); err == nil {
+		t.Fatal("expected invalid deployment profile error")
 	}
 }

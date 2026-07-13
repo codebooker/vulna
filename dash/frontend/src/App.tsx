@@ -1,110 +1,14 @@
-import { useCallback, useEffect, useMemo, useState, type ComponentType } from 'react';
-import {
-  Activity as ActivityIcon,
-  Building2,
-  ClipboardCheck,
-  Crosshair,
-  FileText,
-  HardDrive,
-  History,
-  LayoutDashboard,
-  Network,
-  Radar,
-  Rocket,
-  Rss,
-  Server,
-  Settings as SettingsIcon,
-  ShieldAlert,
-  SlidersHorizontal,
-  Webhook,
-} from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from './api/client';
 import { useAuth } from './auth/useAuth';
 import { Sidebar, type NavSectionDef } from './components/layout/sidebar';
 import { Topbar } from './components/layout/topbar';
 import { NavContext, hashFor, parseHash, type RouteParams } from './lib/nav';
-import { AssetsPage } from './pages/AssetsPage';
-import { ChangesPage } from './pages/ChangesPage';
-import { AppliancesPage } from './pages/AppliancesPage';
-import { FeedsPage } from './pages/FeedsPage';
-import { FindingsPage } from './pages/FindingsPage';
-import { GettingStartedPage } from './pages/GettingStartedPage';
-import { HomeDashboard } from './pages/HomeDashboard';
+import { ALL_ROUTES, ROUTE_CATALOGUE } from './lib/route-catalogue';
 import { LoginScreen } from './pages/LoginPage';
-import { NetworksPage } from './pages/NetworksPage';
-import { NotificationsPage } from './pages/NotificationsPage';
-import { PentestPage } from './pages/PentestPage';
-import { PresetsPage } from './pages/PresetsPage';
-import { RemediationPage } from './pages/RemediationPage';
-import { ReportsPage } from './pages/ReportsPage';
-import { ScansPage } from './pages/SchedulesPage';
-import { SettingsPage } from './pages/SettingsPage';
-import { SitesPage } from './pages/SitesPage';
-import { SystemHealthPage } from './pages/SystemHealthPage';
+import type { Role } from './types/auth';
+import type { Experience } from './types/experience';
 import type { OnboardingState } from './types/onboarding';
-
-interface RouteDef {
-  id: string;
-  label: string;
-  icon: typeof LayoutDashboard;
-  Component: ComponentType;
-}
-
-interface SectionDef {
-  id: string;
-  label: string;
-  items: RouteDef[];
-}
-
-const NAV: SectionDef[] = [
-  {
-    id: 'operations',
-    label: 'Operations',
-    items: [
-      { id: 'overview', label: 'Overview', icon: LayoutDashboard, Component: HomeDashboard },
-      { id: 'assets', label: 'Assets', icon: Server, Component: AssetsPage },
-      { id: 'findings', label: 'Findings', icon: ShieldAlert, Component: FindingsPage },
-      { id: 'scans', label: 'Scans', icon: Radar, Component: ScansPage },
-      { id: 'sites', label: 'Sites', icon: Building2, Component: SitesPage },
-      { id: 'changes', label: 'Activity', icon: History, Component: ChangesPage },
-    ],
-  },
-  {
-    id: 'management',
-    label: 'Management',
-    items: [
-      { id: 'remediation', label: 'Remediation', icon: ClipboardCheck, Component: RemediationPage },
-      { id: 'reports', label: 'Reports', icon: FileText, Component: ReportsPage },
-      { id: 'appliances', label: 'Appliances', icon: HardDrive, Component: AppliancesPage },
-      { id: 'networks', label: 'Networks', icon: Network, Component: NetworksPage },
-      { id: 'presets', label: 'Scan presets', icon: SlidersHorizontal, Component: PresetsPage },
-      { id: 'pentest', label: 'Pentest', icon: Crosshair, Component: PentestPage },
-    ],
-  },
-  {
-    id: 'administration',
-    label: 'Administration',
-    items: [
-      { id: 'feeds', label: 'CVE feeds', icon: Rss, Component: FeedsPage },
-      { id: 'notifications', label: 'Integrations', icon: Webhook, Component: NotificationsPage },
-      { id: 'settings', label: 'Settings', icon: SettingsIcon, Component: SettingsPage },
-      {
-        id: 'system-health',
-        label: 'System health',
-        icon: ActivityIcon,
-        Component: SystemHealthPage,
-      },
-      {
-        id: 'getting-started',
-        label: 'Getting started',
-        icon: Rocket,
-        Component: GettingStartedPage,
-      },
-    ],
-  },
-];
-
-const ALL_ITEMS = NAV.flatMap((s) => s.items);
 
 /** Legacy hash ids continue to work and land on the equivalent redesigned view. */
 const ALIASES: Record<string, { id: string; params?: RouteParams }> = {
@@ -123,7 +27,7 @@ function resolveRoute(hash: string): { id: string; params: RouteParams } {
   const { id, params } = parseHash(hash);
   const alias = ALIASES[id];
   if (alias) return { id: alias.id, params: { ...alias.params, ...params } };
-  return ALL_ITEMS.some((i) => i.id === id) ? { id, params } : { id: 'overview', params: {} };
+  return ALL_ROUTES.some((i) => i.id === id) ? { id, params } : { id: 'overview', params: {} };
 }
 
 const SIDEBAR_KEY = 'vulnadash.sidebar-collapsed';
@@ -131,6 +35,7 @@ const SIDEBAR_KEY = 'vulnadash.sidebar-collapsed';
 export function App() {
   const { user, token, initializing, logout } = useAuth();
   const [onboarding, setOnboarding] = useState<OnboardingState | null>(null);
+  const [experience, setExperience] = useState<Experience | null>(null);
   const [route, setRoute] = useState(() => resolveRoute(window.location.hash));
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(() => {
@@ -150,9 +55,27 @@ export function App() {
     }
   }, [token]);
 
+  const loadExperience = useCallback(async () => {
+    if (!token) return;
+    try {
+      setExperience(await api.experience(token));
+    } catch {
+      // Fail open for discoverability: authorization still lives in the API.
+      setExperience(null);
+    }
+  }, [token]);
+
   useEffect(() => {
-    if (user && token) void loadOnboarding();
-  }, [user, token, loadOnboarding]);
+    if (user && token) {
+      void loadOnboarding();
+      void loadExperience();
+    }
+  }, [user, token, loadOnboarding, loadExperience]);
+
+  useEffect(() => {
+    window.addEventListener('vulna-experience-changed', loadExperience);
+    return () => window.removeEventListener('vulna-experience-changed', loadExperience);
+  }, [loadExperience]);
 
   useEffect(() => {
     const onHash = () => setRoute(resolveRoute(window.location.hash));
@@ -192,19 +115,38 @@ export function App() {
   }
 
   const incomplete = onboarding !== null && onboarding.completed_at === null;
-  const section = NAV.find((s) => s.items.some((i) => i.id === route.id)) ?? NAV[0];
-  const active = ALL_ITEMS.find((i) => i.id === route.id) ?? ALL_ITEMS[0];
+  const section =
+    ROUTE_CATALOGUE.find((item) => item.items.some((routeItem) => routeItem.id === route.id)) ??
+    ROUTE_CATALOGUE[0];
+  const active = ALL_ROUTES.find((item) => item.id === route.id) ?? ALL_ROUTES[0];
   const ActivePage = active.Component;
-
-  const sections: NavSectionDef[] = NAV.map((s) => ({
-    id: s.id,
-    label: s.label,
-    // Hide "Getting started" from the sidebar once setup is complete;
-    // the route itself keeps working.
-    items: s.items
-      .filter((i) => i.id !== 'getting-started' || incomplete)
+  const roleAllows = (roles?: Role[]) => !roles || roles.includes(user.role);
+  const isSmallBusiness = experience?.experience_profile === 'small_business';
+  const regularSections: NavSectionDef[] = ROUTE_CATALOGUE.map((catalogueSection) => ({
+    id: catalogueSection.id,
+    label: catalogueSection.label,
+    items: catalogueSection.items
+      .filter((item) => roleAllows(item.roles))
+      .filter((item) => item.id !== 'getting-started' || incomplete)
+      .filter((item) => {
+        if (item.id === 'getting-started' || !experience) return true;
+        return experience.route_visibility[item.visibilityKey] !== false;
+      })
       .map(({ id, label, icon }) => ({ id, label, icon })),
-  }));
+  })).filter((catalogueSection) => catalogueSection.items.length > 0);
+
+  const advancedItems = isSmallBusiness
+    ? ALL_ROUTES.filter((item) => roleAllows(item.roles))
+        .filter((item) => item.id !== 'getting-started')
+        .filter((item) => experience?.route_visibility[item.visibilityKey] === false)
+        .map(({ id, label, icon }) => ({ id, label, icon }))
+    : [];
+  const sections: NavSectionDef[] = [
+    ...regularSections,
+    ...(advancedItems.length > 0
+      ? [{ id: 'advanced', label: 'Advanced', items: advancedItems, collapsible: true }]
+      : []),
+  ];
 
   return (
     <NavContext.Provider value={navValue}>

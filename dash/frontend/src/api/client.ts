@@ -1,4 +1,5 @@
-import type { CurrentUser, TokenResponse } from '../types/auth';
+import type { CurrentUser, TokenResponse, UserSummary } from '../types/auth';
+import type { Experience, ExperienceChange, ExperiencePreview } from '../types/experience';
 import type {
   Asset,
   ChangeEvent,
@@ -19,6 +20,7 @@ import type {
   JobSummary,
   NetworkCandidates,
   OnboardingState,
+  ProfilePlan,
   ProbeDetail,
   ProbeSummary,
   RecoveryCodes,
@@ -117,6 +119,26 @@ export const api = {
   },
   me(token: string): Promise<CurrentUser> {
     return request<CurrentUser>('/api/v1/auth/me', { token });
+  },
+  experience(token: string): Promise<Experience> {
+    return request<Experience>('/api/v1/organizations/current/experience', { token });
+  },
+  previewExperience(token: string, payload: ExperienceChange): Promise<ExperiencePreview> {
+    return request<ExperiencePreview>('/api/v1/organizations/current/experience/preview', {
+      method: 'POST',
+      token,
+      body: payload,
+    });
+  },
+  updateExperience(token: string, payload: ExperienceChange): Promise<Experience> {
+    return request<Experience>('/api/v1/organizations/current/experience', {
+      method: 'PATCH',
+      token,
+      body: payload,
+    });
+  },
+  listUsers(token: string): Promise<Page<UserSummary>> {
+    return request<Page<UserSummary>>('/api/v1/users', { token });
   },
   listSites(token: string): Promise<Page<Site>> {
     return request<Page<Site>>('/api/v1/sites', { token });
@@ -256,6 +278,16 @@ export const api = {
   // --- Guided first-run (onboarding) ---
   onboardingState(token: string): Promise<OnboardingState> {
     return request<OnboardingState>('/api/v1/onboarding/state', { token });
+  },
+  profilePlan(token: string): Promise<ProfilePlan> {
+    return request<ProfilePlan>('/api/v1/onboarding/profile-plan', { token });
+  },
+  updateProfilePlan(token: string, answers: Record<string, unknown>): Promise<ProfilePlan> {
+    return request<ProfilePlan>('/api/v1/onboarding/profile-plan', {
+      method: 'PUT',
+      token,
+      body: { answers },
+    });
   },
   completeOnboardingStep(token: string, payload: CompleteStepPayload): Promise<OnboardingState> {
     return request<OnboardingState>('/api/v1/onboarding/state/complete-step', {

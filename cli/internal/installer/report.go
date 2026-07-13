@@ -38,7 +38,13 @@ func PrintPreflight(w io.Writer, results []preflight.Result) {
 
 // PrintPlan writes the changes an install would make (used by --dry-run).
 func PrintPlan(w io.Writer, plan deploy.Plan, o config.Options) {
-	fmt.Fprintf(w, "Install plan (access mode: %s, URL: %s):\n", o.AccessMode, o.Domain())
+	fmt.Fprintf(
+		w,
+		"Install plan (profile: %s, access mode: %s, URL: %s):\n",
+		o.DeploymentProfile,
+		o.AccessMode,
+		o.Domain(),
+	)
 	fmt.Fprintln(w, "  Filesystem changes:")
 	for _, a := range plan.Actions {
 		secret := ""

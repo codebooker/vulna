@@ -6,6 +6,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -13,7 +14,18 @@ import (
 )
 
 // SchemaVersion is the current answer-file schema version.
-const SchemaVersion = 1
+const SchemaVersion = 2
+
+// DeploymentProfile controls the initial dashboard experience. It changes
+// discoverability and recommendations only; it never disables capabilities or
+// security controls.
+type DeploymentProfile string
+
+const (
+	DeploymentSmallBusiness DeploymentProfile = "small_business"
+	DeploymentEnterprise    DeploymentProfile = "enterprise"
+	DeploymentCustom        DeploymentProfile = "custom"
+)
 
 // AccessMode is how the dashboard is reached.
 type AccessMode string
@@ -29,45 +41,80 @@ const (
 
 // Options is the complete, non-secret installer configuration.
 type Options struct {
+	SchemaVersion     int               `json:"schema_version"`
+	InstallDir        string            `json:"install_dir"`
+	DataDir           string            `json:"data_dir"`
+	ConfigDir         string            `json:"config_dir"`
+	AccessMode        AccessMode        `json:"access_mode"`
+	URL               string            `json:"url,omitempty"` // hostname for lan/public
+	AdminEmail        string            `json:"admin_email"`
+	UpdateChecks      bool              `json:"update_checks"`
+	ACMEEmail         string            `json:"acme_email,omitempty"` // for public TLS (Let's Encrypt)
+	DeploymentProfile DeploymentProfile `json:"deployment_profile"`
+}
+
+// optionsV1 is retained only to load existing answer files. Save always emits
+// the current schema.
+type optionsV1 struct {
 	SchemaVersion int        `json:"schema_version"`
 	InstallDir    string     `json:"install_dir"`
 	DataDir       string     `json:"data_dir"`
 	ConfigDir     string     `json:"config_dir"`
 	AccessMode    AccessMode `json:"access_mode"`
-	URL           string     `json:"url,omitempty"` // hostname for lan/public
+	URL           string     `json:"url,omitempty"`
 	AdminEmail    string     `json:"admin_email"`
 	UpdateChecks  bool       `json:"update_checks"`
-	ACMEEmail     string     `json:"acme_email,omitempty"` // for public TLS (Let's Encrypt)
+	ACMEEmail     string     `json:"acme_email,omitempty"`
 }
 
 // Defaults returns a localhost single-host configuration rooted under baseDir.
 func Defaults(baseDir string) Options {
 	return Options{
-		SchemaVersion: SchemaVersion,
-		InstallDir:    baseDir,
-		DataDir:       filepath.Join(baseDir, "data"),
-		ConfigDir:     filepath.Join(baseDir, "config"),
-		AccessMode:    AccessLocalhost,
-		UpdateChecks:  true,
+		SchemaVersion:     SchemaVersion,
+		InstallDir:        baseDir,
+		DataDir:           filepath.Join(baseDir, "data"),
+		ConfigDir:         filepath.Join(baseDir, "config"),
+		AccessMode:        AccessLocalhost,
+		UpdateChecks:      true,
+		DeploymentProfile: DeploymentSmallBusiness,
 	}
 }
 
 // Load reads and validates a versioned answer file.
 func Load(path string) (Options, error) {
-	var o Options
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return o, fmt.Errorf("read answer file: %w", err)
+		return Options{}, fmt.Errorf("read answer file: %w", err)
 	}
-	dec := json.NewDecoder(strings.NewReader(string(data)))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&o); err != nil {
-		return o, fmt.Errorf("parse answer file %s: %w", path, err)
+	var envelope struct {
+		SchemaVersion int `json:"schema_version"`
 	}
-	if o.SchemaVersion != SchemaVersion {
+	if err := json.Unmarshal(data, &envelope); err != nil {
+		return Options{}, fmt.Errorf("parse answer file %s: %w", path, err)
+	}
+
+	var o Options
+	switch envelope.SchemaVersion {
+	case 1:
+		var legacy optionsV1
+		if err := decodeStrict(data, &legacy); err != nil {
+			return o, fmt.Errorf("parse answer file %s: %w", path, err)
+		}
+		o = Options{
+			SchemaVersion: SchemaVersion, InstallDir: legacy.InstallDir,
+			DataDir: legacy.DataDir, ConfigDir: legacy.ConfigDir,
+			AccessMode: legacy.AccessMode, URL: legacy.URL,
+			AdminEmail: legacy.AdminEmail, UpdateChecks: legacy.UpdateChecks,
+			ACMEEmail: legacy.ACMEEmail, DeploymentProfile: DeploymentSmallBusiness,
+		}
+	case SchemaVersion:
+		if err := decodeStrict(data, &o); err != nil {
+			return o, fmt.Errorf("parse answer file %s: %w", path, err)
+		}
+	default:
 		return o, fmt.Errorf(
-			"answer file schema_version %d is not supported (expected %d)",
-			o.SchemaVersion, SchemaVersion)
+			"answer file schema_version %d is not supported (expected 1 or %d)",
+			envelope.SchemaVersion, SchemaVersion)
 	}
 	if err := o.Validate(); err != nil {
 		return o, err
@@ -75,8 +122,27 @@ func Load(path string) (Options, error) {
 	return o, nil
 }
 
+func decodeStrict(data []byte, value any) error {
+	dec := json.NewDecoder(strings.NewReader(string(data)))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(value); err != nil {
+		return err
+	}
+	if err := dec.Decode(&struct{}{}); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("answer file contains more than one JSON value")
+		}
+		return err
+	}
+	return nil
+}
+
 // Save writes the answer file (non-secret) for reproducible re-runs.
 func Save(path string, o Options) error {
+	o.SchemaVersion = SchemaVersion
+	if o.DeploymentProfile == "" {
+		o.DeploymentProfile = DeploymentSmallBusiness
+	}
 	data, err := json.MarshalIndent(o, "", "  ")
 	if err != nil {
 		return err
@@ -91,6 +157,9 @@ func (o *Options) Normalize() error {
 	}
 	if o.AccessMode == "" {
 		o.AccessMode = AccessLocalhost
+	}
+	if o.DeploymentProfile == "" {
+		o.DeploymentProfile = DeploymentSmallBusiness
 	}
 	for _, p := range []*string{&o.InstallDir, &o.DataDir, &o.ConfigDir} {
 		if *p == "" {
@@ -107,6 +176,14 @@ func (o *Options) Normalize() error {
 
 // Validate reports whether the options are internally consistent.
 func (o Options) Validate() error {
+	switch o.DeploymentProfile {
+	case DeploymentSmallBusiness, DeploymentEnterprise, DeploymentCustom:
+	default:
+		return fmt.Errorf(
+			"deployment_profile %q is not one of small_business, enterprise, custom",
+			o.DeploymentProfile,
+		)
+	}
 	switch o.AccessMode {
 	case AccessLocalhost, AccessLAN, AccessPublic:
 	default:

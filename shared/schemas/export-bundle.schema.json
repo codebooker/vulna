@@ -31,7 +31,15 @@
         "id": { "type": "string" },
         "name": { "type": "string" },
         "slug": { "type": "string" },
-        "default_timezone": { "type": "string" }
+        "default_timezone": { "type": "string" },
+        "experience_profile": {
+          "type": "string",
+          "enum": ["small_business", "enterprise", "custom"]
+        },
+        "feature_overrides": {
+          "type": "object",
+          "additionalProperties": { "type": "boolean" }
+        }
       }
     },
     "sites": { "type": "array", "items": { "type": "object" } },

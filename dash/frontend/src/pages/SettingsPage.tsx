@@ -5,6 +5,7 @@ import {
   Eraser,
   Globe,
   HelpCircle,
+  LayoutDashboard,
   Lock,
   type LucideIcon,
 } from 'lucide-react';
@@ -13,6 +14,7 @@ import { cn } from '../lib/utils';
 import { PageHeader } from '../components/app/page-header';
 import { Select } from '../components/ui/input';
 import { BackupCenterPage } from './BackupCenterPage';
+import { ExperienceSettingsPage } from './ExperienceSettingsPage';
 import { HelpPage } from './HelpPage';
 import { MaintenancePage } from './MaintenancePage';
 import { NetworkingPage } from './NetworkingPage';
@@ -27,6 +29,7 @@ interface SettingsSection {
 }
 
 const SECTIONS: SettingsSection[] = [
+  { id: 'general', label: 'General', icon: LayoutDashboard, Component: ExperienceSettingsPage },
   { id: 'networking', label: 'Networking & access', icon: Globe, Component: NetworkingPage },
   { id: 'updates', label: 'Updates', icon: DownloadCloud, Component: UpdateCenterPage },
   { id: 'backups', label: 'Backups', icon: Archive, Component: BackupCenterPage },
@@ -42,7 +45,7 @@ export function SettingsPage() {
   const { current, go } = useNav();
   const requested = current.params.section;
   const [active, setActive] = useState(
-    SECTIONS.some((s) => s.id === requested) ? (requested as string) : 'networking',
+    SECTIONS.some((s) => s.id === requested) ? (requested as string) : 'general',
   );
 
   useEffect(() => {

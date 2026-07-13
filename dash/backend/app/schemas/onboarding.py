@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -98,3 +99,30 @@ class ScanSummaryResponse(BaseModel):
 class DemoTargetResponse(BaseModel):
     cidr: str
     note: str
+
+
+class ProfilePlanQuestion(BaseModel):
+    key: str
+    label: str
+    kind: Literal["boolean", "number", "text", "select"]
+    options: list[str] = Field(default_factory=list)
+    required: bool = False
+
+
+class ProfileRecommendation(BaseModel):
+    capability: str
+    status: Literal["available", "planned"]
+    reason: str
+    route: str | None = None
+
+
+class ProfilePlanRead(BaseModel):
+    experience_profile: str
+    questions: list[ProfilePlanQuestion]
+    answers: dict[str, Any]
+    recommendations: list[ProfileRecommendation]
+    updated_at: datetime | None = None
+
+
+class ProfilePlanUpdate(BaseModel):
+    answers: dict[str, Any] = Field(default_factory=dict)

@@ -2,8 +2,11 @@ package main
 
 import (
 	"bytes"
+	"flag"
 	"strings"
 	"testing"
+
+	"github.com/codebooker/vulna/cli/internal/config"
 )
 
 func TestVersion(t *testing.T) {
@@ -54,5 +57,23 @@ func TestPreflightDoesNotPanic(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "Preflight checks:") {
 		t.Fatalf("preflight missing header: %q", out.String())
+	}
+}
+
+func TestDeploymentProfileFlagOverridesDefault(t *testing.T) {
+	fs := flag.NewFlagSet("install", flag.ContinueOnError)
+	f := bindInstallFlags(fs)
+	if err := fs.Parse([]string{
+		"--deployment-profile", "enterprise",
+		"--admin-email", "admin@example.com",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	o, err := resolveOptions(f, fs, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.DeploymentProfile != config.DeploymentEnterprise {
+		t.Fatalf("deployment profile = %q", o.DeploymentProfile)
 	}
 }

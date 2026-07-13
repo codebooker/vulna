@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.password import hash_password
 from app.core.config import Settings
 from app.models.enrollment_token import EnrollmentToken
-from app.models.enums import ActorType, UserRole
+from app.models.enums import ActorType, ExperienceProfile, UserRole
 from app.models.organization import Organization
 from app.models.probe import Probe
 from app.models.site import Site
@@ -64,6 +64,7 @@ async def ensure_default_organization(session: AsyncSession, settings: Settings)
         name=settings.default_org_name,
         slug=settings.default_org_slug,
         default_timezone="UTC",
+        experience_profile=ExperienceProfile(settings.deployment_profile),
     )
     session.add(org)
     await session.flush()

@@ -110,3 +110,26 @@ export interface JobSummary {
   status: string;
   mode: string;
 }
+
+export interface ProfilePlanQuestion {
+  key: string;
+  label: string;
+  kind: 'boolean' | 'number' | 'text' | 'select';
+  options: string[];
+  required: boolean;
+}
+
+export interface ProfileRecommendation {
+  capability: string;
+  status: 'available' | 'planned';
+  reason: string;
+  route: string | null;
+}
+
+export interface ProfilePlan {
+  experience_profile: string;
+  questions: ProfilePlanQuestion[];
+  answers: Record<string, unknown>;
+  recommendations: ProfileRecommendation[];
+  updated_at: string | null;
+}

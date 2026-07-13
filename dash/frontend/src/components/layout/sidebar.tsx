@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
-import { LogOut, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { ChevronDown, ChevronRight, LogOut, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { Tooltip } from '../ui/menu';
 
@@ -13,6 +14,7 @@ export interface NavSectionDef {
   id: string;
   label: string;
   items: NavItemDef[];
+  collapsible?: boolean;
 }
 
 export function Sidebar({
@@ -39,6 +41,7 @@ export function Sidebar({
   onLogout: () => void;
 }) {
   const initial = (userEmail[0] ?? '?').toUpperCase();
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
 
   const nav = (
     <div className="flex h-full flex-col">
@@ -59,62 +62,90 @@ export function Sidebar({
 
       {/* Sections */}
       <nav aria-label="Primary" className="slim-scroll flex-1 overflow-y-auto px-2 py-3">
-        {sections.map((section) => (
-          <div key={section.id} className="mb-4 last:mb-0">
-            {!collapsed && (
-              <p className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-nav-text/60">
-                {section.label}
-              </p>
-            )}
-            {collapsed && <div className="mx-2 mb-2 h-px bg-nav-border first:hidden" />}
-            <ul className="flex flex-col gap-0.5">
-              {section.items.map((item) => {
-                const active = item.id === currentId;
-                const btn = (
-                  <button
-                    type="button"
-                    aria-current={active ? 'page' : undefined}
-                    onClick={() => {
-                      onNavigate(item.id);
-                      onCloseMobile();
-                    }}
-                    className={cn(
-                      'group flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-[13px] transition-colors',
-                      collapsed && 'justify-center px-0 py-2',
-                      active
-                        ? 'bg-nav-active font-semibold text-nav-text-strong'
-                        : 'text-nav-text hover:bg-nav-surface hover:text-nav-text-strong',
-                    )}
-                  >
-                    <item.icon
-                      size={16}
-                      aria-hidden
-                      className={cn(
-                        'shrink-0',
-                        active ? 'text-accent' : 'text-nav-text/70 group-hover:text-nav-text',
-                      )}
-                    />
-                    {!collapsed && <span className="truncate">{item.label}</span>}
-                    {active && !collapsed && (
-                      <span aria-hidden className="ml-auto h-1.5 w-1.5 rounded-full bg-accent" />
-                    )}
-                  </button>
-                );
-                return (
-                  <li key={item.id}>
-                    {collapsed ? (
-                      <Tooltip label={item.label} className="w-full">
-                        {btn}
-                      </Tooltip>
-                    ) : (
-                      btn
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        ))}
+        {sections.map((section) => {
+          const expanded = expandedSections[section.id] === true;
+          const showItems = !section.collapsible || collapsed || expanded;
+          return (
+            <div key={section.id} className="mb-4 last:mb-0">
+              {!collapsed && section.collapsible ? (
+                <button
+                  type="button"
+                  aria-expanded={expanded}
+                  onClick={() =>
+                    setExpandedSections((current) => ({
+                      ...current,
+                      [section.id]: !current[section.id],
+                    }))
+                  }
+                  className="mb-1 flex w-full items-center gap-1 px-2 text-left text-[10px] font-semibold uppercase tracking-[0.12em] text-nav-text/60 hover:text-nav-text"
+                >
+                  {expanded ? (
+                    <ChevronDown size={11} aria-hidden />
+                  ) : (
+                    <ChevronRight size={11} aria-hidden />
+                  )}
+                  {section.label}
+                </button>
+              ) : !collapsed ? (
+                <p className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-nav-text/60">
+                  {section.label}
+                </p>
+              ) : null}
+              {collapsed && <div className="mx-2 mb-2 h-px bg-nav-border first:hidden" />}
+              {showItems && (
+                <ul className="flex flex-col gap-0.5">
+                  {section.items.map((item) => {
+                    const active = item.id === currentId;
+                    const btn = (
+                      <button
+                        type="button"
+                        aria-current={active ? 'page' : undefined}
+                        onClick={() => {
+                          onNavigate(item.id);
+                          onCloseMobile();
+                        }}
+                        className={cn(
+                          'group flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-[13px] transition-colors',
+                          collapsed && 'justify-center px-0 py-2',
+                          active
+                            ? 'bg-nav-active font-semibold text-nav-text-strong'
+                            : 'text-nav-text hover:bg-nav-surface hover:text-nav-text-strong',
+                        )}
+                      >
+                        <item.icon
+                          size={16}
+                          aria-hidden
+                          className={cn(
+                            'shrink-0',
+                            active ? 'text-accent' : 'text-nav-text/70 group-hover:text-nav-text',
+                          )}
+                        />
+                        {!collapsed && <span className="truncate">{item.label}</span>}
+                        {active && !collapsed && (
+                          <span
+                            aria-hidden
+                            className="ml-auto h-1.5 w-1.5 rounded-full bg-accent"
+                          />
+                        )}
+                      </button>
+                    );
+                    return (
+                      <li key={item.id}>
+                        {collapsed ? (
+                          <Tooltip label={item.label} className="w-full">
+                            {btn}
+                          </Tooltip>
+                        ) : (
+                          btn
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          );
+        })}
       </nav>
 
       {/* Footer: user + collapse */}

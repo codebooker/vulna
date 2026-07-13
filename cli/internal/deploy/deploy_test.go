@@ -38,6 +38,9 @@ func TestApplyWritesRestrictiveEnv(t *testing.T) {
 	if env["VULNA_ADMIN_EMAIL"] != "admin@example.com" {
 		t.Fatalf("admin email not written: %q", env["VULNA_ADMIN_EMAIL"])
 	}
+	if env["VULNA_DEPLOYMENT_PROFILE"] != "small_business" {
+		t.Fatalf("deployment profile not written: %q", env["VULNA_DEPLOYMENT_PROFILE"])
+	}
 }
 
 func TestRerunDoesNotRotateSecrets(t *testing.T) {
@@ -68,6 +71,7 @@ func TestRerunPreservesManualEdits(t *testing.T) {
 	envPath := filepath.Join(o.InstallDir, EnvFile)
 	env, _ := ReadEnv(envPath)
 	env["VULNA_DOMAIN"] = "custom.example.internal"
+	env["VULNA_DEPLOYMENT_PROFILE"] = "custom"
 	if err := WriteEnv(envPath, env); err != nil {
 		t.Fatal(err)
 	}
@@ -77,6 +81,9 @@ func TestRerunPreservesManualEdits(t *testing.T) {
 	got, _ := ReadEnv(envPath)
 	if got["VULNA_DOMAIN"] != "custom.example.internal" {
 		t.Fatalf("manual edit overwritten: %q", got["VULNA_DOMAIN"])
+	}
+	if got["VULNA_DEPLOYMENT_PROFILE"] != "custom" {
+		t.Fatalf("manual deployment profile overwritten: %q", got["VULNA_DEPLOYMENT_PROFILE"])
 	}
 }
 

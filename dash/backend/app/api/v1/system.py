@@ -17,9 +17,20 @@ from app.auth.dependencies import CurrentUser
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
 from app.schemas.system import SystemInfoResponse
+from app.services.experience import CAPABILITIES
 from app.services.health import component_health
 
 router = APIRouter(prefix="/system", tags=["system"])
+
+
+@router.get("/capabilities", summary="Public capability status matrix")
+def capability_status() -> dict[str, object]:
+    """Return non-sensitive implementation status without making readiness claims."""
+    return {
+        "production_ready": False,
+        "capabilities": [dict(capability) for capability in CAPABILITIES],
+        "note": "Production-ready remains false until final release qualification passes.",
+    }
 
 
 @router.get("/health", summary="Structured health check")

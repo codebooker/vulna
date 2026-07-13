@@ -20,3 +20,9 @@ export interface TokenResponse {
   token_type: string;
   expires_in: number;
 }
+
+export interface UserSummary extends CurrentUser {
+  last_login_at: string | null;
+  created_at: string;
+  updated_at: string;
+}

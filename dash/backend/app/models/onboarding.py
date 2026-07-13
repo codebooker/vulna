@@ -22,6 +22,7 @@ from app.db.mixins import TimestampMixin, UUIDPrimaryKeyMixin
 # migration.
 ONBOARDING_STEPS: tuple[str, ...] = (
     "admin",
+    "profile_plan",
     "recovery_codes",
     "health",
     "site",

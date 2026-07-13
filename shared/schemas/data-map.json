@@ -42,6 +42,7 @@
   },
   "stored_locally": [
     { "category": "organization/sites/scopes", "store": "database", "sensitivity": "low", "in_export": true },
+    { "category": "experience profile and onboarding plan", "store": "database", "sensitivity": "low", "in_export": "profile_only" },
     { "category": "scouts", "store": "database", "sensitivity": "low", "in_export": "metadata_only" },
     { "category": "assets/services", "store": "database", "sensitivity": "medium", "in_export": true },
     { "category": "findings", "store": "database", "sensitivity": "medium", "in_export": true },

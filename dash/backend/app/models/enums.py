@@ -5,6 +5,14 @@ from __future__ import annotations
 from enum import StrEnum
 
 
+class ExperienceProfile(StrEnum):
+    """Dashboard discoverability profile; never an authorization control."""
+
+    SMALL_BUSINESS = "small_business"
+    ENTERPRISE = "enterprise"
+    CUSTOM = "custom"
+
+
 class UserRole(StrEnum):
     """Initial role set (build plan Section 5).
 

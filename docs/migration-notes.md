@@ -17,6 +17,12 @@ step is needed for schema changes unless noted.
 
 ## Unreleased (on `main`)
 
+- **Experience profiles (Phase 33).** Existing organizations are backfilled to
+  `small_business`. This changes navigation organization only; routes, policies,
+  permissions, schedules, security controls, and stored configuration continue
+  unchanged. Installer answer schema v1 remains readable; new answer files use v2.
+  Backup/restore includes the two new organization fields. Downgrading discards
+  only the presentation preference.
 - **Notifications (Phase 29).** New email/webhook notification channels. No action
   required; opt in by creating a channel under Notifications. Credentials are
   stored encrypted and never returned.

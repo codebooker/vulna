@@ -124,6 +124,9 @@ func BuildEnv(o config.Options, existing map[string]string) (map[string]string, 
 	env["VULNA_VERSION"] = pick(existing, "VULNA_VERSION", defaultVersion())
 	// Non-secret settings: preserve an operator's manual edits if present.
 	env["VULNA_ADMIN_EMAIL"] = pick(existing, "VULNA_ADMIN_EMAIL", o.AdminEmail)
+	env["VULNA_DEPLOYMENT_PROFILE"] = pick(
+		existing, "VULNA_DEPLOYMENT_PROFILE", string(o.DeploymentProfile),
+	)
 	env["VULNA_DOMAIN"] = pick(existing, "VULNA_DOMAIN", o.Domain())
 	publicHost := o.Domain()
 	if publicHost == "" {

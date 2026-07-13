@@ -102,6 +102,7 @@ type installFlags struct {
 	dir, dataDir, configDir       string
 	accessMode, url, adminEmail   string
 	acmeEmail, answers            string
+	deploymentProfile             string
 	updateChecks                  bool
 	nonInteractive, dryRun, start bool
 	force                         bool
@@ -117,6 +118,12 @@ func bindInstallFlags(fs *flag.FlagSet) *installFlags {
 	fs.StringVar(&f.url, "url", "", "hostname or URL (for lan/public)")
 	fs.StringVar(&f.adminEmail, "admin-email", "", "initial administrator email")
 	fs.StringVar(&f.acmeEmail, "acme-email", "", "email for automatic TLS (public mode)")
+	fs.StringVar(
+		&f.deploymentProfile,
+		"deployment-profile",
+		"",
+		"dashboard experience: small_business | enterprise | custom",
+	)
 	fs.StringVar(&f.answers, "answers", "", "versioned answer file for non-interactive install")
 	fs.BoolVar(&f.updateChecks, "update-checks", true, "enable update checks")
 	fs.BoolVar(&f.nonInteractive, "non-interactive", false, "do not prompt (requires --answers or full flags)")
@@ -160,6 +167,9 @@ func resolveOptions(f *installFlags, fs *flag.FlagSet, source string) (config.Op
 	}
 	if set["acme-email"] {
 		o.ACMEEmail = f.acmeEmail
+	}
+	if set["deployment-profile"] {
+		o.DeploymentProfile = config.DeploymentProfile(f.deploymentProfile)
 	}
 	if set["update-checks"] {
 		o.UpdateChecks = f.updateChecks
@@ -284,7 +294,13 @@ func cmdInstall(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 	}
-	fmt.Fprintf(stdout, "\nInstalled. Config: %s (0600). Admin email: %s\n", o.InstallDir, o.AdminEmail)
+	fmt.Fprintf(
+		stdout,
+		"\nInstalled. Config: %s (0600). Admin email: %s. Profile: %s.\n",
+		o.InstallDir,
+		o.AdminEmail,
+		o.DeploymentProfile,
+	)
 	fmt.Fprintln(stdout, "The initial admin password was generated into the 0600 .env file and not printed.")
 
 	if f.start {

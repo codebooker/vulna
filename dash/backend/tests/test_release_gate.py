@@ -33,6 +33,7 @@ REQUIRED_GATE_MODULES = [
     "test_backup_center.py",
     "test_relay.py",
     "test_maintenance.py",
+    "test_experience.py",
 ]
 
 
@@ -71,3 +72,10 @@ def test_support_matrix_is_well_formed() -> None:
         assert key in matrix, f"support matrix missing '{key}'"
     assert set(matrix["architectures"]) == {"amd64", "arm64"}
     assert {c["channel"] for c in matrix["release_channels"]} == {"stable", "maintenance"}
+
+
+def test_capability_matrix_does_not_claim_production_readiness() -> None:
+    text = (REPO_ROOT / "docs" / "capabilities.md").read_text().lower()
+    assert "production-ready remains false" in text
+    for phase in range(34, 45):
+        assert f"phase {phase}" in text

@@ -79,11 +79,13 @@ VulnaRelay notes.
 | Get notified | [notifications](notifications.md) |
 | Run on small or offline hardware | [low-resource](low-resource.md) |
 | Diagnose a problem | [diagnostics](diagnostics.md) · [troubleshooting](troubleshooting.md) |
+| Choose a dashboard experience | [experience profiles](experience-profiles.md) |
 | Expose Vulna beyond my LAN | [exposure checklist](administration/exposure-checklist.md) |
 
 ## Reference
 
 - [Architecture](architecture.md) · [Threat model](threat-model.md)
 - [Security review checklist](security-review-checklist.md)
+- [Capability status](capabilities.md)
 - [Migration notes](migration-notes.md)
 - [Architecture decision records](adr/)
