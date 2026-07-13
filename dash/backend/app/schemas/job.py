@@ -22,6 +22,7 @@ class JobCreate(BaseModel):
     """Operator request to create (and sign) a scan job for a probe."""
 
     probe_id: uuid.UUID
+    network_id: uuid.UUID | None = None
     targets: list[str] = Field(min_length=1)
     mode: JobMode = JobMode.VULNERABILITY_ASSESSMENT
     not_before: datetime | None = None
@@ -43,6 +44,7 @@ class JobRead(BaseModel):
     site_id: uuid.UUID
     probe_id: uuid.UUID
     asset_id: uuid.UUID | None
+    network_id: uuid.UUID | None
     mode: JobMode
     status: JobStatus
     requested_targets_json: list[str]

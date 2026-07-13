@@ -115,12 +115,20 @@ def _cell(value: Any) -> str:
     return "" if value is None else str(value)
 
 
+def _safe_csv_cell(value: Any) -> str:
+    """Prevent spreadsheet applications from evaluating exported data as formulas."""
+    text = _cell(value)
+    if text.lstrip(" \t\r").startswith(("=", "+", "-", "@")):
+        return f"'{text}"
+    return text
+
+
 def _write_csv(columns: list[str], rows: list[dict[str, Any]]) -> bytes:
     buf = io.StringIO()
     writer = csv.DictWriter(buf, fieldnames=columns, extrasaction="ignore")
     writer.writeheader()
     for row in rows:
-        writer.writerow({c: row.get(c, "") for c in columns})
+        writer.writerow({c: _safe_csv_cell(row.get(c, "")) for c in columns})
     return buf.getvalue().encode("utf-8")
 
 

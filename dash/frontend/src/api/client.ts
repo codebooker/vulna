@@ -1268,11 +1268,21 @@ export const api = {
       body: { approve },
     });
   },
-  createJob(token: string, probeId: string, targets: string[]): Promise<JobSummary> {
+  createJob(
+    token: string,
+    probeId: string,
+    targets: string[],
+    networkId?: string,
+  ): Promise<JobSummary> {
     return request<JobSummary>('/api/v1/jobs', {
       method: 'POST',
       token,
-      body: { probe_id: probeId, targets, mode: 'vulnerability_assessment' },
+      body: {
+        ...(networkId ? { network_id: networkId } : {}),
+        probe_id: probeId,
+        targets,
+        mode: 'vulnerability_assessment',
+      },
     });
   },
   listJobs(token: string, status?: string, limit = 100): Promise<Page<Job>> {
@@ -1605,11 +1615,30 @@ export const api = {
   search(token: string, q: string): Promise<SearchResults> {
     return request<SearchResults>(`/api/v1/search?q=${encodeURIComponent(q)}`, { token });
   },
-  listFindings(token: string, limit = 50): Promise<FindingPage<Finding>> {
+  listFindings(token: string, limit = 50, offset = 0): Promise<FindingPage<Finding>> {
     // The API caps page size at 200; requesting more 422s, which would leave the
     // findings list (and any severity/asset counts derived from it) empty.
     const capped = Math.min(limit, 200);
-    return request<FindingPage<Finding>>(`/api/v1/findings?limit=${capped}`, { token });
+    return request<FindingPage<Finding>>(`/api/v1/findings?limit=${capped}&offset=${offset}`, {
+      token,
+    });
+  },
+  async listAllFindings(token: string): Promise<FindingPage<Finding>> {
+    const items: Finding[] = [];
+    const pageSize = 200;
+    let offset = 0;
+    let total = 0;
+    do {
+      const page = await request<FindingPage<Finding>>(
+        `/api/v1/findings?limit=${pageSize}&offset=${offset}`,
+        { token },
+      );
+      total = page.total;
+      items.push(...page.items);
+      if (page.items.length === 0) break;
+      offset += page.items.length;
+    } while (offset < total);
+    return { items, total, limit: items.length, offset: 0 };
   },
   getFinding(token: string, id: string): Promise<Finding> {
     return request<Finding>(`/api/v1/findings/${encodeURIComponent(id)}`, { token });

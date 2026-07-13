@@ -60,6 +60,80 @@ async def test_create_job_signs_and_queues(
     assert body["requested_targets_json"] == ["10.20.0.0/24"]
 
 
+async def test_network_job_is_bound_scoped_locked_and_disableable(
+    client: AsyncClient, admin_headers: dict[str, str], enroll_probe: EnrollFactory
+) -> None:
+    probe = await _ready_probe(client, admin_headers, enroll_probe)
+    networks = (await client.get("/api/v1/networks", headers=admin_headers)).json()
+    network = next(n for n in networks if any(r["cidr"] == "10.20.0.0/24" for r in n["ranges"]))
+
+    created = await client.post(
+        "/api/v1/jobs",
+        json={
+            "network_id": network["id"],
+            "probe_id": probe["probe_id"],
+            "targets": ["10.20.0.5"],
+        },
+        headers=admin_headers,
+    )
+    assert created.status_code == 201
+    assert created.json()["network_id"] == network["id"]
+
+    duplicate = await client.post(
+        "/api/v1/jobs",
+        json={
+            "network_id": network["id"],
+            "probe_id": probe["probe_id"],
+            "targets": ["10.20.0.6"],
+        },
+        headers=admin_headers,
+    )
+    assert duplicate.status_code == 422
+    assert "already under test" in duplicate.json()["detail"]
+
+    await client.post(f"/api/v1/jobs/{created.json()['id']}/cancel", headers=admin_headers)
+    other = (
+        await client.post(
+            "/api/v1/networks",
+            json={
+                "site_id": probe["site_id"],
+                "name": "Other",
+                "ranges": [{"cidr": "10.30.0.0/24"}],
+                "scouts": [{"probe_id": probe["probe_id"], "is_primary": True}],
+            },
+            headers=admin_headers,
+        )
+    ).json()
+    outside = await client.post(
+        "/api/v1/jobs",
+        json={
+            "network_id": other["id"],
+            "probe_id": probe["probe_id"],
+            "targets": ["10.20.0.5"],
+        },
+        headers=admin_headers,
+    )
+    assert outside.status_code == 422
+    assert "outside the approved scope" in outside.json()["detail"]
+
+    await client.patch(
+        f"/api/v1/networks/{network['id']}",
+        json={"enabled": False},
+        headers=admin_headers,
+    )
+    disabled = await client.post(
+        "/api/v1/jobs",
+        json={
+            "network_id": network["id"],
+            "probe_id": probe["probe_id"],
+            "targets": ["10.20.0.5"],
+        },
+        headers=admin_headers,
+    )
+    assert disabled.status_code == 422
+    assert "disabled" in disabled.json()["detail"].lower()
+
+
 async def test_create_job_over_host_limit_rejected(
     client: AsyncClient, admin_headers: dict[str, str], enroll_probe: EnrollFactory
 ) -> None:

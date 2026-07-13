@@ -297,7 +297,7 @@ function ApplianceDrawer({
   }, [probe, token]);
 
   const run = async (fn: () => Promise<unknown>, success: string) => {
-    if (!token || !probe) return;
+    if (!token || !probe) return false;
     setBusy(true);
     setError(null);
     try {
@@ -305,8 +305,10 @@ function ApplianceDrawer({
       onChanged();
       setDetail(await api.getProbe(token, probe.id));
       toast('success', success);
+      return true;
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Action failed.');
+      return false;
     } finally {
       setBusy(false);
     }
@@ -446,13 +448,16 @@ function ApplianceDrawer({
         confirmLabel="Revoke appliance"
         onConfirm={() => {
           if (token && detail) {
-            void run(
-              () => api.probeLifecycle(token, detail.id, 'revoke'),
-              'Appliance revoked.',
-            ).then(() => {
+            void (async () => {
+              const revoked = await run(
+                () => api.probeLifecycle(token, detail.id, 'revoke'),
+                'Appliance revoked.',
+              );
               setConfirmRevoke(false);
-              onClose();
-            });
+              if (revoked) {
+                onClose();
+              }
+            })();
           }
         }}
       />

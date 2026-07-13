@@ -71,7 +71,7 @@ export function AssetsPage() {
       const [a, s, f, t, g, u, d] = await Promise.all([
         api.listAssets(token),
         api.listSites(token),
-        api.listFindings(token, 500).catch(() => null),
+        api.listAllFindings(token).catch(() => null),
         api.listAssetTags(token).catch(() => null),
         api.listAssetGroups(token).catch(() => null),
         canManage ? api.listUsers(token).catch(() => null) : Promise.resolve(null),

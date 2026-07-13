@@ -239,6 +239,7 @@ async def _create_job_impl(
         request_id=context.request_id,
         metadata={
             "probe_id": str(probe.id),
+            "network_id": str(payload.network_id) if payload.network_id else None,
             "mode": job.mode.value,
             "targets": job.requested_targets_json,
             "asset_id": str(job.asset_id) if job.asset_id else None,

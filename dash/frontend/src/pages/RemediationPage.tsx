@@ -65,7 +65,7 @@ export function RemediationPage() {
     setError(null);
     try {
       const [page, unitPage, riskProfiles] = await Promise.all([
-        api.listFindings(token, 500),
+        api.listAllFindings(token),
         api.listRemediationUnits(token),
         api.listRiskProfiles(token),
       ]);
