@@ -433,6 +433,6 @@ async def test_phase43_interfaces_and_capability_are_truthful(client: AsyncClien
     assert ticketing_capability == {
         "key": "ticketing",
         "name": "Ticketing connectors",
-        "status": "planned",
+        "status": "available",
         "production_ready": False,
     }

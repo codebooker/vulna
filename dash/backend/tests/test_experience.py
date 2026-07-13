@@ -188,8 +188,13 @@ async def test_profile_plan_is_advisory_and_stored_per_profile(
     )
     assert saved.status_code == 200
     body = saved.json()
-    assert any(item["status"] == "planned" for item in body["recommendations"])
-    assert any(item["status"] == "available" for item in body["recommendations"])
+    assert all(item["status"] == "available" for item in body["recommendations"])
+    ticketing = next(
+        item
+        for item in body["recommendations"]
+        if item["capability"] == "Synchronize remediation tickets"
+    )
+    assert ticketing["route"] == "/sla-ticketing"
 
     state = await db_session.scalar(
         select(OnboardingState).where(

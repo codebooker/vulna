@@ -46,9 +46,9 @@ beforeEach(() => {
           recommendations: [
             {
               capability: 'Synchronize remediation tickets',
-              status: 'planned',
-              reason: 'Ticket connectors arrive in Phase 43.',
-              route: null,
+              status: 'available',
+              reason: 'Phase 43 ticket connectors are available with test-before-enable safeguards.',
+              route: '/sla-ticketing',
             },
           ],
           updated_at: '2026-07-12T00:00:00Z',
@@ -95,7 +95,7 @@ afterEach(() => {
   localStorage.clear();
 });
 
-it('stores planning answers and labels unavailable recommendations as planned', async () => {
+it('stores planning answers and links available ticketing recommendations', async () => {
   render(
     <AuthProvider>
       <OnboardingWizard onFinished={() => {}} />
@@ -108,7 +108,7 @@ it('stores planning answers and labels unavailable recommendations as planned', 
     target: { value: 'true' },
   });
   fireEvent.click(screen.getByRole('button', { name: 'Show recommendations' }));
-  await waitFor(() => expect(screen.getByText('planned')).toBeInTheDocument());
-  expect(screen.getByText(/Phase 43/)).toBeInTheDocument();
+  await waitFor(() => expect(screen.getByText('available')).toBeInTheDocument());
+  expect(screen.getByText(/test-before-enable/)).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled();
 });

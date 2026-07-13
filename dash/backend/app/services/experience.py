@@ -126,7 +126,7 @@ CAPABILITIES: tuple[dict[str, Any], ...] = (
     {
         "key": "ticketing",
         "name": "Ticketing connectors",
-        "status": "planned",
+        "status": "available",
         "production_ready": False,
     },
     {
@@ -332,9 +332,12 @@ def recommendations(profile: ExperienceProfile, answers: dict[str, Any]) -> list
         result.append(
             {
                 "capability": "Synchronize remediation tickets",
-                "status": "planned",
-                "reason": "Ticket connectors arrive in Phase 43.",
-                "route": None,
+                "status": "available",
+                "reason": (
+                    "Phase 43 ticket connectors are available with "
+                    "test-before-enable safeguards."
+                ),
+                "route": "/sla-ticketing",
             }
         )
     if answers.get("cloud_inventory"):

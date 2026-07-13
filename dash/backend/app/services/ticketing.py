@@ -82,6 +82,7 @@ def register_adapter(connector_type: TicketConnectorType, adapter: TicketAdapter
 def register_builtin_adapters() -> None:
     # Imported lazily to avoid a cycle: provider modules implement this module's
     # protocol and return TicketResult values.
+    from app.services.ticket_adapters.generic import GenericTicketAdapter
     from app.services.ticket_adapters.github import GitHubIssuesAdapter
     from app.services.ticket_adapters.gitlab import GitLabIssuesAdapter
     from app.services.ticket_adapters.glpi import GlpiTicketAdapter
@@ -90,6 +91,7 @@ def register_builtin_adapters() -> None:
     register_adapter(TicketConnectorType.GITHUB, GitHubIssuesAdapter())
     register_adapter(TicketConnectorType.GITLAB, GitLabIssuesAdapter())
     register_adapter(TicketConnectorType.GLPI, GlpiTicketAdapter())
+    register_adapter(TicketConnectorType.GENERIC, GenericTicketAdapter())
     register_adapter(TicketConnectorType.JIRA, JiraIssueAdapter())
 
 

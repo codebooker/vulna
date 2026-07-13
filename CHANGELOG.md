@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 43 connector: generic webhook/API
+
+- A bounded generic JSON connector now supports bearer, named-header, and basic
+  authentication; fixed test/create/update/close methods; safe relative paths;
+  selected-field bodies; idempotency headers; and single-level response mapping.
+- Absolute/dot-segment/template paths, unsafe header names, destructive methods,
+  nested response expressions, redirects, and unbounded responses remain forbidden.
+  Phase 43's capability status is now available, while production-ready remains
+  false until final release qualification.
+
 ### Added — Phase 43 connector: Jira
 
 - Jira Cloud REST v3 and Jira Data Center REST v2 now support project tests,

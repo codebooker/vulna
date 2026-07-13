@@ -73,7 +73,7 @@ changes so each protocol can be reviewed and qualified independently.
 | GitLab Issues / self-managed GitLab | Available | project, personal, or OAuth token | stored issue iid; stable description-marker lookup before create |
 | GLPI REST v1 | Available | encrypted user token, optional App-Token | stored ticket id; deterministic title-marker lookup before create |
 | Jira Cloud v3 / Data Center v2 | Available | email/API token or bearer PAT | stored issue key; deterministic label lookup before create |
-| Generic webhook/API | Planned | — | — |
+| Generic webhook/API | Available | bearer, named header, or basic | stable header/body key; stored or mapped response id |
 
 Provider requests use bounded time and response sizes, refuse redirects, resolve
 and validate every destination, pin the connection to the validated IP, and retain
@@ -89,6 +89,12 @@ For Jira Cloud, use API version `3` and enter the secret as
 use API version `2`, set `auth_scheme` to `bearer`, and enter the PAT. Closure uses
 `close_transition_id` when configured; otherwise the connector selects an available
 transition matching `close_transition_name` (default `Done`).
+
+The generic connector permits only `GET`/`POST` tests and `POST`/`PUT`/`PATCH`
+writes. Its paths must be relative, cannot contain query strings, dot segments, or
+templates other than one literal `{id}`, and response mapping accepts only a single
+field name. The outbound body is the versioned selected finding payload—there is no
+template language or executable expression surface.
 
 ## Backup and portability
 
