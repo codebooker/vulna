@@ -24,6 +24,7 @@ from app.models.mfa import TotpFactor
 from app.models.organization import Organization
 from app.models.sso import (
     ExternalIdentityLink,
+    IdentityGroupMapping,
     IdentityProvider,
     SamlReplayRecord,
     SsoPolicy,
@@ -458,6 +459,32 @@ async def test_jit_requires_verified_email_and_creates_stable_link(
         await db_session.scalar(select(func.count()).select_from(ExternalIdentityLink))
         == 1
     )
+
+
+async def test_jit_role_downgrades_when_idp_group_is_removed(
+    db_session: AsyncSession, organization: Organization
+) -> None:
+    """A JIT user promoted via an IdP group is downgraded to the provider default
+    once the identity no longer matches any role-granting group."""
+    provider = await _provider(db_session, organization)  # default_role=VIEWER
+    db_session.add(
+        IdentityGroupMapping(
+            organization_id=organization.id,
+            identity_provider_id=provider.id,
+            external_group="admins",
+            role=UserRole.ADMINISTRATOR,
+        )
+    )
+    await db_session.commit()
+
+    base = {"sub": "person-1", "email": "person@example.com", "email_verified": True}
+    promoted = await sso.resolve_sso_user(db_session, provider, {**base, "groups": ["admins"]})
+    assert promoted.role == UserRole.ADMINISTRATOR
+
+    # Same identity, no longer in the "admins" group → must fall back to default.
+    demoted = await sso.resolve_sso_user(db_session, provider, {**base, "groups": []})
+    assert demoted.id == promoted.id
+    assert demoted.role == UserRole.VIEWER
 
 
 async def test_public_provider_listing_follows_policy_without_leaking_configuration(
