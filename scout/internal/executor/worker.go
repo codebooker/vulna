@@ -76,6 +76,21 @@ type ProgressJobRunner interface {
 	RunWithProgress(ctx context.Context, job *policy.Job, report ProgressCallback) (Result, error)
 }
 
+// OutputSink receives a stage's raw output the moment it is produced, letting a
+// runner deliver results incrementally (per target chunk) instead of only at the
+// end of the job. A non-nil error means the sink could not accept the output, so
+// the runner carries it in the Result for the caller to deliver instead.
+type OutputSink func(StageOutput) error
+
+// StreamingJobRunner is implemented by runners that can emit each target chunk's
+// output through a sink as the scan progresses, so assets and findings appear
+// live. Output delivered to the sink is not repeated in the returned Result.
+type StreamingJobRunner interface {
+	RunStreaming(
+		ctx context.Context, job *policy.Job, report ProgressCallback, sink OutputSink,
+	) (Result, error)
+}
+
 // TestWorker simulates executing a job by stepping through its workflow stages,
 // pausing StepDelay between each. It never touches the network. Cancellation via
 // the context stops it promptly — this exercises the kill switch in tests.

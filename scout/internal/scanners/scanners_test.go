@@ -177,3 +177,85 @@ var errTest = fmtError("scanner exploded")
 type fmtError string
 
 func (e fmtError) Error() string { return string(e) }
+
+// recordingScanner captures the targets it was invoked with, so a test can prove
+// the workflow partitioned the job into distinct chunks.
+type recordingScanner struct {
+	stage, name string
+	raw         []byte
+	seen        *[][]string
+}
+
+func (s recordingScanner) Stage() string { return s.stage }
+func (s recordingScanner) Name() string  { return s.name }
+func (s recordingScanner) Run(_ context.Context, job *policy.Job) ([]byte, error) {
+	*s.seen = append(*s.seen, append([]string(nil), job.Targets...))
+	return s.raw, nil
+}
+
+func TestRunStreamingEmitsPerChunk(t *testing.T) {
+	var seen [][]string
+	wf := NewWorkflow(recordingScanner{stage: "discovery", name: "nmap", raw: []byte("xml"), seen: &seen})
+	job := jobWith("nmap")
+	job.Targets = []string{"10.0.0.0/23"} // two /24s -> two chunks at 256/chunk
+
+	var sunk []executor.StageOutput
+	res, err := wf.RunStreaming(context.Background(), job, nil, func(o executor.StageOutput) error {
+		sunk = append(sunk, o)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(seen) != 2 {
+		t.Fatalf("expected 2 chunk runs, got %d: %v", len(seen), seen)
+	}
+	if len(seen[0]) == 0 || len(seen[1]) == 0 || seen[0][0] == seen[1][0] {
+		t.Errorf("chunks were not distinct sub-ranges: %v", seen)
+	}
+	if len(sunk) != 2 {
+		t.Errorf("expected 2 streamed outputs, got %d", len(sunk))
+	}
+	if len(res.Outputs) != 0 {
+		t.Errorf("streamed output must not also be carried in the Result: %+v", res.Outputs)
+	}
+	if res.StagesRun != 1 || res.StagesTotal != 1 {
+		t.Errorf("unexpected stage counts: %+v", res)
+	}
+}
+
+func TestRunStreamingCarriesOutputWhenSinkRejects(t *testing.T) {
+	wf := NewWorkflow(stubScanner{stage: "discovery", name: "nmap", raw: []byte("xml")})
+	job := jobWith("nmap")
+	job.Targets = []string{"10.0.0.0/24"} // single chunk
+
+	res, err := wf.RunStreaming(context.Background(), job, nil, func(executor.StageOutput) error {
+		return errors.New("queue full")
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Outputs) != 1 {
+		t.Errorf("a rejected batch must be carried in the Result: %+v", res.Outputs)
+	}
+	if res.StagesRun != 1 {
+		t.Errorf("stage should still count as run: %+v", res)
+	}
+}
+
+func TestRunStreamingFailsStageOnScannerError(t *testing.T) {
+	wf := NewWorkflow(stubScanner{stage: "discovery", name: "nmap", err: errors.New("boom")})
+	job := jobWith("nmap")
+	job.Targets = []string{"10.0.0.0/23"} // two chunks; the error is recorded once
+
+	res, err := wf.RunStreaming(context.Background(), job, nil, func(executor.StageOutput) error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StagesFailed != 1 || res.StagesRun != 0 {
+		t.Errorf("expected the stage to be failed once: %+v", res)
+	}
+	if len(res.Failures) != 1 {
+		t.Errorf("expected a single stage failure across chunks, got %d: %+v", len(res.Failures), res.Failures)
+	}
+}
