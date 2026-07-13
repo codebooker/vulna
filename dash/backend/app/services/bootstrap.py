@@ -232,8 +232,10 @@ async def ensure_local_scout_enrollment(session: AsyncSession, settings: Setting
 async def run_bootstrap(session: AsyncSession, settings: Settings) -> None:
     """Ensure the default org, admin, and (single-host) local Scout enrollment."""
     from app.services.authorization import ensure_builtin_roles, sync_user_compatibility_grants
+    from app.services.risk import default_profile
 
     organization = await ensure_default_organization(session, settings)
+    await default_profile(session, organization.id)
     await ensure_builtin_roles(session, organization.id)
     administrator = await ensure_bootstrap_admin(session, settings)
     if administrator is not None:

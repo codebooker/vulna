@@ -89,6 +89,12 @@ static and dynamic group membership/explanations, site and department owners, an
 effective-owner history are unchanged. Re-evaluating a restored dynamic group must
 produce the same membership, and the legacy `tags_json` compatibility projection
 must still match normalized assignments.
+A Phase 41 restore test must verify that the active risk-profile version and every
+score input hash/factor contribution survive unchanged, current findings still point
+to their latest immutable snapshot, remediation membership and reviewed suggestions
+are intact, and active/revoked/expired finding decisions retain their evidence,
+expiry, and prior-status projection. Re-running the expiry sweep after restore must
+be idempotent.
 
 Post-Phase-39 background tasks, lease/retry/dead-letter state, and worker heartbeats
 are ordinary PostgreSQL records and are included in the encrypted database backup.

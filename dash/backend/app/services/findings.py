@@ -28,6 +28,7 @@ from app.models.enums import (
 from app.models.finding import Finding
 from app.models.scan_job import ScanJob
 from app.models.service import Service
+from app.services import risk
 
 
 @dataclass
@@ -156,7 +157,7 @@ async def ingest_findings(
         )
         if existing is None:
             session.add(
-                Finding(
+                finding := Finding(
                     organization_id=job.organization_id,
                     site_id=job.site_id,
                     asset_id=asset_id,
@@ -189,6 +190,7 @@ async def ingest_findings(
                 )
                 summary.change_events += 1
         else:
+            finding = existing
             existing.last_seen_at = now
             existing.severity = pf.severity
             existing.cvss_score = pf.cvss_score
@@ -208,4 +210,6 @@ async def ingest_findings(
                         f"Finding reopened: {existing.title}", existing.severity.value,
                     )
                     summary.change_events += 1
+        await session.flush()
+        await risk.score_finding(session, finding, now=now)
     return summary

@@ -8,7 +8,7 @@ Operator role.
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -16,12 +16,19 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.context import RequestContext, get_request_context
-from app.auth.dependencies import CurrentUser, require_permission
+from app.auth.dependencies import (
+    AuthenticatedIdentity,
+    CurrentUser,
+    require_permission,
+    require_step_up_permission,
+)
 from app.auth.site_scope import can_access_site, site_scope_clause
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
 from app.models.asset import Asset, AssetIdentifier
 from app.models.enums import (
+    FindingDecisionStatus,
+    FindingDecisionType,
     FindingStatus,
     FindingType,
     GrantScopeType,
@@ -33,6 +40,7 @@ from app.models.enums import (
 from app.models.finding import Finding
 from app.models.finding_note import FindingNote
 from app.models.probe import Probe
+from app.models.risk import FindingDecision
 from app.models.user import User
 from app.schemas.common import Page
 from app.schemas.finding import (
@@ -45,7 +53,7 @@ from app.schemas.finding import (
 )
 from app.schemas.job import JobRead
 from app.schemas.risk_acceptance import RiskAcceptanceCreate, RiskAcceptanceRead
-from app.services import asset_context, authorization
+from app.services import asset_context, authorization, risk
 from app.services.audit import record_audit
 from app.services.jobs import JobValidationError, create_scan_job
 from app.services.remediation import create_risk_acceptance
@@ -129,13 +137,16 @@ _BULK_ACTIONS = {"assign", "false_positive", "start_remediation", "triage"}
 @router.post("/bulk", response_model=BulkFindingResult, summary="Apply an action to many findings")
 async def bulk_update(
     payload: BulkFindingAction,
-    operator: Annotated[User, Depends(require_permission("findings.manage"))],
+    identity: Annotated[
+        AuthenticatedIdentity, Depends(require_step_up_permission("findings.manage"))
+    ],
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> BulkFindingResult:
     """Apply one workflow action to several findings. Each finding is checked for
     per-object ownership (findings outside the caller's org are skipped, never
     touched) and every change produces its own audit event."""
+    operator = identity.user
     if payload.action not in _BULK_ACTIONS:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -179,8 +190,25 @@ async def bulk_update(
                 ownership = await asset_context.resolve_ownership(session, asset, finding=finding)
                 await asset_context.record_ownership_snapshot(session, ownership)
         elif payload.action == "false_positive":
-            finding.status = FindingStatus.FALSE_POSITIVE
-            finding.false_positive_reason = payload.false_positive_reason
+            try:
+                await risk.create_finding_decision(
+                    session,
+                    finding=finding,
+                    decision_type=FindingDecisionType.FALSE_POSITIVE,
+                    reason=payload.false_positive_reason
+                    or "Legacy bulk false-positive workflow action",
+                    evidence=[
+                        {
+                            "type": "audited_api_request",
+                            "reference": context.request_id or f"finding:{finding.id}",
+                        }
+                    ],
+                    expires_at=datetime.now(UTC) + timedelta(days=90),
+                    duplicate_of=None,
+                    actor_user_id=operator.id,
+                )
+            except risk.RiskError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
         elif payload.action == "start_remediation":
             finding.status = FindingStatus.REMEDIATION_IN_PROGRESS
         elif payload.action == "triage":
@@ -243,7 +271,28 @@ async def update_finding(
         )
 
     changes = payload.model_dump(exclude_unset=True)
+    if {"status", "false_positive_reason"}.intersection(changes):
+        active_decision = await session.scalar(
+            select(FindingDecision.id).where(
+                FindingDecision.finding_id == finding.id,
+                FindingDecision.status == FindingDecisionStatus.ACTIVE,
+            )
+        )
+        if active_decision is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="Revoke the active finding decision before changing workflow status",
+            )
     if "status" in changes:
+        if changes["status"] in {
+            FindingStatus.FALSE_POSITIVE,
+            FindingStatus.DUPLICATE,
+            FindingStatus.SUPPRESSED,
+        }:
+            raise HTTPException(
+                status_code=422,
+                detail="Use the evidence-backed finding decisions API for this status",
+            )
         finding.status = changes["status"]
         if changes["status"] == FindingStatus.RESOLVED:
             finding.resolved_at = datetime.now(UTC)
@@ -270,6 +319,8 @@ async def update_finding(
     if "false_positive_reason" in changes:
         finding.false_positive_reason = changes["false_positive_reason"]
     await session.flush()
+    if "validation_status" in changes:
+        await risk.score_finding(session, finding, created_by_user_id=current_user.id)
     if "owner_user_id" in changes:
         asset = await session.get(Asset, finding.asset_id)
         if asset is not None:

@@ -467,6 +467,49 @@ class FindingStatus(StrEnum):
     SUPPRESSED = "suppressed"
 
 
+class FindingDecisionType(StrEnum):
+    """Bounded, evidence-backed decisions that affect finding presentation."""
+
+    FALSE_POSITIVE = "false_positive"
+    DUPLICATE = "duplicate"
+    SUPPRESSION = "suppression"
+
+
+class FindingDecisionStatus(StrEnum):
+    """Lifecycle for an append-only finding decision."""
+
+    ACTIVE = "active"
+    EXPIRED = "expired"
+    REVOKED = "revoked"
+
+
+class RemediationKeyType(StrEnum):
+    """Exact identifiers that may be grouped automatically."""
+
+    CVE = "cve"
+    PACKAGE = "package"
+    PRODUCT = "product"
+    REMEDIATION = "remediation"
+    MANUAL = "manual"
+
+
+class RemediationUnitStatus(StrEnum):
+    """Workflow state for a remediation unit."""
+
+    OPEN = "open"
+    IN_PROGRESS = "in_progress"
+    READY_FOR_VERIFICATION = "ready_for_verification"
+    RESOLVED = "resolved"
+
+
+class RemediationSuggestionStatus(StrEnum):
+    """Review state for a fuzzy membership suggestion."""
+
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+
+
 class RelayStatus(StrEnum):
     """Administrative lifecycle state of a VulnaRelay (Phase 16, opt-in).
 

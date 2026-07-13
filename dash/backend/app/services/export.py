@@ -47,6 +47,14 @@ from app.models.network_scope import NetworkScope
 from app.models.organization import Organization
 from app.models.probe import Probe
 from app.models.report import Report
+from app.models.risk import (
+    FindingDecision,
+    FindingScoreSnapshot,
+    RemediationSuggestion,
+    RemediationUnit,
+    RemediationUnitFinding,
+    RiskProfile,
+)
 from app.models.risk_acceptance import RiskAcceptance
 from app.models.scim import (
     ScimGroup,
@@ -59,8 +67,8 @@ from app.models.site import Site
 from app.models.user import User
 from app.models.user_lifecycle import UserSiteAssignment
 
-EXPORT_SCHEMA_VERSION = "4"
-SUPPORTED_IMPORT_SCHEMA_VERSIONS = {"1", "2", "3", EXPORT_SCHEMA_VERSION}
+EXPORT_SCHEMA_VERSION = "5"
+SUPPORTED_IMPORT_SCHEMA_VERSIONS = {"1", "2", "3", "4", EXPORT_SCHEMA_VERSION}
 CHECKSUM_FIELD = "checksum"
 
 
@@ -120,6 +128,12 @@ async def build_export(
         "asset_ownership_history": await _asset_ownership_history(session, org_id),
         "services": await _services(session, org_id),
         "findings": await _findings(session, org_id),
+        "risk_profiles": await _risk_profiles(session, org_id),
+        "finding_score_snapshots": await _finding_score_snapshots(session, org_id),
+        "remediation_units": await _remediation_units(session, org_id),
+        "remediation_unit_findings": await _remediation_unit_findings(session, org_id),
+        "remediation_suggestions": await _remediation_suggestions(session, org_id),
+        "finding_decisions": await _finding_decisions(session, org_id),
         "reports": await _reports(session, org_id),
         "risk_acceptances": await _risk_acceptances(session, org_id),
         "finding_notes": await _finding_notes(session, org_id),
@@ -539,8 +553,156 @@ async def _findings(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, 
             "status": f.status.value,
             "cve_ids": f.cve_ids_json,
             "known_exploited": f.known_exploited,
+            "risk_score": f.risk_score,
+            "risk_profile_version": f.risk_profile_version,
+            "current_score_snapshot_id": (
+                str(f.current_score_snapshot_id) if f.current_score_snapshot_id else None
+            ),
         }
         for f in rows
+    ]
+
+
+async def _risk_profiles(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, Any]]:
+    rows = (
+        await session.execute(select(RiskProfile).where(RiskProfile.organization_id == org_id))
+    ).scalars()
+    return [
+        {
+            "id": str(row.id),
+            "name": row.name,
+            "version": row.version,
+            "description": row.description,
+            "weights": row.weights_json,
+            "is_default": row.is_default,
+            "created_by_user_id": (str(row.created_by_user_id) if row.created_by_user_id else None),
+            "created_at": _iso(row.created_at),
+        }
+        for row in rows
+    ]
+
+
+async def _finding_score_snapshots(
+    session: AsyncSession, org_id: uuid.UUID
+) -> list[dict[str, Any]]:
+    rows = (
+        await session.execute(
+            select(FindingScoreSnapshot).where(FindingScoreSnapshot.organization_id == org_id)
+        )
+    ).scalars()
+    return [
+        {
+            "id": str(row.id),
+            "site_id": str(row.site_id),
+            "finding_id": str(row.finding_id),
+            "risk_profile_id": str(row.risk_profile_id),
+            "profile_version": row.profile_version,
+            "score": row.score,
+            "weighted_sum": row.weighted_sum,
+            "positive_maximum": row.positive_maximum,
+            "source_values": row.source_values_json,
+            "factors": row.factors_json,
+            "input_hash": row.input_hash,
+            "created_at": _iso(row.created_at),
+        }
+        for row in rows
+    ]
+
+
+async def _remediation_units(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, Any]]:
+    rows = (
+        await session.execute(
+            select(RemediationUnit).where(RemediationUnit.organization_id == org_id)
+        )
+    ).scalars()
+    return [
+        {
+            "id": str(row.id),
+            "site_id": str(row.site_id),
+            "key_type": row.key_type.value,
+            "exact_key": row.exact_key,
+            "title": row.title,
+            "description": row.description,
+            "status": row.status.value,
+            "owner_user_id": str(row.owner_user_id) if row.owner_user_id else None,
+            "automatically_created": row.automatically_created,
+        }
+        for row in rows
+    ]
+
+
+async def _remediation_unit_findings(
+    session: AsyncSession, org_id: uuid.UUID
+) -> list[dict[str, Any]]:
+    rows = (
+        await session.execute(
+            select(RemediationUnitFinding).where(RemediationUnitFinding.organization_id == org_id)
+        )
+    ).scalars()
+    return [
+        {
+            "remediation_unit_id": str(row.remediation_unit_id),
+            "finding_id": str(row.finding_id),
+            "match_basis": row.match_basis_json,
+            "added_by_user_id": str(row.added_by_user_id) if row.added_by_user_id else None,
+            "created_at": _iso(row.created_at),
+        }
+        for row in rows
+    ]
+
+
+async def _remediation_suggestions(
+    session: AsyncSession, org_id: uuid.UUID
+) -> list[dict[str, Any]]:
+    rows = (
+        await session.execute(
+            select(RemediationSuggestion).where(RemediationSuggestion.organization_id == org_id)
+        )
+    ).scalars()
+    return [
+        {
+            "id": str(row.id),
+            "site_id": str(row.site_id),
+            "remediation_unit_id": str(row.remediation_unit_id),
+            "finding_id": str(row.finding_id),
+            "similarity": row.similarity,
+            "explanation": row.explanation_json,
+            "status": row.status.value,
+            "reviewed_by_user_id": (
+                str(row.reviewed_by_user_id) if row.reviewed_by_user_id else None
+            ),
+            "reviewed_at": _iso(row.reviewed_at),
+        }
+        for row in rows
+    ]
+
+
+async def _finding_decisions(session: AsyncSession, org_id: uuid.UUID) -> list[dict[str, Any]]:
+    rows = (
+        await session.execute(
+            select(FindingDecision).where(FindingDecision.organization_id == org_id)
+        )
+    ).scalars()
+    return [
+        {
+            "id": str(row.id),
+            "site_id": str(row.site_id),
+            "finding_id": str(row.finding_id),
+            "decision_type": row.decision_type.value,
+            "status": row.status.value,
+            "reason": row.reason,
+            "evidence": row.evidence_json,
+            "expires_at": _iso(row.expires_at),
+            "duplicate_of_finding_id": (
+                str(row.duplicate_of_finding_id) if row.duplicate_of_finding_id else None
+            ),
+            "previous_status": row.previous_status.value,
+            "created_by_user_id": (str(row.created_by_user_id) if row.created_by_user_id else None),
+            "revoked_by_user_id": (str(row.revoked_by_user_id) if row.revoked_by_user_id else None),
+            "revoked_at": _iso(row.revoked_at),
+            "created_at": _iso(row.created_at),
+        }
+        for row in rows
     ]
 
 
@@ -654,6 +816,34 @@ def validate_import(payload: dict[str, Any], *, expected_org_id: uuid.UUID) -> d
         if membership.get("group_id") not in asset_group_ids:
             warnings.append("An asset-group membership references an unknown group.")
 
+    finding_ids = {finding.get("id") for finding in payload.get("findings", [])}
+    risk_profile_ids = {profile.get("id") for profile in payload.get("risk_profiles", [])}
+    remediation_unit_ids = {unit.get("id") for unit in payload.get("remediation_units", [])}
+    for snapshot in payload.get("finding_score_snapshots", []):
+        if snapshot.get("finding_id") not in finding_ids:
+            warnings.append("A finding-score snapshot references an unknown finding.")
+        if snapshot.get("risk_profile_id") not in risk_profile_ids:
+            warnings.append("A finding-score snapshot references an unknown risk profile.")
+    for unit in payload.get("remediation_units", []):
+        if unit.get("site_id") not in site_ids:
+            warnings.append("A remediation unit references an unknown site.")
+    for membership in payload.get("remediation_unit_findings", []):
+        if membership.get("remediation_unit_id") not in remediation_unit_ids:
+            warnings.append("A remediation membership references an unknown unit.")
+        if membership.get("finding_id") not in finding_ids:
+            warnings.append("A remediation membership references an unknown finding.")
+    for suggestion in payload.get("remediation_suggestions", []):
+        if suggestion.get("remediation_unit_id") not in remediation_unit_ids:
+            warnings.append("A remediation suggestion references an unknown unit.")
+        if suggestion.get("finding_id") not in finding_ids:
+            warnings.append("A remediation suggestion references an unknown finding.")
+    for decision in payload.get("finding_decisions", []):
+        if decision.get("finding_id") not in finding_ids:
+            warnings.append("A finding decision references an unknown finding.")
+        duplicate_of = decision.get("duplicate_of_finding_id")
+        if duplicate_of is not None and duplicate_of not in finding_ids:
+            warnings.append("A duplicate decision references an unknown canonical finding.")
+
     user_ids = {u.get("id") for u in payload.get("users", [])}
     for assignment in payload.get("user_site_assignments", []):
         if assignment.get("user_id") not in user_ids:
@@ -706,6 +896,7 @@ def validate_import(payload: dict[str, Any], *, expected_org_id: uuid.UUID) -> d
             "assets",
             "services",
             "findings",
+            "remediation_units",
             "reports",
         )
     }

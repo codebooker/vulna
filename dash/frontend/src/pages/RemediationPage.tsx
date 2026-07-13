@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ClipboardCheck, KanbanSquare, Rows3 } from 'lucide-react';
+import { Boxes, ClipboardCheck, KanbanSquare, Rows3 } from 'lucide-react';
 import { ApiError, api } from '../api/client';
 import { useAuth } from '../auth/useAuth';
 import { useToast } from '../lib/toast';
@@ -18,6 +18,7 @@ import { Card } from '../components/ui/card';
 import { EmptyState, InlineError, TableSkeleton } from '../components/ui/states';
 import { Segmented } from '../components/ui/tabs';
 import type { Finding } from '../types/finding';
+import type { RemediationUnit, RiskProfile } from '../types/risk';
 
 /** Remediation work items are the actionable findings themselves (assigned,
  *  in verification, or awaiting triage). Everything here is live data; the
@@ -39,6 +40,7 @@ function isWorkStatus(s: string): s is WorkStatus {
 
 /** Estimated risk reduction if this finding is fixed (CVSS-weighted). */
 function riskReduction(f: Finding): number {
+  if (f.risk_score != null) return Math.round(f.risk_score);
   const sevWeight = { critical: 40, high: 25, medium: 10, low: 4, info: 1 }[
     normalizeSeverity(f.severity)
   ];
@@ -51,16 +53,25 @@ export function RemediationPage() {
   const [findings, setFindings] = useState<Finding[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<'table' | 'kanban'>('table');
   const [busy, setBusy] = useState<string | null>(null);
+  const [units, setUnits] = useState<RemediationUnit[]>([]);
+  const [profiles, setProfiles] = useState<RiskProfile[]>([]);
+  const [view, setView] = useState<'table' | 'kanban' | 'units'>('table');
+  const canManage = user?.permissions?.includes('remediation.manage') ?? false;
 
   const load = useCallback(async () => {
     if (!token) return;
     setLoading(true);
     setError(null);
     try {
-      const page = await api.listFindings(token, 500);
+      const [page, unitPage, riskProfiles] = await Promise.all([
+        api.listFindings(token, 500),
+        api.listRemediationUnits(token),
+        api.listRiskProfiles(token),
+      ]);
       setFindings(page.items.filter((f) => isWorkStatus(f.status)));
+      setUnits(unitPage.items);
+      setProfiles(riskProfiles);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) return;
       setError(err instanceof Error ? err.message : 'Failed to load remediation work.');
@@ -84,6 +95,27 @@ export function RemediationPage() {
       toast('success', success);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Action failed.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const autoGroup = async () => {
+    if (!token || findings.length === 0) return;
+    setBusy('auto-group');
+    setError(null);
+    try {
+      const result = await api.autoGroupRemediation(
+        token,
+        findings.map((finding) => finding.id),
+      );
+      await load();
+      toast(
+        'success',
+        `Created ${result.units_created} units and ${result.memberships_created} exact memberships.`,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Automatic grouping failed.');
     } finally {
       setBusy(null);
     }
@@ -256,9 +288,14 @@ export function RemediationPage() {
                 label: <KanbanSquare size={14} aria-label="Board view" />,
                 title: 'Board',
               },
+              {
+                id: 'units',
+                label: <Boxes size={14} aria-label="Remediation units" />,
+                title: 'Remediation units',
+              },
             ]}
             value={view}
-            onChange={(v) => setView(v as 'table' | 'kanban')}
+            onChange={(v) => setView(v as 'table' | 'kanban' | 'units')}
           />
         }
       />
@@ -281,11 +318,11 @@ export function RemediationPage() {
           storageKey="vulnadash.remediation"
           defaultSort={{ id: 'priority', dir: 'desc' }}
         />
-      ) : loading ? (
+      ) : view === 'kanban' && loading ? (
         <Card>
           <TableSkeleton rows={4} cols={4} />
         </Card>
-      ) : findings.length === 0 ? (
+      ) : view === 'kanban' && findings.length === 0 ? (
         <Card>
           <EmptyState
             icon={ClipboardCheck}
@@ -293,7 +330,7 @@ export function RemediationPage() {
             description="Actionable findings appear here as a triage-to-done work queue."
           />
         </Card>
-      ) : (
+      ) : view === 'kanban' ? (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
           {WORK_STATUSES.map((status) => {
             const cards = findings.filter((f) => f.status === status);
@@ -369,6 +406,70 @@ export function RemediationPage() {
               </div>
             );
           })}
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3">
+          <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
+            <div>
+              <p className="text-sm font-semibold text-text">Explainable remediation plan</p>
+              <p className="mt-0.5 text-xs text-muted">
+                {profiles.find((profile) => profile.is_default)?.name ?? 'Default profile'} ·{' '}
+                {units.length} units · exact keys group automatically; fuzzy matches require review.
+              </p>
+            </div>
+            {canManage && (
+              <Button
+                variant="outline"
+                loading={busy === 'auto-group'}
+                disabled={findings.length === 0}
+                onClick={() => void autoGroup()}
+              >
+                Group exact matches
+              </Button>
+            )}
+          </Card>
+          {loading ? (
+            <Card>
+              <TableSkeleton rows={4} cols={4} />
+            </Card>
+          ) : units.length === 0 ? (
+            <Card>
+              <EmptyState
+                icon={Boxes}
+                title="No remediation units"
+                description="Group exact CVE, package, product, or remediation keys to build a plan."
+              />
+            </Card>
+          ) : (
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+              {units.map((unit) => (
+                <Card key={unit.id} className="p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="mb-1 flex items-center gap-1.5">
+                        <Badge tone="neutral">{humanize(unit.key_type)}</Badge>
+                        <StatusBadge status={unit.status} />
+                      </div>
+                      <p className="font-medium text-text">{unit.title}</p>
+                      <p className="mt-1 font-mono text-[10px] text-faint">{unit.exact_key}</p>
+                    </div>
+                    <span className="text-right">
+                      <span className="block text-lg font-semibold text-ok">
+                        −{Math.round(unit.projected_risk_reduction)}
+                      </span>
+                      <span className="text-[10px] uppercase tracking-wide text-faint">
+                        risk points
+                      </span>
+                    </span>
+                  </div>
+                  <p className="mt-3 text-xs text-muted">
+                    {unit.finding_count} finding{unit.finding_count === 1 ? '' : 's'} ·{' '}
+                    {unit.automatically_created ? 'exact automatic match' : 'manually curated'}
+                  </p>
+                </Card>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

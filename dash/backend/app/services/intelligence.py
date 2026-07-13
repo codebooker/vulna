@@ -39,6 +39,7 @@ from app.models.cve import CveRecord, ThreatIntelEnrichment
 from app.models.enums import ChangeEventType, FeedSource, FeedStatus
 from app.models.feed_health import FeedHealth
 from app.models.finding import Finding
+from app.services import risk
 
 Sleep = Callable[[float], Awaitable[None]]
 _Record = TypeVar("_Record", CveRecord, ThreatIntelEnrichment)
@@ -222,6 +223,8 @@ async def apply_enrichment(
                 f.severity.value,
             )
             res.events += 1
+
+        await risk.score_finding(session, f, now=now)
 
     return res
 

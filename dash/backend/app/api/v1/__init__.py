@@ -32,6 +32,7 @@ from app.api.v1 import (
     relays,
     reports,
     resources,
+    risk,
     risk_acceptances,
     schedules,
     scim,
@@ -82,6 +83,10 @@ api_router.include_router(asset_context.group_router)
 api_router.include_router(asset_context.department_router)
 api_router.include_router(assets.router)
 api_router.include_router(changes.router)
+api_router.include_router(risk.profile_router)
+api_router.include_router(risk.score_router)
+api_router.include_router(risk.unit_router)
+api_router.include_router(risk.decision_router)
 api_router.include_router(findings.router)
 api_router.include_router(risk_acceptances.router)
 api_router.include_router(pentest.router)

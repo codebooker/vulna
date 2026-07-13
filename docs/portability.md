@@ -35,8 +35,11 @@ never includes a token value or hash. Schema v4 adds structured asset context,
 normalized tags and assignments, static/dynamic groups and materialized membership,
 department ownership, and effective-owner history. Dynamic rules and membership
 explanations are data, not executable expressions. SCIM asset-group targets are now
-exported as validated non-secret mappings. Validation accepts schema v1 through v4;
-credential continuity still requires encrypted backup/restore.
+exported as validated non-secret mappings. Credential continuity still requires
+encrypted backup/restore. Schema v5 adds
+versioned risk profiles, immutable finding-score snapshots with factor contributions,
+remediation units/membership and reviewed suggestions, plus expiring finding-decision
+history. Validation accepts schema v1 through v5.
 Background task payloads, leases, retries, dead letters, results, and process
 heartbeats are operational state and are excluded from portability exports. They
 remain available only through encrypted database backup/restore.

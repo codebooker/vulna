@@ -51,6 +51,12 @@ class FindingRead(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+    # Phase 41 cache of the latest immutable score snapshot.
+    current_score_snapshot_id: uuid.UUID | None = None
+    risk_score: float | None = None
+    risk_profile_version: int | None = None
+    risk_scored_at: datetime | None = None
+
     # Everyday-UX fields (Phase 22), computed at serialization time.
     priority: str = ""
     priority_rationale: str = ""
@@ -62,15 +68,20 @@ class FindingRead(BaseModel):
         display-safe (sanitized) copy of the evidence."""
         from app.services.evidence import sanitize_evidence
         from app.services.priority import classify, confidence_label
+        from app.services.risk import priority_from_score
 
         read = cls.model_validate(finding)
-        priority, rationale = classify(
-            severity=finding.severity,
-            confidence=finding.confidence,
-            known_exploited=finding.known_exploited,
-            epss_score=finding.epss_score,
-            validation_status=finding.validation_status,
-        )
+        if finding.risk_score is not None:
+            priority, rationale = priority_from_score(finding.risk_score)
+        else:
+            # Upgrade compatibility for an object not yet backfilled/scored.
+            priority, rationale = classify(
+                severity=finding.severity,
+                confidence=finding.confidence,
+                known_exploited=finding.known_exploited,
+                epss_score=finding.epss_score,
+                validation_status=finding.validation_status,
+            )
         read.priority = priority
         read.priority_rationale = rationale
         read.confidence_label = confidence_label(finding.confidence)

@@ -112,7 +112,7 @@ CAPABILITIES: tuple[dict[str, Any], ...] = (
     {
         "key": "explainable_priority",
         "name": "Explainable priority and remediation units",
-        "status": "planned",
+        "status": "available",
         "production_ready": False,
     },
     {

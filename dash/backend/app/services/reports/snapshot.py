@@ -22,9 +22,11 @@ from app.models.enums import IdentifierType, ServiceState, Severity
 from app.models.finding import Finding
 from app.models.organization import Organization
 from app.models.pentest_session import PentestSession
+from app.models.risk import FindingScoreSnapshot
 from app.models.scan_job import ScanJob
 from app.models.service import Service
 from app.models.site import Site
+from app.services.risk import priority_from_score
 
 SNAPSHOT_VERSION = 1
 
@@ -112,6 +114,41 @@ async def build_snapshot(
         .scalars()
         .all()
     )
+    score_snapshot_ids = [
+        f.current_score_snapshot_id for f in findings if f.current_score_snapshot_id is not None
+    ]
+    score_by_id = (
+        {
+            snapshot.id: snapshot
+            for snapshot in (
+                await session.execute(
+                    select(FindingScoreSnapshot).where(
+                        FindingScoreSnapshot.id.in_(score_snapshot_ids)
+                    )
+                )
+            ).scalars()
+        }
+        if score_snapshot_ids
+        else {}
+    )
+
+    def risk_fields(finding: Finding) -> dict[str, Any]:
+        snapshot = (
+            score_by_id.get(finding.current_score_snapshot_id)
+            if finding.current_score_snapshot_id is not None
+            else None
+        )
+        return {
+            "priority": (
+                priority_from_score(finding.risk_score)[0]
+                if finding.risk_score is not None
+                else None
+            ),
+            "risk_score": finding.risk_score,
+            "risk_profile_version": finding.risk_profile_version,
+            "risk_input_hash": finding.risk_input_hash,
+            "risk_factors": snapshot.factors_json if snapshot else [],
+        }
 
     change_filters = [ChangeEvent.scan_job_id == scan_job.id]
     if asset_filter_ids is not None:
@@ -252,6 +289,7 @@ async def build_snapshot(
             "title": f.title,
             "description": f.description,
             "severity": f.severity.value,
+            **risk_fields(f),
             "cvss_score": f.cvss_score,
             "cvss_vector": f.cvss_vector,
             "cve_ids": list(f.cve_ids_json or []),

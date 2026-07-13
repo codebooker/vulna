@@ -64,6 +64,14 @@ Phase 39 permission and site predicates still govern every inventory and report
 query. See [Asset context, groups, and ownership](asset-context.md) and
 [ADR 0041](adr/0041-asset-context-groups-ownership.md).
 
+Finding priority is produced by an organization-selected immutable risk-profile
+version. Each calculation appends its normalized inputs, factor contributions, and
+input hash; the four friendly buckets are derived from the resulting `0–100` score.
+Remediation units auto-group exact keys only, while fuzzy proposals require explicit
+review. Bounded finding decisions are evidence-backed and expire through the durable
+worker sweep. See [Explainable risk and remediation](explainable-risk.md) and
+[ADR 0042](adr/0042-explainable-risk-remediation.md).
+
 ### VulnaScout (`scout/`)
 
 A single statically linked Go binary deployed as a systemd service, container,

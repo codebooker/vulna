@@ -370,6 +370,12 @@ def _finding_section(doc: _Doc, f: dict[str, Any]) -> None:
     doc.kv("Type", f.get("finding_type"))
     score = f.get("cvss_score") if f.get("cvss_score") is not None else "—"
     doc.kv("CVSS", f"{score} {f.get('cvss_vector') or ''}")
+    if f.get("risk_score") is not None:
+        doc.kv(
+            "Explainable risk",
+            f"{f.get('risk_score')}/100 "
+            f"({f.get('priority')}, profile v{f.get('risk_profile_version')})",
+        )
     if f.get("cve_ids"):
         doc.kv("CVEs", ", ".join(f["cve_ids"]))
     doc.kv("Known exploited", "yes" if f.get("known_exploited") else "no")

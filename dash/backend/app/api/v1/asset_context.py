@@ -49,7 +49,7 @@ from app.schemas.asset import (
     StaticMembershipChange,
 )
 from app.schemas.common import Page
-from app.services import asset_context, authorization
+from app.services import asset_context, authorization, risk
 from app.services.audit import record_audit
 
 asset_router = APIRouter(
@@ -182,6 +182,16 @@ def _audit(
     )
 
 
+async def _rescore_asset_findings(
+    session: AsyncSession, asset: Asset, actor_user_id: uuid.UUID
+) -> None:
+    findings = (
+        await session.execute(select(Finding).where(Finding.asset_id == asset.id))
+    ).scalars()
+    for finding in findings:
+        await risk.score_finding(session, finding, created_by_user_id=actor_user_id)
+
+
 @asset_router.patch("/{asset_id}/context", response_model=dict[str, Any])
 async def update_asset_context(
     asset_id: uuid.UUID,
@@ -206,6 +216,8 @@ async def update_asset_context(
     for field, value in changes.items():
         setattr(asset, field, value)
     await session.flush()
+    if {"criticality", "internet_exposed"}.intersection(changes):
+        await _rescore_asset_findings(session, asset, manager.id)
     await asset_context.refresh_dynamic_memberships_for_asset(session, asset)
     ownership = await asset_context.resolve_ownership(session, asset)
     await asset_context.record_ownership_snapshot(session, ownership)
@@ -340,6 +352,8 @@ async def bulk_update_assets(
             )
             memberships_removed += removal_count or 0
         await session.flush()
+        if {"criticality", "internet_exposed"}.intersection(context_changes):
+            await _rescore_asset_findings(session, asset, manager.id)
         await asset_context.refresh_dynamic_memberships_for_asset(session, asset)
         ownership = await asset_context.resolve_ownership(session, asset)
         await asset_context.record_ownership_snapshot(session, ownership)

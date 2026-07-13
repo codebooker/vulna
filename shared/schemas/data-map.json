@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://vulna.dev/schemas/data-map.json",
   "title": "Vulna Data Map",
-  "description": "Machine-readable map of what data Vulna stores, where, its sensitivity, and whether it can leave the deployment (updated through Phase 40). Not a JSON Schema for validation; a documented data inventory.",
+  "description": "Machine-readable map of what data Vulna stores, where, its sensitivity, and whether it can leave the deployment (updated through Phase 41). Not a JSON Schema for validation; a documented data inventory.",
   "version": "2",
   "leaves_deployment": {
     "intelligence_feeds": {
@@ -54,6 +54,7 @@
     { "category": "assets/services", "store": "database", "sensitivity": "medium", "in_export": true },
     { "category": "structured asset context, normalized tags/groups, membership explanations, and ownership history", "store": "database", "sensitivity": "medium", "in_export": true },
     { "category": "findings", "store": "database", "sensitivity": "medium", "in_export": true },
+    { "category": "risk profiles, immutable score inputs/contributions, remediation units/suggestions, and bounded finding decisions", "store": "database", "sensitivity": "medium", "in_export": true },
     { "category": "raw scanner output", "store": "database", "sensitivity": "medium", "in_export": false },
     { "category": "evidence", "store": "reports volume", "sensitivity": "high", "in_export": false },
     { "category": "reports (files)", "store": "reports volume", "sensitivity": "medium", "in_export": "metadata_only" },

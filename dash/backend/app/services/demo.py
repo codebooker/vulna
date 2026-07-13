@@ -39,6 +39,7 @@ from app.models.finding import Finding
 from app.models.organization import Organization
 from app.models.service import Service
 from app.models.site import Site
+from app.services import risk
 
 DEMO_SITE_CODE = "__demo__"
 DEMO_FLAG = "demo_mode"
@@ -126,6 +127,9 @@ async def enable_demo(session: AsyncSession, org: Organization) -> dict[str, obj
         ),
     ]
     session.add_all(findings)
+    await session.flush()
+    for finding in findings:
+        await risk.score_finding(session, finding)
     session.add(
         ChangeEvent(
             organization_id=org.id, site_id=site.id, asset_id=web.id,

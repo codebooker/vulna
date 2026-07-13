@@ -597,7 +597,7 @@ async def read_mfa_policy(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> MfaPolicyRead:
     value = await mfa.get_policy(session, admin.organization_id)
-    return MfaPolicyRead(**mfa.policy_dict(value))
+    return MfaPolicyRead.model_validate(mfa.policy_dict(value))
 
 
 @router.patch("/policy", response_model=MfaPolicyRead, summary="Update MFA policy")
@@ -647,4 +647,4 @@ async def update_mfa_policy(
         request_id=context.request_id,
         metadata={"old": old, "new": mfa.policy_dict(policy)},
     )
-    return MfaPolicyRead(**mfa.policy_dict(policy))
+    return MfaPolicyRead.model_validate(mfa.policy_dict(policy))

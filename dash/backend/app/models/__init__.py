@@ -41,6 +41,8 @@ from app.models.enums import (
     DataClassification,
     FeedSource,
     FeedStatus,
+    FindingDecisionStatus,
+    FindingDecisionType,
     FindingStatus,
     FindingType,
     GrantScopeType,
@@ -54,6 +56,9 @@ from app.models.enums import (
     PrincipalType,
     ProbeStatus,
     RelayStatus,
+    RemediationKeyType,
+    RemediationSuggestionStatus,
+    RemediationUnitStatus,
     ReportFormat,
     ReportStatus,
     ReportType,
@@ -92,6 +97,14 @@ from app.models.probe_result_upload import ProbeResultUpload
 from app.models.relay import Relay
 from app.models.report import Report
 from app.models.retention_hold import RetentionHold
+from app.models.risk import (
+    FindingDecision,
+    FindingScoreSnapshot,
+    RemediationSuggestion,
+    RemediationUnit,
+    RemediationUnitFinding,
+    RiskProfile,
+)
 from app.models.risk_acceptance import RiskAcceptance
 from app.models.rules_of_engagement import RulesOfEngagement
 from app.models.scan_artifact import ScanArtifact
@@ -163,6 +176,10 @@ __all__ = [
     "Finding",
     "FindingNote",
     "FindingStatus",
+    "FindingDecision",
+    "FindingDecisionStatus",
+    "FindingDecisionType",
+    "FindingScoreSnapshot",
     "FindingType",
     "GrantScopeType",
     "IdentifierType",
@@ -199,6 +216,13 @@ __all__ = [
     "ReportType",
     "RiskAcceptance",
     "RiskAcceptanceStatus",
+    "RiskProfile",
+    "RemediationKeyType",
+    "RemediationSuggestion",
+    "RemediationSuggestionStatus",
+    "RemediationUnit",
+    "RemediationUnitFinding",
+    "RemediationUnitStatus",
     "RulesOfEngagement",
     "ScanArtifact",
     "ScanJob",

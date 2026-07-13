@@ -114,6 +114,7 @@ import type {
   ServiceAccount,
 } from '../types/authorization';
 import type { BackgroundTask, TaskHealth, TaskPage } from '../types/task';
+import type { FindingDecision, FindingScore, RemediationUnit, RiskProfile } from '../types/risk';
 
 // In development, Vite proxies /api to the backend (see vite.config.ts).
 // In production the frontend is served behind the same reverse proxy as the API.
@@ -1278,6 +1279,57 @@ export const api = {
       method: 'POST',
       token,
     });
+  },
+  listRiskProfiles(token: string): Promise<RiskProfile[]> {
+    return request<RiskProfile[]>('/api/v1/risk-profiles', { token });
+  },
+  findingScores(token: string, id: string): Promise<FindingScore[]> {
+    return request<FindingScore[]>(`/api/v1/finding-scores/${encodeURIComponent(id)}`, { token });
+  },
+  recalculateFindingScore(token: string, id: string): Promise<FindingScore> {
+    return request<FindingScore>(`/api/v1/finding-scores/${encodeURIComponent(id)}/recalculate`, {
+      method: 'POST',
+      token,
+    });
+  },
+  listRemediationUnits(token: string): Promise<FindingPage<RemediationUnit>> {
+    return request<FindingPage<RemediationUnit>>('/api/v1/remediation-units?limit=200', { token });
+  },
+  autoGroupRemediation(
+    token: string,
+    findingIds: string[],
+  ): Promise<{
+    units_created: number;
+    memberships_created: number;
+  }> {
+    return request('/api/v1/remediation-units/auto-group', {
+      method: 'POST',
+      token,
+      body: { finding_ids: findingIds },
+    });
+  },
+  createFindingDecision(
+    token: string,
+    findingId: string,
+    payload: {
+      decision_type: 'false_positive' | 'duplicate' | 'suppression';
+      reason: string;
+      evidence: Array<Record<string, unknown>>;
+      expires_at: string;
+      duplicate_of_finding_id?: string;
+    },
+  ): Promise<FindingDecision> {
+    return request<FindingDecision>(`/api/v1/findings/${encodeURIComponent(findingId)}/decisions`, {
+      method: 'POST',
+      token,
+      body: payload,
+    });
+  },
+  findingDecisions(token: string, findingId: string): Promise<FindingDecision[]> {
+    return request<FindingDecision[]>(
+      `/api/v1/findings/${encodeURIComponent(findingId)}/decisions`,
+      { token },
+    );
   },
 
   // --- Scan presets (Phase 21) ---

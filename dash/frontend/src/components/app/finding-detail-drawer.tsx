@@ -6,12 +6,13 @@ import { useToast } from '../../lib/toast';
 import { formatWhenFull, humanize } from '../../lib/utils';
 import { PriorityBadge, RiskIndicator, SeverityBadge, StatusBadge } from './badges';
 import { Button } from '../ui/button';
-import { Field, Textarea } from '../ui/input';
+import { Field, Input, Textarea } from '../ui/input';
 import { Code, CodeBlock, DetailRow } from '../ui/misc';
 import { Drawer, Modal } from '../ui/overlay';
 import { InlineError } from '../ui/states';
 import { Tabs } from '../ui/tabs';
 import type { Finding } from '../../types/finding';
+import type { FindingDecision, FindingScore } from '../../types/risk';
 
 const DETAIL_TABS = [
   { id: 'overview', label: 'Overview' },
@@ -52,6 +53,10 @@ export function FindingDetailDrawer({
   const [actionError, setActionError] = useState<string | null>(null);
   const [fpOpen, setFpOpen] = useState(false);
   const [fpReason, setFpReason] = useState('');
+  const [fpEvidence, setFpEvidence] = useState('');
+  const [fpExpiryDays, setFpExpiryDays] = useState(30);
+  const [scores, setScores] = useState<FindingScore[]>([]);
+  const [decisions, setDecisions] = useState<FindingDecision[]>([]);
 
   useEffect(() => {
     setCurrent(finding);
@@ -59,7 +64,22 @@ export function FindingDetailDrawer({
     setActionError(null);
     setFpOpen(false);
     setFpReason('');
-  }, [finding]);
+    setFpEvidence('');
+    setFpExpiryDays(30);
+    setScores([]);
+    setDecisions([]);
+    if (finding && token) {
+      void Promise.all([
+        api.findingScores(token, finding.id),
+        api.findingDecisions(token, finding.id),
+      ])
+        .then(([scoreHistory, decisionHistory]) => {
+          setScores(scoreHistory);
+          setDecisions(decisionHistory);
+        })
+        .catch(() => undefined);
+    }
+  }, [finding, token]);
 
   const act = async (fn: () => Promise<unknown>, success: string) => {
     if (!token || !current) return;
@@ -94,13 +114,17 @@ export function FindingDetailDrawer({
   const submitFalsePositive = () =>
     act(async () => {
       if (!token || !current) return;
-      await api.updateFinding(token, current.id, {
-        status: 'false_positive',
-        false_positive_reason: fpReason,
+      const decision = await api.createFindingDecision(token, current.id, {
+        decision_type: 'false_positive',
+        reason: fpReason,
+        evidence: [{ type: 'operator_reference', reference: fpEvidence }],
+        expires_at: new Date(Date.now() + fpExpiryDays * 86_400_000).toISOString(),
       });
+      setDecisions((previous) => [decision, ...previous]);
       setFpOpen(false);
       setFpReason('');
-    }, 'Marked as false positive.');
+      setFpEvidence('');
+    }, 'False-positive decision recorded with an expiry.');
 
   return (
     <>
@@ -137,7 +161,11 @@ export function FindingDetailDrawer({
               <Button variant="ghost" disabled={busy} onClick={() => void assignToMe()}>
                 Assign to me
               </Button>
-              <Button variant="outline" disabled={busy} onClick={() => setFpOpen(true)}>
+              <Button
+                variant="outline"
+                disabled={busy || decisions.some((decision) => decision.status === 'active')}
+                onClick={() => setFpOpen(true)}
+              >
                 False positive
               </Button>
               <Button variant="primary" loading={busy} onClick={() => void markFixedAndVerify()}>
@@ -190,11 +218,34 @@ export function FindingDetailDrawer({
                     <DetailRow label="Priority">
                       <PriorityBadge priority={current.priority} />
                     </DetailRow>
+                    <DetailRow label="Risk score">
+                      {current.risk_score != null
+                        ? `${current.risk_score.toFixed(1)} / 100 (profile v${current.risk_profile_version})`
+                        : 'Awaiting score'}
+                    </DetailRow>
                     <DetailRow label="Confidence">
                       {current.confidence_label} ({current.confidence}/100)
                     </DetailRow>
                   </dl>
                   <p className="mt-2 text-xs text-muted">{current.priority_rationale}</p>
+                  {scores[0] && (
+                    <details className="mt-2 rounded-lg border border-border px-3 py-2">
+                      <summary className="cursor-pointer text-xs font-medium text-text">
+                        Explain this score
+                      </summary>
+                      <dl className="mt-2 divide-y divide-border">
+                        {scores[0].factors_json.map((factor) => (
+                          <DetailRow key={factor.factor} label={humanize(factor.factor)}>
+                            {factor.normalized_value.toFixed(2)} × {factor.weight} ={' '}
+                            {factor.contribution.toFixed(2)}
+                          </DetailRow>
+                        ))}
+                      </dl>
+                      <p className="mt-2 break-all font-mono text-[10px] text-faint">
+                        Input {scores[0].input_hash}
+                      </p>
+                    </details>
+                  )}
                 </section>
                 {current.cve_ids_json.length > 0 && (
                   <section>
@@ -298,6 +349,16 @@ export function FindingDetailDrawer({
                   {formatWhenFull(current.last_verified_at)}
                 </DetailRow>
                 <DetailRow label="Resolved">{formatWhenFull(current.resolved_at)}</DetailRow>
+                <DetailRow label="Decision history">
+                  {decisions.length === 0
+                    ? 'None'
+                    : decisions
+                        .map(
+                          (decision) =>
+                            `${humanize(decision.decision_type)} (${decision.status}, expires ${formatWhenFull(decision.expires_at)})`,
+                        )
+                        .join('; ')}
+                </DetailRow>
               </dl>
             )}
           </div>
@@ -309,13 +370,18 @@ export function FindingDetailDrawer({
         open={fpOpen}
         onClose={() => setFpOpen(false)}
         title="Mark as false positive"
-        description="Explain why this finding is not a real issue. The reason is stored with the finding."
+        description="Record a bounded, evidence-backed decision. It expires automatically and preserves history."
         footer={
           <>
             <Button variant="ghost" onClick={() => setFpOpen(false)}>
               Cancel
             </Button>
-            <Button variant="primary" loading={busy} onClick={() => void submitFalsePositive()}>
+            <Button
+              variant="primary"
+              loading={busy}
+              disabled={!fpReason.trim() || !fpEvidence.trim() || fpExpiryDays < 1}
+              onClick={() => void submitFalsePositive()}
+            >
               Confirm
             </Button>
           </>
@@ -327,6 +393,28 @@ export function FindingDetailDrawer({
             value={fpReason}
             onChange={(e) => setFpReason(e.target.value)}
             placeholder="e.g. The service is not exposed beyond the management VLAN."
+          />
+        </Field>
+        <Field
+          label="Evidence reference"
+          htmlFor="fp-evidence"
+          hint="Reference a validation run, evidence record, or change ticket."
+        >
+          <Input
+            id="fp-evidence"
+            value={fpEvidence}
+            onChange={(event) => setFpEvidence(event.target.value)}
+            placeholder="e.g. validation run VR-2026-0042"
+          />
+        </Field>
+        <Field label="Expires after (days)" htmlFor="fp-expiry">
+          <Input
+            id="fp-expiry"
+            type="number"
+            min={1}
+            max={365}
+            value={fpExpiryDays}
+            onChange={(event) => setFpExpiryDays(Number(event.target.value))}
           />
         </Field>
       </Modal>

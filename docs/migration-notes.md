@@ -17,6 +17,19 @@ step is needed for schema changes unless noted.
 
 ## Unreleased (on `main`)
 
+- **Explainable risk and remediation units (Phase 41).** The additive upgrade creates
+  one default versioned risk profile per organization and backfills every finding
+  with an immutable score snapshot. Inputs are normalized to `[-1,1]`; each source,
+  weight, contribution, profile version, and input hash is retained. Existing
+  severity/status fields and friendly priority labels remain compatible projections.
+  Exact CVE/package/product/remediation keys may group automatically; fuzzy proposals
+  remain pending until reviewed. New false-positive, duplicate, and suppression
+  decisions require evidence and a future expiry. Existing legacy exception statuses
+  become auditable migration decisions with a 90-day review window and a migration
+  evidence reference; operators should attach current evidence before renewing them.
+  Portability moves to schema v5 and
+  continues accepting v1–v4. Downgrade removes score/remediation/decision history
+  because Phase 40 cannot represent it; take and verify an encrypted backup first.
 - **Asset context, groups, and ownership (Phase 40).** The additive upgrade adds
   neutral structured context to assets, normalized tags/assignments, static and
   dynamic groups with materialized membership, site/department/asset ownership,

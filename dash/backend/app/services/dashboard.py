@@ -32,6 +32,7 @@ from app.services.priority import (
     classify,
     confidence_label,
 )
+from app.services.risk import priority_from_score
 
 CLOSED_STATUSES = {
     FindingStatus.RESOLVED,
@@ -80,16 +81,28 @@ async def build_summary(
     counts = {FIX_NOW: 0, PLAN: 0, WATCH: 0, INFORMATIONAL: 0}
     scored: list[tuple[str, str, Finding]] = []
     for f in unresolved:
-        priority, rationale = classify(
-            severity=f.severity,
-            confidence=f.confidence,
-            known_exploited=f.known_exploited,
-            epss_score=f.epss_score,
-            validation_status=f.validation_status,
-        )
+        if f.risk_score is not None:
+            priority, rationale = priority_from_score(f.risk_score)
+        else:
+            priority, rationale = classify(
+                severity=f.severity,
+                confidence=f.confidence,
+                known_exploited=f.known_exploited,
+                epss_score=f.epss_score,
+                validation_status=f.validation_status,
+            )
         counts[priority] += 1
         scored.append((priority, rationale, f))
-    scored.sort(key=lambda t: (PRIORITY_ORDER[t[0]], -(t[2].cvss_score or 0.0)))
+    scored.sort(
+        key=lambda item: (
+            PRIORITY_ORDER[item[0]],
+            -(
+                item[2].risk_score
+                if item[2].risk_score is not None
+                else item[2].cvss_score or 0.0
+            ),
+        )
+    )
     top = [
         {
             "id": str(f.id),
@@ -98,6 +111,7 @@ async def build_summary(
             "rationale": rationale,
             "severity": f.severity.value,
             "confidence_label": confidence_label(f.confidence),
+            "risk_score": f.risk_score,
             "asset_id": str(f.asset_id) if f.asset_id else None,
         }
         for priority, rationale, f in scored[:5]

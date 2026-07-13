@@ -15,7 +15,7 @@ from app.intelligence.fetchers import HttpFetcher
 from app.models.background_task import BackgroundTask
 from app.models.enums import FeedSource, ReportType
 from app.models.scan_job import ScanJob
-from app.services import intelligence, notify, pentest, reaper, scheduler
+from app.services import intelligence, notify, pentest, reaper, risk, scheduler
 from app.services.reports import generate_reports
 
 TaskHandler = Callable[[AsyncSession, BackgroundTask, Settings], Awaitable[dict[str, Any]]]
@@ -38,6 +38,9 @@ async def system_sweep(
             session, now, organization_id=task.organization_id
         ),
         "purged_pentest_evidence": await pentest.purge_expired_evidence(
+            session, now, organization_id=task.organization_id
+        ),
+        "expired_finding_decisions": await risk.expire_finding_decisions(
             session, now, organization_id=task.organization_id
         ),
     }

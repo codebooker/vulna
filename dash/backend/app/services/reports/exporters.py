@@ -30,6 +30,9 @@ FINDINGS_COLUMNS = [
     "finding_type",
     "severity",
     "priority",
+    "risk_score",
+    "risk_profile_version",
+    "risk_factors",
     "cvss_score",
     "cvss_vector",
     "cve_ids",
@@ -144,7 +147,12 @@ def findings_csv(snapshot: dict[str, Any]) -> bytes:
                 "title": _cell(f.get("title")),
                 "finding_type": _cell(f.get("finding_type")),
                 "severity": _cell(f.get("severity")),
-                "priority": "",
+                "priority": _cell(f.get("priority")),
+                "risk_score": _cell(f.get("risk_score")),
+                "risk_profile_version": _cell(f.get("risk_profile_version")),
+                "risk_factors": json.dumps(
+                    f.get("risk_factors") or [], sort_keys=True, separators=(",", ":")
+                ),
                 "cvss_score": _cell(f.get("cvss_score")),
                 "cvss_vector": _cell(f.get("cvss_vector")),
                 "cve_ids": _join(f.get("cve_ids")),

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import timedelta
-from typing import Annotated
+from typing import Annotated, Literal
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -79,7 +79,9 @@ async def _get_owned_user(
 
 
 def _read_user(
-    user: User, site_ids: list[uuid.UUID], mfa_status: str = "not_enrolled"
+    user: User,
+    site_ids: list[uuid.UUID],
+    mfa_status: Literal["not_enrolled", "enrolled", "required"] = "not_enrolled",
 ) -> UserRead:
     return UserRead(
         id=user.id,
@@ -110,7 +112,7 @@ async def _read_one(session: AsyncSession, user: User) -> UserRead:
     assignments = await assigned_site_ids(session, [user.id])
     policy = await mfa.get_policy(session, user.organization_id)
     enrolled = bool(set(await mfa.methods(session, user)) & {"totp", "webauthn"})
-    mfa_status = (
+    mfa_status: Literal["not_enrolled", "enrolled", "required"] = (
         "enrolled"
         if enrolled
         else ("required" if mfa.required_for_user(policy, user) else "not_enrolled")
@@ -892,7 +894,7 @@ async def login_history(
         .scalars()
         .all()
     )
-    outcomes = {
+    outcomes: dict[str, Literal["succeeded", "failed", "denied"]] = {
         "auth.login_succeeded": "succeeded",
         "auth.login_failed": "failed",
         "auth.login_denied_inactive": "denied",

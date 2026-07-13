@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 41: explainable priority and remediation grouping
+
+- Versioned organization risk profiles now score findings from a fixed factor
+  catalogue. Inputs are normalized to `[-1,1]`, weighted, divided by the profile's
+  positive maximum, and clamped to `0–100`; every source value, contribution,
+  profile version, and canonical input hash is stored in an immutable snapshot.
+- Friendly fix-now/plan/watch/informational priority remains a derived presentation.
+  Ingest and intelligence enrichment refresh the score only when inputs change, and
+  the finding detail UI exposes the complete contribution explanation.
+- Remediation units group only exact CVE, package, product, and remediation keys.
+  Token-similarity proposals are stored separately and cannot create membership
+  until an authorized reviewer accepts them.
+- False-positive, duplicate, and suppression decisions are append-only,
+  evidence-backed, time-bounded, step-up protected, audited, and restored to the
+  prior workflow state on revocation or worker-driven expiry.
+- Migration backfill/fresh-install/downgrade tests, site/org isolation, portability
+  schema v5, backup guidance, capability status, frontend coverage, and release-gate
+  regressions are included. Production readiness remains false pending final
+  qualification.
+
 ### Added — Phase 40: asset context, groups, and ownership
 
 - Assets now carry structured department, business-function, environment,

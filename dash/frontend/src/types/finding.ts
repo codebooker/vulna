@@ -14,6 +14,10 @@ export interface Finding {
   confidence_label: string;
   priority: string;
   priority_rationale: string;
+  current_score_snapshot_id: string | null;
+  risk_score: number | null;
+  risk_profile_version: number | null;
+  risk_scored_at: string | null;
   known_exploited: boolean;
   epss_score: number | null;
   validation_status: string;

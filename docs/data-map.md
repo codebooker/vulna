@@ -27,6 +27,7 @@ cross-installation identifier.
 | Assets / services | database | medium | yes |
 | Structured asset context, normalized tags/groups, membership explanations, and ownership history | database | medium | yes |
 | Findings | database | medium | yes |
+| Risk profiles, immutable score inputs/contributions, remediation units/suggestions, and bounded finding decisions | database | medium | yes |
 | Raw scanner output | database | medium | no |
 | Evidence | reports volume | high | no |
 | Reports (files) | reports volume | medium | metadata only |

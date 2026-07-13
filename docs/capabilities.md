@@ -18,7 +18,7 @@ qualification passes**, regardless of profile visibility.
 | Granular RBAC and service accounts | Available (Phase 39) | No |
 | Dedicated scheduler and worker | Available (post-39 gate) | No |
 | Asset context, groups, and ownership | Available (Phase 40) | No |
-| Explainable risk and remediation units | Planned (Phase 41) | No |
+| Explainable risk and remediation units | Available (Phase 41) | No |
 | Authenticated scanning and software inventory | Planned (Phase 42) | No |
 | SLAs and ticketing | Planned (Phase 43) | No |
 | Passive inventory, analytics, and report builder | Planned (Phase 44) | No |

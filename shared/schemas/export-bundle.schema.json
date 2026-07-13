@@ -31,13 +31,19 @@
     "asset_ownership_history",
     "services",
     "findings",
+    "risk_profiles",
+    "finding_score_snapshots",
+    "remediation_units",
+    "remediation_unit_findings",
+    "remediation_suggestions",
+    "finding_decisions",
     "reports",
     "risk_acceptances",
     "finding_notes",
     "checksum"
   ],
   "properties": {
-    "schema_version": { "type": "string", "const": "4" },
+    "schema_version": { "type": "string", "const": "5" },
     "exported_at": { "type": "string" },
     "checksum": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "organization": {
@@ -109,6 +115,12 @@
     "asset_ownership_history": { "type": "array", "items": { "type": "object" } },
     "services": { "type": "array", "items": { "type": "object" } },
     "findings": { "type": "array", "items": { "type": "object" } },
+    "risk_profiles": { "type": "array", "items": { "type": "object" } },
+    "finding_score_snapshots": { "type": "array", "items": { "type": "object" } },
+    "remediation_units": { "type": "array", "items": { "type": "object" } },
+    "remediation_unit_findings": { "type": "array", "items": { "type": "object" } },
+    "remediation_suggestions": { "type": "array", "items": { "type": "object" } },
+    "finding_decisions": { "type": "array", "items": { "type": "object" } },
     "reports": { "type": "array", "items": { "type": "object" } },
     "risk_acceptances": { "type": "array", "items": { "type": "object" } },
     "finding_notes": { "type": "array", "items": { "type": "object" } }

@@ -108,3 +108,11 @@ class Finding(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     reopened_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    # Phase 41 keeps the latest immutable score snapshot addressable without an
+    # expensive per-row lookup. The referenced snapshot owns the explanation.
+    current_score_snapshot_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    risk_score: Mapped[float | None] = mapped_column(Float, nullable=True, index=True)
+    risk_profile_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    risk_input_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    risk_scored_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
