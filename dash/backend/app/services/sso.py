@@ -722,6 +722,21 @@ def _claim_groups(claims: dict[str, Any]) -> list[str]:
     return []
 
 
+async def _provider_maps_roles(session: AsyncSession, provider: IdentityProvider) -> bool:
+    """Whether this provider derives roles from IdP group membership."""
+    return (
+        await session.scalar(
+            select(IdentityGroupMapping.id)
+            .where(
+                IdentityGroupMapping.identity_provider_id == provider.id,
+                IdentityGroupMapping.organization_id == provider.organization_id,
+                IdentityGroupMapping.role.is_not(None),
+            )
+            .limit(1)
+        )
+    ) is not None
+
+
 async def resolve_sso_user(
     session: AsyncSession,
     provider: IdentityProvider,
@@ -794,8 +809,15 @@ async def resolve_sso_user(
     mapped_roles = {mapping.role for mapping in mappings if mapping.role is not None}
     if len(mapped_roles) > 1:
         raise SsoError("External groups map to conflicting roles")
-    if mapped_roles and user.authentication_source == AuthenticationSource.JIT:
-        user.role = mapped_roles.pop()
+    if user.authentication_source == AuthenticationSource.JIT:
+        if mapped_roles:
+            user.role = mapped_roles.pop()
+        elif await _provider_maps_roles(session, provider):
+            # The provider derives roles from IdP groups, but this identity now
+            # matches no role-granting group. Fall back to the configured default
+            # so removal from an IdP group actually downgrades the Vulna role
+            # instead of silently retaining a previously granted one.
+            user.role = provider.default_role
     site_ids = {
         uuid.UUID(value)
         for mapping in mappings
