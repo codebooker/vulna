@@ -64,6 +64,12 @@ def register_adapter(connector_type: PassiveConnectorType, adapter: InventoryAda
     ADAPTERS[connector_type] = adapter
 
 
+def register_builtin_adapters() -> None:
+    from app.services.inventory_generic_api import GenericApiInventoryAdapter
+
+    register_adapter(PassiveConnectorType.GENERIC_API, GenericApiInventoryAdapter())
+
+
 def validate_public_config(value: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(value, dict) or len(value) > 50:
         raise InventoryConnectorError("connector config must contain at most 50 fields")
@@ -381,3 +387,6 @@ async def execute_connector_task(
         "observations": run.observations_created,
         "created_this_attempt": created,
     }
+
+
+register_builtin_adapters()

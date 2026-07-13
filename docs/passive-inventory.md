@@ -19,6 +19,15 @@ bounded attribute object, normalized identifiers, source timestamp, and payload
 hash. Source observations are never overwritten, so operators can explain how the
 current inventory was derived.
 
+### Generic JSON API importer
+
+The generic importer performs HTTPS `GET` requests only. Configuration selects a
+bounded relative path, item/source/cursor fields, explicit `identifier_fields`
+(`type=field`), and an attribute allowlist. Dotted field names are data selectors
+with a maximum depth; they are never evaluated as code. Responses and pages are
+bounded to 1 MiB and 10,000 items, redirects are disabled, DNS is pinned after SSRF
+validation, and private destinations require the explicit `allow_private` option.
+
 ## Reconciliation
 
 Reconciliation uses exact, code-defined identifier weights. Agent IDs, cloud

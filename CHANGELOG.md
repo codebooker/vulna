@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 44 connector: generic JSON API
+
+- A bounded read-only JSON API importer now supports HTTPS GET collection,
+  bearer authentication, dotted field mapping, explicit identifier and attribute
+  allowlists, pagination cursors, private-network opt-in, DNS pinning, and strict
+  response/page limits.
+- Paths reject traversal and fragments, connector responses cannot define
+  executable expressions, and collection never exposes a source mutation method.
+
 ### Added — Phase 44 core: passive inventory, reconciliation, analytics, and report builder
 
 - A provider-neutral, read-only inventory connector contract now runs through the

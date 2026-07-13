@@ -53,6 +53,7 @@ REQUIRED_GATE_MODULES = [
     "test_ticket_jira.py",
     "test_ticket_generic.py",
     "test_passive_inventory.py",
+    "test_inventory_generic_api.py",
     "test_phase44_migration.py",
 ]
 
