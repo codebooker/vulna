@@ -107,13 +107,10 @@ describe('experience-aware route catalogue', () => {
       </AuthProvider>,
     );
 
-    await screen.findByRole('button', { name: 'Assets' });
-    expect(screen.getByRole('button', { name: 'Advanced' })).toHaveAttribute(
-      'aria-expanded',
-      'false',
-    );
+    const advanced = await screen.findByRole('button', { name: 'Advanced' });
+    expect(advanced).toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryByRole('button', { name: 'Pentest' })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced' }));
+    fireEvent.click(advanced);
     expect(screen.getByRole('button', { name: 'Pentest' })).toBeInTheDocument();
   });
 
