@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/codebooker/vulna/scout/internal/policy"
@@ -16,10 +17,21 @@ func TestBuildArgsSafeProfile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"-sT", "-Pn", "-sV", "-T3", "--top-ports", "1000", "-oX", "/tmp/out.xml", "10.20.0.0/24"} {
+	for _, want := range []string{"-sT", "-Pn", "-sV", "-T3", "-p", "-oX", "/tmp/out.xml", "10.20.0.0/24"} {
 		if !slices.Contains(args, want) {
 			t.Errorf("args missing %q: %v", want, args)
 		}
+	}
+	// The default port set must include high-value service ports that --top-ports
+	// misses (e.g. Redis 6379), not nmap's frequency ranking.
+	if !slices.Contains(args, ImportantPorts) {
+		t.Errorf("args missing the important-ports spec: %v", args)
+	}
+	if !strings.Contains(ImportantPorts, "6379") {
+		t.Errorf("ImportantPorts must include Redis 6379: %q", ImportantPorts)
+	}
+	if slices.Contains(args, "--top-ports") {
+		t.Errorf("explicit port set should not also use --top-ports: %v", args)
 	}
 	// No raw-socket scan types (unprivileged agent).
 	for _, bad := range []string{"-sS", "-sU", "-O", "--script"} {

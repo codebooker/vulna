@@ -13,6 +13,7 @@ import (
 	"net/netip"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -26,19 +27,40 @@ const (
 	maxTopPorts    = 65535
 )
 
+// portSpecRE bounds an nmap -p spec to digits, commas and ranges, so a port set
+// can never be mistaken for an nmap flag (argument-injection defense).
+var portSpecRE = regexp.MustCompile(`^[0-9][0-9,\-]*$`)
+
+// ImportantPorts is the default port set: the whole well-known range (1-1024)
+// plus a curated list of high-value service ports that nmap's frequency-based
+// --top-ports MISSES — databases, caches, message queues, admin panels,
+// alt-HTTP, remote access, and orchestration APIs. Frequency ranking drops these
+// because they are statistically rare on the public internet (e.g. Redis 6379
+// ranks well below the top-1,000 cutoff), yet they are exactly the services a
+// security scan must not miss. Deterministic, so a scan never silently skips a
+// known service port.
+const ImportantPorts = "1-1024,1099,1433,1434,1521,1723,2049,2082,2083,2181," +
+	"2375,2376,2483,2484,3000,3128,3268,3306,3389,3690,4369,4444,4505,4506,4567," +
+	"4786,5000,5001,5044,5432,5555,5601,5672,5900-5910,5984,5985,5986,6000,6379," +
+	"6443,6666,7000,7001,7077,7199,7473,7474,7687,8000-8010,8020,8042,8080-8091," +
+	"8161,8180,8443,8500,8530,8531,8686,8888,9000,9001,9042,9060,9090,9092,9160," +
+	"9200,9300,9418,9443,9999,10000,10250,10255,11211,15672,27017,27018,27019," +
+	"28017,50000,50070"
+
 // Profile is a curated, non-intrusive discovery configuration.
 type Profile struct {
-	TopPorts         int  // number of top ports to scan (1..65535)
-	Timing           int  // nmap -T level, clamped to 0..4
-	MaxRate          int  // --max-rate packets/sec (0 = unset)
-	ServiceDetection bool // -sV
+	Ports            string // explicit nmap -p spec; overrides TopPorts when set
+	TopPorts         int    // number of top ports to scan (1..65535); used if Ports == ""
+	Timing           int    // nmap -T level, clamped to 0..4
+	MaxRate          int    // --max-rate packets/sec (0 = unset)
+	ServiceDetection bool   // -sV
 }
 
-// SafeDiscoveryProfile returns the default discovery profile. The top-1,000 ports
-// cover the vast majority of real services (including ones the old top-100 missed,
-// e.g. Redis on 6379) while staying fast per host on a TCP connect scan.
+// SafeDiscoveryProfile returns the default discovery profile: the curated
+// important-ports set (see ImportantPorts) with service detection, over a
+// non-privileged TCP connect scan.
 func SafeDiscoveryProfile() Profile {
-	return Profile{TopPorts: 1000, Timing: 3, ServiceDetection: true}
+	return Profile{Ports: ImportantPorts, Timing: 3, ServiceDetection: true}
 }
 
 func clamp(v, lo, hi int) int {
@@ -82,8 +104,15 @@ func BuildArgs(profile Profile, outPath string, targets []string) ([]string, err
 		args = append(args, "-sV")
 	}
 	args = append(args, "-T"+strconv.Itoa(clamp(profile.Timing, 0, 4)))
-	top := clamp(profile.TopPorts, 1, maxTopPorts)
-	args = append(args, "--top-ports", strconv.Itoa(top))
+	if profile.Ports != "" {
+		if !portSpecRE.MatchString(profile.Ports) {
+			return nil, fmt.Errorf("invalid port spec %q", profile.Ports)
+		}
+		args = append(args, "-p", profile.Ports)
+	} else {
+		top := clamp(profile.TopPorts, 1, maxTopPorts)
+		args = append(args, "--top-ports", strconv.Itoa(top))
+	}
 	if profile.MaxRate > 0 {
 		args = append(args, "--max-rate", strconv.Itoa(profile.MaxRate))
 	}
