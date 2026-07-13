@@ -405,7 +405,9 @@ export function AssetsPage() {
   // briefly belong to a previously-selected asset while the new one loads.
   const detailReady = !!detail && !!selected && detail.id === selected.id;
   const identifierValues = (type: string): string[] =>
-    detailReady ? detail!.identifiers.filter((i) => i.identifier_type === type).map((i) => i.identifier_value) : [];
+    detailReady
+      ? detail!.identifiers.filter((i) => i.identifier_type === type).map((i) => i.identifier_value)
+      : [];
   const hostnames = [...identifierValues('hostname'), ...identifierValues('fqdn')];
   const macAddresses = identifierValues('mac_address');
   const ipAddresses = identifierValues('ip_address');
