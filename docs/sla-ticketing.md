@@ -70,7 +70,7 @@ changes so each protocol can be reviewed and qualified independently.
 | Provider | Status | Authentication | Idempotency strategy |
 |---|---|---|---|
 | GitHub Issues / GitHub Enterprise | Available | fine-grained token or GitHub App token | stored issue number; stable body-marker lookup before create |
-| GitLab Issues | Planned | — | — |
+| GitLab Issues / self-managed GitLab | Available | project, personal, or OAuth token | stored issue iid; stable description-marker lookup before create |
 | GLPI | Planned | — | — |
 | Jira | Planned | — | — |
 | Generic webhook/API | Planned | — | — |

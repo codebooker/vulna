@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 43 connector: GitLab Issues
+
+- GitLab.com and self-managed GitLab projects now support token/bearer connection
+  tests, issue create/update/verified-close, labels, assignees, milestones, encoded
+  nested project paths, sanitized responses, and stable idempotency headers.
+
 ### Added — Phase 43 connector: GitHub Issues
 
 - GitHub.com and GitHub Enterprise issue synchronization now implements the

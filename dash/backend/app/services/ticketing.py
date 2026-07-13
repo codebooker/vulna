@@ -83,8 +83,10 @@ def register_builtin_adapters() -> None:
     # Imported lazily to avoid a cycle: provider modules implement this module's
     # protocol and return TicketResult values.
     from app.services.ticket_adapters.github import GitHubIssuesAdapter
+    from app.services.ticket_adapters.gitlab import GitLabIssuesAdapter
 
     register_adapter(TicketConnectorType.GITHUB, GitHubIssuesAdapter())
+    register_adapter(TicketConnectorType.GITLAB, GitLabIssuesAdapter())
 
 
 def validate_public_config(value: dict[str, Any]) -> dict[str, Any]:
