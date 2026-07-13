@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 44 connector: Active Directory
+
+- A read-only Active Directory computer importer now uses verified LDAPS on fixed
+  TCP port 636, a code-defined computer-object filter and attribute allowlist, and
+  internal bounded paging to collect GUID, SID, DNS/SMB names, operating system,
+  location, management, and account-state context.
+- The bind password remains a one-way connector secret, referrals are disabled,
+  destination DNS is pinned, private controllers require explicit opt-in, and
+  system trust or an operator-supplied public CA validates the controller hostname.
+
 ### Added — Phase 44 connector: authoritative DNS
 
 - A read-only authoritative DNS importer now transfers up to 20 explicit zones

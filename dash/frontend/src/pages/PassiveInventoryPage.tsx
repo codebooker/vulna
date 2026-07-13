@@ -8,7 +8,7 @@ import { StatTile } from '../components/app/metric-card';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardBody, CardHeader } from '../components/ui/card';
-import { Field, Input, Select } from '../components/ui/input';
+import { Field, Input, Select, Textarea } from '../components/ui/input';
 import { InlineError } from '../components/ui/states';
 import { Tabs } from '../components/ui/tabs';
 import { useToast } from '../lib/toast';
@@ -61,6 +61,8 @@ export function PassiveInventoryPage() {
     dnsZones: '',
     tsigName: '',
     allowUnsigned: false,
+    directoryBaseDn: '',
+    trustPem: '',
   });
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [templateForm, setTemplateForm] = useState({
@@ -146,6 +148,16 @@ export function PassiveInventoryPage() {
       );
       return;
     }
+    if (
+      connectorForm.type === 'active_directory' &&
+      (!connectorForm.baseUrl ||
+        !connectorForm.username ||
+        !connectorForm.secret ||
+        !connectorForm.directoryBaseDn)
+    ) {
+      setError('Active Directory sources require a server, bind user, password, and base DN.');
+      return;
+    }
     setBusy('connector');
     setError(null);
     let connectorCreated = false;
@@ -154,7 +166,10 @@ export function PassiveInventoryPage() {
         site_id: connectorForm.siteId,
         name: connectorForm.name,
         connector_type: connectorForm.type,
-        ...(connectorForm.type !== 'csv' && connectorForm.type !== 'dns' && connectorForm.baseUrl
+        ...(connectorForm.type !== 'csv' &&
+        connectorForm.type !== 'dns' &&
+        connectorForm.type !== 'active_directory' &&
+        connectorForm.baseUrl
           ? { base_url: connectorForm.baseUrl }
           : {}),
         ...(connectorForm.type !== 'csv' && connectorForm.secret
@@ -185,6 +200,17 @@ export function PassiveInventoryPage() {
               },
             }
           : {}),
+        ...(connectorForm.type === 'active_directory'
+          ? {
+              config: {
+                server: connectorForm.baseUrl,
+                bind_user: connectorForm.username,
+                base_dn: connectorForm.directoryBaseDn,
+                allow_private: connectorForm.allowPrivate,
+                ...(connectorForm.trustPem ? { trust_pem: connectorForm.trustPem } : {}),
+              },
+            }
+          : {}),
         interval_minutes: 1440,
       });
       connectorCreated = true;
@@ -202,6 +228,8 @@ export function PassiveInventoryPage() {
         dnsZones: '',
         tsigName: '',
         allowUnsigned: false,
+        directoryBaseDn: '',
+        trustPem: '',
       }));
       setCsvFile(null);
       toast('success', 'Inventory source saved disabled. Test it before enabling collection.');
@@ -580,14 +608,18 @@ export function PassiveInventoryPage() {
                       label={
                         connectorForm.type === 'dns'
                           ? 'Authoritative DNS server'
-                          : 'HTTPS URL (when required)'
+                          : connectorForm.type === 'active_directory'
+                            ? 'Directory server'
+                            : 'HTTPS URL (when required)'
                       }
                     >
                       <Input
                         aria-label={
                           connectorForm.type === 'dns'
                             ? 'Authoritative DNS server'
-                            : 'HTTPS URL (when required)'
+                            : connectorForm.type === 'active_directory'
+                              ? 'Directory server'
+                              : 'HTTPS URL (when required)'
                         }
                         value={connectorForm.baseUrl}
                         onChange={(event) =>
@@ -629,19 +661,68 @@ export function PassiveInventoryPage() {
                         </Field>
                       </>
                     )}
-                    {(connectorForm.type === 'dhcp' || connectorForm.type === 'dns') && (
+                    {connectorForm.type === 'active_directory' && (
+                      <>
+                        <Field label="Bind user">
+                          <Input
+                            aria-label="Bind user"
+                            placeholder="vulna-reader@example.com"
+                            value={connectorForm.username}
+                            onChange={(event) =>
+                              setConnectorForm((current) => ({
+                                ...current,
+                                username: event.target.value,
+                              }))
+                            }
+                          />
+                        </Field>
+                        <Field label="Base DN">
+                          <Input
+                            aria-label="Base DN"
+                            placeholder="DC=example,DC=com"
+                            value={connectorForm.directoryBaseDn}
+                            onChange={(event) =>
+                              setConnectorForm((current) => ({
+                                ...current,
+                                directoryBaseDn: event.target.value,
+                              }))
+                            }
+                          />
+                        </Field>
+                        <Field label="Directory CA PEM (optional)">
+                          <Textarea
+                            aria-label="Directory CA PEM (optional)"
+                            placeholder="Use system trust, or paste the issuing CA certificate"
+                            value={connectorForm.trustPem}
+                            onChange={(event) =>
+                              setConnectorForm((current) => ({
+                                ...current,
+                                trustPem: event.target.value,
+                              }))
+                            }
+                          />
+                        </Field>
+                      </>
+                    )}
+                    {(connectorForm.type === 'dhcp' ||
+                      connectorForm.type === 'dns' ||
+                      connectorForm.type === 'active_directory') && (
                       <Field
                         label={
                           connectorForm.type === 'dns'
                             ? 'Private network server'
-                            : 'Private network URL'
+                            : connectorForm.type === 'active_directory'
+                              ? 'Private directory server'
+                              : 'Private network URL'
                         }
                       >
                         <Select
                           aria-label={
                             connectorForm.type === 'dns'
                               ? 'Private network server'
-                              : 'Private network URL'
+                              : connectorForm.type === 'active_directory'
+                                ? 'Private directory server'
+                                : 'Private network URL'
                           }
                           value={connectorForm.allowPrivate ? 'yes' : 'no'}
                           onChange={(event) =>
@@ -707,7 +788,9 @@ export function PassiveInventoryPage() {
                           ? 'Kea password'
                           : connectorForm.type === 'dns'
                             ? 'TSIG secret (base64)'
-                            : 'Secret (optional)'
+                            : connectorForm.type === 'active_directory'
+                              ? 'Bind password'
+                              : 'Secret (optional)'
                       }
                     >
                       <Input
@@ -716,7 +799,9 @@ export function PassiveInventoryPage() {
                             ? 'Kea password'
                             : connectorForm.type === 'dns'
                               ? 'TSIG secret (base64)'
-                              : 'Secret (optional)'
+                              : connectorForm.type === 'active_directory'
+                                ? 'Bind password'
+                                : 'Secret (optional)'
                         }
                         type="password"
                         value={connectorForm.secret}
@@ -746,7 +831,12 @@ export function PassiveInventoryPage() {
                           (!connectorForm.allowUnsigned &&
                             (!connectorForm.tsigName || !connectorForm.secret)) ||
                           (Boolean(connectorForm.tsigName || connectorForm.secret) &&
-                            (!connectorForm.tsigName || !connectorForm.secret))))
+                            (!connectorForm.tsigName || !connectorForm.secret)))) ||
+                      (connectorForm.type === 'active_directory' &&
+                        (!connectorForm.baseUrl ||
+                          !connectorForm.username ||
+                          !connectorForm.secret ||
+                          !connectorForm.directoryBaseDn))
                     }
                   >
                     <Plus size={14} /> Save source

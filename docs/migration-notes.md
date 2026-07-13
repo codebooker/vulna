@@ -17,6 +17,13 @@ step is needed for schema changes unless noted.
 
 ## Unreleased (on `main`)
 
+- **Active Directory passive inventory importer (Phase 44).** No schema migration
+  is required. Controller, bind identity, base DN, public CA trust, and bounded
+  paging settings use existing public connector configuration; the bind password
+  uses the existing purpose-encrypted one-way secret. Existing sources are
+  unchanged and none is enabled automatically. Portability omits the password and
+  full continuity requires an encrypted backup.
+
 - **Authoritative DNS passive inventory importer (Phase 44).** No schema migration
   is required. DNS server, explicit zone names, safety limits, and public TSIG
   metadata use the existing connector configuration; TSIG key material uses the

@@ -32,6 +32,8 @@ dependencies = [
     "defusedxml>=0.7,<0.8",
     # Phase 44: asynchronous, TSIG-authenticated authoritative zone transfers.
     "dnspython>=2.8,<3.0",
+    # Phase 44: read-only, TLS-verified Active Directory LDAP inventory.
+    "ldap3>=2.9.1,<2.10",
     # Runtime HTTP client for VulnaWatch feed syncs (Phase 7).
     "httpx>=0.28,<1.0",
     # Pure-Python PDF generation for reports (Phase 8) — no system libraries,

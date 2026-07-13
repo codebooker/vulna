@@ -140,6 +140,12 @@ directly. See also [`threat-model.md`](threat-model.md) and
   PTR, and CNAME observations. Unsigned and private access are separate explicit
   exceptions; the TSIG value never enters results, cursors, exports, or errors
   (`tests/test_inventory_dns.py`).
+- [ ] Active Directory uses verified LDAPS on pinned fixed port 636, system or
+  supplied public-CA trust, hostname/SNI verification, disabled referrals, a
+  read-only connection, a fixed computer filter/attribute allowlist, and bounded
+  internal paging. Bind passwords and paging cookies never enter reads, results,
+  task state, portability, observations, audit metadata, or errors
+  (`tests/test_inventory_active_directory.py`).
 - [ ] Report export passwords use a separate HKDF purpose, appear only as
   `has_export_password`, never enter task payloads/portability/audit metadata, and
   AES-256 protection is applied only in renderer memory (`tests/test_passive_inventory.py`).

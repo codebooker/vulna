@@ -19,6 +19,44 @@ bounded attribute object, normalized identifiers, source timestamp, and payload
 hash. Source observations are never overwritten, so operators can explain how the
 current inventory was derived.
 
+### Active Directory importer
+
+The Active Directory source reads computer objects through verified LDAPS on fixed
+TCP port 636. Connector configuration cannot supply an LDAP operation, filter, port,
+or attribute name: the adapter uses the fixed
+`(&(objectCategory=computer)(objectClass=computer))` subtree search and a code-defined
+allowlist. The ldap3 connection is marked read-only and referrals are disabled, so
+bind credentials are never forwarded to another directory server. ldap3 documents
+both its [read-only connection option](https://ldap3.readthedocs.io/en/latest/connection.html)
+and [paged search support](https://ldap3.readthedocs.io/en/latest/searches.html).
+
+Configure `server`, `bind_user`, and `base_dn`; store the bind password as the
+connector's one-way secret. The destination is resolved once through the shared
+SSRF guard and the LDAPS socket connects to that pinned address. Private controllers
+require `allow_private=true`. TLS always requires a trusted certificate and verifies
+the configured controller name through SNI and hostname matching. System trust is
+the default; `trust_pem` may contain one public issuing CA certificate for a private
+domain PKI. Cleartext LDAP, StartTLS downgrade, arbitrary ports, disabled validation,
+and referral credential forwarding are not available.
+
+Searches use RFC 2696 paging internally because Active Directory limits ordinary
+search responses. Pages default to 500 and are capped at 1,000; the entire collection
+is capped at 10,000 entries with a bounded server and receive timeout. Paging cookies
+exist only inside one worker call and never enter task state or APIs. Microsoft
+documents [`objectGUID`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-adls/f5f15ec2-427e-4ebe-bb64-2493cf1d032f)
+as the object's stable unique identifier and
+[`dNSHostName`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-adls/71ffde4b-5b5b-4623-9f40-cf4c835ceaa2)
+as the computer's registered DNS name.
+
+Each observation uses `objectGUID` as stable source provenance and retains the SID,
+distinguished name, account state, operating-system fields, location, manager, and
+directory change time as bounded attributes. FQDN, hostname, and SMB name are the
+reconciliation identifiers. Disabled computer accounts are excluded by default;
+`include_disabled=true` imports them with `directory_enabled=false`. Directory
+change time remains context—the collection time is the freshness timestamp so an
+unchanged but still-present computer does not become stale merely because its LDAP
+record was not recently edited.
+
 ### Authoritative DNS importer
 
 The DNS source performs AXFR only for an explicit list of authoritative zones. It
@@ -165,8 +203,10 @@ non-secret connector metadata, observations, source links, lifecycle/history,
 aggregate history, reconciliation explanations, and report template/run metadata.
 For CSV sources this includes only presence, filename, SHA-256, size, and upload
 time. DNS connectors export the server, explicit zones, public TSIG metadata, and
-`has_secret`, but never the TSIG value or ciphertext. It excludes connector and
-source ciphertext, export passwords, analytics
+`has_secret`, but never the TSIG value or ciphertext. Active Directory connectors
+likewise export public server/base/trust configuration and `has_secret`, never the
+bind password or ciphertext. It excludes connector and source ciphertext, export
+passwords, analytics
 cache entries, task payloads, and leases. Restoring a usable CSV source or secret
 requires a verified encrypted backup. Downgrade removes Phase 44 history and cannot
 reconstruct source links, so verify a backup first.

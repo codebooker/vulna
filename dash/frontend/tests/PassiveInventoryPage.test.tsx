@@ -251,6 +251,46 @@ it('shows scoped analytics and keeps connector secrets one-way', async () => {
     expect(payload).not.toHaveProperty('base_url');
   });
 
+  fireEvent.change(screen.getByLabelText('Type'), { target: { value: 'active_directory' } });
+  fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Domain computers' } });
+  fireEvent.change(screen.getByLabelText('Directory server'), {
+    target: { value: 'dc01.example.test' },
+  });
+  fireEvent.change(screen.getByLabelText('Bind user'), {
+    target: { value: 'vulna-reader@example.test' },
+  });
+  fireEvent.change(screen.getByLabelText('Base DN'), {
+    target: { value: 'DC=example,DC=test' },
+  });
+  fireEvent.change(screen.getByLabelText('Bind password'), {
+    target: { value: 'directory-password' },
+  });
+  fireEvent.change(screen.getByLabelText('Private directory server'), {
+    target: { value: 'yes' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save source' }));
+  await waitFor(() => {
+    const directoryCall = vi.mocked(fetch).mock.calls.find(([, init]) => {
+      if (init?.method !== 'POST' || typeof init.body !== 'string') return false;
+      return (
+        (JSON.parse(init.body) as { connector_type?: string }).connector_type === 'active_directory'
+      );
+    });
+    expect(directoryCall).toBeDefined();
+    const payload = JSON.parse(String(directoryCall?.[1]?.body)) as Record<string, unknown>;
+    expect(payload).toMatchObject({
+      connector_type: 'active_directory',
+      secret: 'directory-password',
+      config: {
+        server: 'dc01.example.test',
+        bind_user: 'vulna-reader@example.test',
+        base_dn: 'DC=example,DC=test',
+        allow_private: true,
+      },
+    });
+    expect(payload).not.toHaveProperty('base_url');
+  });
+
   fireEvent.click(screen.getByRole('tab', { name: /Reconciliation/ }));
   expect(await screen.findByText('75')).toBeInTheDocument();
   expect(screen.getByText('1 exact identifier match(es)')).toBeInTheDocument();
