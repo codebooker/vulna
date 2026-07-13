@@ -737,6 +737,13 @@ async def _provider_maps_roles(session: AsyncSession, provider: IdentityProvider
     ) is not None
 
 
+def _safe_jit_default_role(provider: IdentityProvider) -> UserRole:
+    """Fail closed for providers created before default-role validation existed."""
+    if provider.default_role == UserRole.VIEWER:
+        return provider.default_role
+    return UserRole.VIEWER
+
+
 async def resolve_sso_user(
     session: AsyncSession,
     provider: IdentityProvider,
@@ -775,7 +782,7 @@ async def resolve_sso_user(
                 email=email,
                 hashed_password=None,
                 full_name=str(claims.get("name") or "").strip()[:255] or None,
-                role=provider.default_role,
+                role=_safe_jit_default_role(provider),
                 is_active=True,
                 account_status=AccountStatus.ACTIVE,
                 authentication_source=AuthenticationSource.JIT,
@@ -817,7 +824,7 @@ async def resolve_sso_user(
             # matches no role-granting group. Fall back to the configured default
             # so removal from an IdP group actually downgrades the Vulna role
             # instead of silently retaining a previously granted one.
-            user.role = provider.default_role
+            user.role = _safe_jit_default_role(provider)
     site_ids = {
         uuid.UUID(value)
         for mapping in mappings

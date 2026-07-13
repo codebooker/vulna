@@ -208,4 +208,5 @@ directly. See also [`threat-model.md`](threat-model.md) and
 ## Appliance & operations
 - [ ] The probe runs unprivileged under a hardened systemd unit (`deploy/probe/vulnascout.service`).
 - [ ] Upgrades preserve identity/policy (separate data dir) and rollback restores the prior release (`deploy/probe/smoke_test.sh`).
-- [ ] Monitoring is opt-in and internal-only; Grafana ships with a changeable admin password.
+- [ ] Monitoring is opt-in and internal-only; Grafana refuses startup without a
+  non-placeholder administrator password of at least 16 characters.

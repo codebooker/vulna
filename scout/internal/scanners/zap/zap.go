@@ -173,10 +173,14 @@ func inScopeHosts(startURLs, targets []string) ([]string, error) {
 			return nil, fmt.Errorf("invalid start URL %q", raw)
 		}
 		host := u.Hostname()
-		if addr, err := netip.ParseAddr(host); err == nil {
-			if !addrInTargets(addr, targets) {
-				return nil, fmt.Errorf("start URL host %q is outside the approved scope", host)
-			}
+		addr, err := netip.ParseAddr(host)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"start URL host %q is a DNS name; only IP-literal hosts are permitted", host,
+			)
+		}
+		if !addrInTargets(addr, targets) {
+			return nil, fmt.Errorf("start URL host %q is outside the approved scope", host)
 		}
 		if !seen[host] {
 			seen[host] = true

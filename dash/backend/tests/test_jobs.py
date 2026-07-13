@@ -13,7 +13,7 @@ from datetime import UTC, datetime, timedelta
 
 from app.auth.password import hash_password
 from app.models.audit import AuditEvent
-from app.models.enums import JobStatus, UserRole
+from app.models.enums import JobStatus, SiteAccessMode, UserRole
 from app.models.organization import Organization
 from app.models.scan_job import ScanJob
 from app.models.user import User
@@ -22,7 +22,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tests.conftest import auth_headers, probe_cert_headers
+from tests.conftest import UserFactory, auth_headers, probe_cert_headers
 
 EnrollFactory = Callable[..., Awaitable[dict[str, str]]]
 
@@ -132,6 +132,52 @@ async def test_network_job_is_bound_scoped_locked_and_disableable(
     )
     assert disabled.status_code == 422
     assert "disabled" in disabled.json()["detail"].lower()
+
+
+async def test_cross_site_network_job_requires_access_to_the_network_site(
+    client: AsyncClient,
+    admin_headers: dict[str, str],
+    enroll_probe: EnrollFactory,
+    make_user: UserFactory,
+    db_session: AsyncSession,
+) -> None:
+    houston = await _ready_probe(
+        client, admin_headers, enroll_probe, cidr="10.61.0.0/24", site_code="HOU-AUTHZ"
+    )
+    salisbury = await _ready_probe(
+        client, admin_headers, enroll_probe, cidr="10.62.0.0/24", site_code="SBY-AUTHZ"
+    )
+    networks = (await client.get("/api/v1/networks", headers=admin_headers)).json()
+    salisbury_network = next(
+        network for network in networks if network["site_id"] == salisbury["site_id"]
+    )
+    bound = await client.post(
+        f"/api/v1/networks/{salisbury_network['id']}/scouts",
+        json={"probe_id": houston["probe_id"], "is_primary": False},
+        headers=admin_headers,
+    )
+    assert bound.status_code == 200
+
+    operator = await make_user(UserRole.SECURITY_OPERATOR)
+    assigned = await client.put(
+        f"/api/v1/users/{operator.id}/site-access",
+        json={"mode": SiteAccessMode.ASSIGNED.value, "site_ids": [houston["site_id"]]},
+        headers=admin_headers,
+    )
+    assert assigned.status_code == 200
+    await db_session.refresh(operator)
+
+    denied = await client.post(
+        "/api/v1/jobs",
+        json={
+            "network_id": salisbury_network["id"],
+            "probe_id": houston["probe_id"],
+            "targets": ["10.62.0.10"],
+        },
+        headers=auth_headers(operator),
+    )
+    assert denied.status_code == 404
+    assert denied.json()["detail"] == "Network not found"
 
 
 async def test_create_job_over_host_limit_rejected(

@@ -21,6 +21,7 @@ export function FindingsPage() {
   const { token } = useAuth();
   const { current, go } = useNav();
   const [findings, setFindings] = useState<Finding[]>([]);
+  const [findingTotal, setFindingTotal] = useState(0);
   const [assetNames, setAssetNames] = useState<Map<string, string>>(new Map());
   const [selected, setSelected] = useState<Finding | null>(null);
   const [loading, setLoading] = useState(true);
@@ -32,10 +33,11 @@ export function FindingsPage() {
     setError(null);
     try {
       const [page, assets] = await Promise.all([
-        api.listAllFindings(token),
+        api.listFindingSnapshot(token),
         api.listAssets(token).catch(() => null),
       ]);
       setFindings(page.items);
+      setFindingTotal(page.total);
       if (assets) setAssetNames(new Map(assets.items.map((a) => [a.id, a.canonical_name])));
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) return;
@@ -246,6 +248,13 @@ export function FindingsPage() {
         title="Findings"
         description="Tracked vulnerabilities across your assets, prioritized by risk."
       />
+
+      {findingTotal > findings.length && (
+        <p className="mb-3 rounded border border-warn/30 bg-warn/10 px-3 py-2 text-xs text-muted">
+          Showing the newest {findings.length.toLocaleString()} of {findingTotal.toLocaleString()}{' '}
+          findings. Narrow the dataset with an API filter for complete large-scale exports.
+        </p>
+      )}
 
       <DataTable<Finding>
         key={`${initialSeverity ?? ''}|${initialQuery ?? ''}`}

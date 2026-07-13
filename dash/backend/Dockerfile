@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # ---- Base ----
-FROM python:3.12-slim AS base
+FROM python:3.12-slim@sha256:423ed6ab25b1921a477529254bfeeabf5855151dc2c3141699a1bfc852199fbf AS base
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
@@ -15,10 +15,11 @@ RUN apt-get update \
 
 # ---- Dependencies ----
 FROM base AS deps
-COPY pyproject.toml README.md ./
-# Copy the package so the project (and its pinned deps) can be installed.
+COPY pyproject.toml requirements.lock README.md ./
+# Install the fully resolved, hash-verified runtime graph before the package.
 COPY app ./app
-RUN pip install --upgrade pip && pip install .
+RUN pip install --require-hashes -r requirements.lock \
+    && pip install --no-build-isolation --no-deps .
 
 # ---- Runtime ----
 FROM base AS runtime
@@ -35,7 +36,7 @@ COPY app ./app
 # Ship Alembic config and migrations so `alembic upgrade head` runs in-container.
 COPY alembic.ini ./alembic.ini
 COPY alembic ./alembic
-COPY pyproject.toml README.md ./
+COPY pyproject.toml requirements.lock README.md ./
 # Entrypoint applies migrations (idempotent) before serving; see docker-entrypoint.sh.
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
 RUN chmod +x /app/docker-entrypoint.sh

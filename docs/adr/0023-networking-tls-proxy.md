@@ -25,8 +25,8 @@ bundled proxy already terminates TLS for the first three.
 
 The API honors forwarded information — `X-Forwarded-For` and the Scout client-cert
 fingerprint header — **only** when the immediate peer is within
-`VULNA_TRUSTED_PROXIES` (default: loopback + RFC1918/ULA, where the bundled proxy
-runs). `get_request_context` derives the client IP from `X-Forwarded-For` only from
+`VULNA_TRUSTED_PROXIES` (default: loopback only; bundled Compose supplies Caddy's
+exact static address). `get_request_context` derives the client IP from `X-Forwarded-For` only from
 a trusted peer, and `probe_auth` rejects the fingerprint header from an untrusted
 peer. An untrusted peer that reaches the API directly therefore cannot spoof the
 source address or a Scout identity. There is **no blanket trust** of forwarding

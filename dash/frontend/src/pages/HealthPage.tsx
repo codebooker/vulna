@@ -1,15 +1,14 @@
 import { useEffect, useState } from 'react';
-import { fetchHealth, fetchSystemInfo } from '../api/client';
+import { fetchHealth } from '../api/client';
 import { cn } from '../lib/utils';
 import { Code } from '../components/ui/misc';
-import type { SystemInfoResponse } from '../types/system';
 
 type ConnectionState = 'pending' | 'ok' | 'error';
 
 /** Compact backend connectivity status (shown on the login screen). */
 export function HealthPage() {
   const [state, setState] = useState<ConnectionState>('pending');
-  const [info, setInfo] = useState<SystemInfoResponse | null>(null);
+  const [service, setService] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -21,9 +20,8 @@ export function HealthPage() {
         if (health.status !== 'ok') {
           throw new Error(`Unexpected status: ${health.status}`);
         }
-        const systemInfo = await fetchSystemInfo();
         if (!cancelled) {
-          setInfo(systemInfo);
+          setService(health.service);
           setState('ok');
         }
       } catch (err) {
@@ -60,10 +58,9 @@ export function HealthPage() {
         <span>{label}</span>
       </div>
 
-      {state === 'ok' && info && (
+      {state === 'ok' && service && (
         <p className="mt-1.5 text-xs text-muted">
-          Service <Code>{info.service}</Code> version <Code>{info.version}</Code> · environment{' '}
-          <Code>{info.environment}</Code> · API <Code>{info.api_version}</Code>
+          Service <Code>{service}</Code> is available.
         </p>
       )}
 

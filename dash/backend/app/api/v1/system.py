@@ -1,8 +1,4 @@
-"""System and health endpoints (Phase 0).
-
-These endpoints are intentionally unauthenticated and expose only non-sensitive
-information so that container orchestration and the frontend can verify liveness.
-"""
+"""System and health endpoints."""
 
 from __future__ import annotations
 
@@ -24,9 +20,11 @@ from app.services.health import component_health
 router = APIRouter(prefix="/system", tags=["system"])
 
 
-@router.get("/capabilities", summary="Public capability status matrix")
-def capability_status() -> dict[str, object]:
-    """Return non-sensitive implementation status without making readiness claims."""
+@router.get("/capabilities", summary="Capability status matrix")
+def capability_status(
+    current_user: Annotated[User, Depends(require_permission("system.read"))],
+) -> dict[str, object]:
+    """Return implementation status to authorized operators."""
     return {
         "production_ready": False,
         "capabilities": [dict(capability) for capability in CAPABILITIES],
@@ -37,7 +35,7 @@ def capability_status() -> dict[str, object]:
 @router.get("/health", summary="Structured health check")
 def system_health(settings: Settings = Depends(get_settings)) -> dict[str, str]:
     """Return a structured health payload for monitoring."""
-    return {"status": "ok", "service": settings.app_name, "version": settings.version}
+    return {"status": "ok", "service": settings.app_name}
 
 
 @router.get("/component-health", summary="Per-component health")
@@ -89,8 +87,11 @@ def backup_center(
 
 
 @router.get("/info", response_model=SystemInfoResponse, summary="Service information")
-def system_info(settings: Settings = Depends(get_settings)) -> SystemInfoResponse:
-    """Return non-sensitive information about the running service."""
+def system_info(
+    current_user: Annotated[User, Depends(require_permission("system.read"))],
+    settings: Settings = Depends(get_settings),
+) -> SystemInfoResponse:
+    """Return deployment metadata to authorized operators."""
     return SystemInfoResponse(
         service=settings.app_name,
         version=settings.version,

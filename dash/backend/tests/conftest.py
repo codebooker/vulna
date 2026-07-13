@@ -217,6 +217,13 @@ def viewer_headers(viewer: User) -> dict[str, str]:
     return auth_headers(viewer)
 
 
+@pytest_asyncio.fixture
+async def pentest_approver_headers(make_user: UserFactory) -> dict[str, str]:
+    """A distinct approval-only identity for separation-of-duties tests."""
+    approver = await make_user(UserRole.PENTEST_APPROVER)
+    return auth_headers(approver)
+
+
 # --- Probe / enrollment helpers ------------------------------------------------
 
 from cryptography import x509  # noqa: E402

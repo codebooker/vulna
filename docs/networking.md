@@ -32,8 +32,9 @@ publish them.
 
 The API honors forwarded headers — `X-Forwarded-For` and the Scout client-cert
 fingerprint — **only** from a peer within `VULNA_TRUSTED_PROXIES`. The default
-trusts loopback and RFC1918/ULA (where the bundled proxy runs). Behind your own
-reverse proxy, set it to that proxy's exact address. A request that reaches the API
+trusts loopback only; the bundled Compose stack overrides it with Caddy's exact
+static container address. Behind your own reverse proxy, set it to that proxy's
+exact IP or narrow CIDR. A request that reaches the API
 directly from an untrusted peer cannot spoof the source address or a Scout
 identity — the headers are ignored.
 

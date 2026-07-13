@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # ---- Build ----
-FROM golang:1.24-alpine AS build
+FROM golang:1.24-alpine@sha256:8bee1901f1e530bfb4a7850aa7a479d17ae3a18beb6e09064ed54cfd245b7191 AS build
 WORKDIR /src
 # Cache modules first (no external deps yet, but keeps the layer stable).
 COPY go.mod ./
@@ -21,7 +21,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     -o /out/vulnascout ./cmd/vulnascout
 
 # ---- Runtime (minimal, non-root) ----
-FROM alpine:3.21 AS runtime
+FROM alpine:3.21@sha256:48b0309ca019d89d40f670aa1bc06e426dc0931948452e8491e3d65087abc07d AS runtime
 RUN addgroup -S vulna && adduser -S -G vulna -u 10001 vulna
 COPY --from=build /out/vulnascout /usr/local/bin/vulnascout
 USER vulna

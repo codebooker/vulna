@@ -20,8 +20,11 @@ from tests.conftest import auth_headers
 pytestmark = pytest.mark.release_gate
 
 
-async def test_capability_matrix_is_public_and_conservative(client: AsyncClient) -> None:
-    response = await client.get("/api/v1/system/capabilities")
+async def test_capability_matrix_is_authenticated_and_conservative(
+    client: AsyncClient, viewer_headers: dict[str, str]
+) -> None:
+    assert (await client.get("/api/v1/system/capabilities")).status_code == 401
+    response = await client.get("/api/v1/system/capabilities", headers=viewer_headers)
     assert response.status_code == 200
     body = response.json()
     assert body["production_ready"] is False

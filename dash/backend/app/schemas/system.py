@@ -10,7 +10,6 @@ class HealthResponse(BaseModel):
 
     status: str = Field(description="Overall health status", examples=["ok"])
     service: str = Field(description="Service name", examples=["VulnaDash"])
-    version: str = Field(description="Running version", examples=["0.1.0"])
 
 
 class SystemInfoResponse(BaseModel):

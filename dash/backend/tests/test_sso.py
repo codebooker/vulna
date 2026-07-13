@@ -487,6 +487,45 @@ async def test_jit_role_downgrades_when_idp_group_is_removed(
     assert demoted.role == UserRole.VIEWER
 
 
+async def test_jit_default_role_fails_closed_for_legacy_privileged_provider(
+    db_session: AsyncSession, organization: Organization
+) -> None:
+    provider = await _provider(db_session, organization)
+    # Simulate a provider persisted before the API restricted JIT defaults.
+    provider.default_role = UserRole.ADMINISTRATOR
+    await db_session.commit()
+
+    user = await sso.resolve_sso_user(
+        db_session,
+        provider,
+        {
+            "sub": "legacy-provider-user",
+            "email": "legacy-provider-user@example.com",
+            "email_verified": True,
+        },
+    )
+    assert user.role == UserRole.VIEWER
+
+
+async def test_provider_api_rejects_privileged_jit_default(
+    client: AsyncClient, admin_headers: dict[str, str]
+) -> None:
+    response = await client.post(
+        "/api/v1/identity/providers",
+        headers=admin_headers,
+        json={
+            "name": "Unsafe defaults",
+            "slug": "unsafe-defaults",
+            "protocol": "oidc",
+            "issuer": "https://login.example/",
+            "client_id": "vulna",
+            "default_role": "administrator",
+        },
+    )
+    assert response.status_code == 422
+    assert "default JIT role must be Viewer" in response.text
+
+
 async def test_public_provider_listing_follows_policy_without_leaking_configuration(
     client: AsyncClient,
     db_session: AsyncSession,
@@ -514,7 +553,9 @@ async def test_public_provider_listing_follows_policy_without_leaking_configurat
     assert "issuer" not in listed.text and "client" not in listed.text
 
 
-async def test_phase37_openapi_and_capability_status(client: AsyncClient) -> None:
+async def test_phase37_openapi_and_capability_status(
+    client: AsyncClient, admin_headers: dict[str, str]
+) -> None:
     schema = (await client.get("/openapi.json")).json()
     for path in (
         "/api/v1/identity/providers",
@@ -525,7 +566,9 @@ async def test_phase37_openapi_and_capability_status(client: AsyncClient) -> Non
         "/api/v1/sso/saml/{provider_id}/metadata",
     ):
         assert path in schema["paths"]
-    capabilities = (await client.get("/api/v1/system/capabilities")).json()
+    capabilities = (
+        await client.get("/api/v1/system/capabilities", headers=admin_headers)
+    ).json()
     item = next(
         value for value in capabilities["capabilities"] if value["key"] == "enterprise_sso"
     )

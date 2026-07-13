@@ -555,9 +555,22 @@ async def reauthenticate(
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> ReauthenticationResult:
+    retry_after = await auth_throttle.retry_after(
+        session, identity.user.email, context.source_ip
+    )
+    if retry_after:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Reauthentication failed",
+            headers={"Retry-After": str(retry_after)},
+        )
+
     if identity.session is None or not verify_password(
         payload.password, identity.user.hashed_password
     ):
+        delay = await auth_throttle.record_failure(
+            session, identity.user.email, context.source_ip
+        )
         record_audit(
             session,
             action="auth.reauthentication_failed",
@@ -567,7 +580,15 @@ async def reauthenticate(
             source_ip=context.source_ip,
             user_agent=context.user_agent,
             request_id=context.request_id,
+            metadata={"throttled": bool(delay)},
         )
+        if delay:
+            await mfa.emit_security_notification(
+                session,
+                identity.user,
+                title="Repeated reauthentication failures",
+                summary="Vulna temporarily throttled repeated failed step-up attempts.",
+            )
         await session.commit()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -581,6 +602,7 @@ async def reauthenticate(
     privileged_until = now + timedelta(
         minutes=session_policy(org).privileged_window_minutes
     )
+    await auth_throttle.reset_success(session, identity.user.email, context.source_ip)
     record_audit(
         session,
         action="auth.reauthentication_succeeded",

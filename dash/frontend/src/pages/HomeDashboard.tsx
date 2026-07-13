@@ -67,7 +67,7 @@ export function HomeDashboard() {
       // The summary powers the headline; the rest fills the compact sections.
       const [sum, f, s, sch, p, ob, a] = await Promise.all([
         api.dashboardSummary(token),
-        api.listAllFindings(token).catch(() => null),
+        api.listFindingSnapshot(token).catch(() => null),
         api.listSites(token).catch(() => null),
         api.listSchedules(token).catch(() => []),
         api.listProbes(token).catch(() => null),

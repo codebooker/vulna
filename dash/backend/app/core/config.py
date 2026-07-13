@@ -13,6 +13,25 @@ from typing import Any, Literal
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+_INSECURE_VALUE_MARKERS = (
+    "change-me",
+    "changeme",
+    "dev-only",
+    "test-only",
+    "example-secret",
+)
+
+
+def _require_strong_value(name: str, value: str | None, *, min_length: int) -> None:
+    candidate = (value or "").strip()
+    lowered = candidate.lower()
+    if len(candidate) < min_length:
+        raise RuntimeError(f"{name} must contain at least {min_length} characters in production")
+    if any(marker in lowered for marker in _INSECURE_VALUE_MARKERS):
+        raise RuntimeError(f"{name} still contains a documented development placeholder")
+    if len(set(candidate)) < 8:
+        raise RuntimeError(f"{name} does not contain enough distinct characters")
+
 
 class Settings(BaseSettings):
     """Typed application settings sourced from environment variables."""
@@ -21,6 +40,7 @@ class Settings(BaseSettings):
         env_prefix="VULNA_",
         env_file=".env",
         env_file_encoding="utf-8",
+        populate_by_name=True,
         extra="ignore",
     )
 
@@ -28,6 +48,7 @@ class Settings(BaseSettings):
     app_name: str = "VulnaDash"
     env: str = "development"
     log_level: str = "info"
+    expose_api_docs: bool = False
 
     # Comma-separated list of allowed CORS origins.
     cors_origins: str = "http://localhost:5173"
@@ -125,11 +146,9 @@ class Settings(BaseSettings):
 
     # Networks (comma-separated IPs/CIDRs) whose forwarded headers the API trusts.
     # The mTLS-terminating proxy always sits on the internal/private network, so
-    # the default trusts loopback + RFC1918/ULA. Forwarding headers (X-Forwarded-*,
-    # the probe fingerprint) from any other peer are ignored, so an untrusted peer
-    # cannot spoof the source address or TLS/mTLS state. Set to your proxy's exact
-    # address behind an existing reverse proxy.
-    trusted_proxies: str = "127.0.0.1/32,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,fc00::/7"
+    # the default trusts loopback only. Production deployments must identify the
+    # exact reverse-proxy address; broad private ranges are not identity boundaries.
+    trusted_proxies: str = "127.0.0.1/32,::1/128"
 
     # ---- Single-host deployment (Phase 17) ---------------------------------
     # When enabled (set by the single-host Compose profile), first-run bootstrap
@@ -266,6 +285,20 @@ class Settings(BaseSettings):
                 "and provide it via the environment before enabling authentication."
             )
         return self.secret_key
+
+    def validate_for_startup(self) -> None:
+        """Fail production startup before database or worker activity on unsafe config."""
+        if self.env != "production":
+            return
+        _require_strong_value("VULNA_SECRET_KEY", self.secret_key, min_length=32)
+        _require_strong_value("VULNA_MASTER_KEY", self.master_key, min_length=32)
+        _require_strong_value("POSTGRES_PASSWORD", self.postgres_password, min_length=16)
+        if self.bootstrap_admin_password is not None:
+            _require_strong_value(
+                "VULNA_ADMIN_PASSWORD", self.bootstrap_admin_password, min_length=16
+            )
+        if self.auto_create_tables:
+            raise RuntimeError("VULNA_AUTO_CREATE_TABLES must be false in production")
 
 
 @lru_cache

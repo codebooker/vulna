@@ -562,7 +562,7 @@ async def test_cross_organization_denial_openapi_and_truthful_capability(
     )
     assert hidden.status_code == 404
 
-    viewer = await client.get("/api/v1/system/capabilities")
+    viewer = await client.get("/api/v1/system/capabilities", headers=admin_headers)
     phase44 = next(
         item for item in viewer.json()["capabilities"] if item["key"] == "passive_inventory"
     )

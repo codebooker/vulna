@@ -15,7 +15,7 @@ name: vulna
 
 services:
   caddy:
-    image: caddy:2
+    image: caddy:2@sha256:af5fdcd76f2db5e4e974ee92f96ee8c0fc3edb55bd4ba5032547cbf3f65e486d
     restart: unless-stopped
     ports:
       - "80:80"
@@ -36,6 +36,9 @@ services:
         condition: service_healthy
       frontend:
         condition: service_healthy
+    networks:
+      proxy:
+        ipv4_address: 172.29.255.2
 
   frontend:
     image: ${VULNA_REGISTRY:-ghcr.io/codebooker}/vulna-frontend:${VULNA_VERSION:-dev}
@@ -52,6 +55,11 @@ services:
       interval: 30s
       timeout: 5s
       retries: 5
+    networks:
+      proxy:
+        ipv4_address: 172.29.255.4
+        aliases:
+          - vulna-frontend-proxy
 
   api:
     # Versioned published image so `vulna update` (docker compose pull) actually
@@ -67,6 +75,9 @@ services:
         required: false
     environment:
       VULNA_ENV: production
+      VULNA_SECRET_KEY: ${VULNA_SECRET_KEY:?VULNA_SECRET_KEY must be set}
+      VULNA_MASTER_KEY: ${VULNA_MASTER_KEY:?VULNA_MASTER_KEY must be set}
+      VULNA_TRUSTED_PROXIES: 172.29.255.2/32
     expose:
       - "8000"
     volumes:
@@ -83,6 +94,12 @@ services:
       interval: 30s
       timeout: 5s
       retries: 5
+    networks:
+      default: {}
+      proxy:
+        ipv4_address: 172.29.255.3
+        aliases:
+          - vulna-api-proxy
 
   scheduler:
     image: ${VULNA_REGISTRY:-ghcr.io/codebooker}/vulna-api:${VULNA_VERSION:-dev}
@@ -96,6 +113,8 @@ services:
     environment:
       VULNA_ENV: production
       VULNA_RUN_MIGRATIONS: "false"
+      VULNA_SECRET_KEY: ${VULNA_SECRET_KEY:?VULNA_SECRET_KEY must be set}
+      VULNA_MASTER_KEY: ${VULNA_MASTER_KEY:?VULNA_MASTER_KEY must be set}
     command: ["vulna", "scheduler"]
     # The image's HTTP healthcheck belongs to the API command. Process health is
     # reported through durable scheduler heartbeats instead.
@@ -118,6 +137,8 @@ services:
     environment:
       VULNA_ENV: production
       VULNA_RUN_MIGRATIONS: "false"
+      VULNA_SECRET_KEY: ${VULNA_SECRET_KEY:?VULNA_SECRET_KEY must be set}
+      VULNA_MASTER_KEY: ${VULNA_MASTER_KEY:?VULNA_MASTER_KEY must be set}
     command: ["vulna", "worker"]
     healthcheck:
       disable: true
@@ -131,7 +152,7 @@ services:
         condition: service_healthy
 
   postgres:
-    image: postgres:17
+    image: postgres:17@sha256:0af65001d05296a2ead57ac4a6412433d8913d1bb5d0c88435a7d1e1ee5cb04b
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-vulna}
@@ -146,7 +167,7 @@ services:
       retries: 10
 
   redis:
-    image: redis:7-alpine
+    image: redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
@@ -159,9 +180,9 @@ services:
 
   # --- VulnaPulse observability (opt-in) -----------------------------------
   # Start with:  docker compose --profile monitoring up -d
-  # Grafana on :3000 (admin / ${GRAFANA_PASSWORD:-admin}); Prometheus on :9090.
+  # Services remain internal-only. Use an authenticated tunnel/override for access.
   prometheus:
-    image: prom/prometheus:v2.54.1
+    image: prom/prometheus:v2.54.1@sha256:f6639335d34a77d9d9db382b92eeb7fc00934be8eae81dbc03b31cfe90411a94
     restart: unless-stopped
     profiles: ["monitoring"]
     volumes:
@@ -170,27 +191,37 @@ services:
       - prometheus_data:/prometheus
     expose:
       - "9090"
-    ports:
-      - "9090:9090"
 
   grafana:
-    image: grafana/grafana:11.2.0
+    image: grafana/grafana:11.2.0@sha256:408afb9726de5122b00a2576763a8a57a3c86d5b0eff5305bc994ceb3eb96c3f
     restart: unless-stopped
     profiles: ["monitoring"]
     environment:
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-}
       GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        test "$${#GF_SECURITY_ADMIN_PASSWORD}" -ge 16 || {
+          echo "GRAFANA_PASSWORD must be at least 16 characters" >&2
+          exit 1
+        }
+        case "$${GF_SECURITY_ADMIN_PASSWORD}" in
+          admin|change-me*) echo "GRAFANA_PASSWORD is a placeholder" >&2; exit 1 ;;
+        esac
+        exec /run.sh
     volumes:
       - ./deploy/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./deploy/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana_data:/var/lib/grafana
-    ports:
-      - "3000:3000"
+    expose:
+      - "3000"
     depends_on:
       - prometheus
 
   postgres-exporter:
-    image: prometheuscommunity/postgres-exporter:v0.15.0
+    image: prometheuscommunity/postgres-exporter:v0.15.0@sha256:386b12d19eab2a37d7cd8ca8b4c7491cc7a830d9581f49af6c98a393da9605e6
     restart: unless-stopped
     profiles: ["monitoring"]
     environment:
@@ -202,7 +233,7 @@ services:
         condition: service_healthy
 
   redis-exporter:
-    image: oliver006/redis_exporter:v1.62.0
+    image: oliver006/redis_exporter:v1.62.0@sha256:c5a968ba5f30bab5e12181cceb89c4ed37cb4fe4d85490b5b66c7cfe4750b5e8
     restart: unless-stopped
     profiles: ["monitoring"]
     environment:
@@ -214,7 +245,7 @@ services:
         condition: service_healthy
 
   node-exporter:
-    image: prom/node-exporter:v1.8.2
+    image: prom/node-exporter:v1.8.2@sha256:4032c6d5bfd752342c3e631c2f1de93ba6b86c41db6b167b9a35372c139e7706
     restart: unless-stopped
     profiles: ["monitoring"]
     command:
@@ -226,7 +257,7 @@ services:
       - "9100"
 
   cadvisor:
-    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    image: gcr.io/cadvisor/cadvisor:v0.49.1@sha256:3cde6faf0791ebf7b41d6f8ae7145466fed712ea6f252c935294d2608b1af388
     restart: unless-stopped
     profiles: ["monitoring"]
     volumes:
@@ -247,3 +278,11 @@ volumes:
   caddy_config:
   prometheus_data:
   grafana_data:
+
+networks:
+  default: {}
+  proxy:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.29.255.0/29

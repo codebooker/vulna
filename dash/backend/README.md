@@ -12,7 +12,8 @@ migrations. Probe enrollment, assessments, and reporting arrive in later phases.
 ```bash
 # From dash/backend/  (requires Python 3.12+)
 python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
+pip install --require-hashes -r requirements-dev.lock
+pip install --no-build-isolation --no-deps -e .
 
 # A signing secret is required for authentication.
 export VULNA_SECRET_KEY="$(openssl rand -base64 48)"
@@ -58,7 +59,7 @@ vulna bootstrap-admin [--create-tables]
 |---|---|---|---|
 | GET | `/health` | none | Liveness probe |
 | GET | `/api/v1/system/health` | none | Structured health payload |
-| GET | `/api/v1/system/info` | none | Service name, version, environment |
+| GET | `/api/v1/system/info` | `system.read` | Service name, version, environment |
 | POST | `/api/v1/auth/login` | none | Obtain a JWT access token |
 | GET | `/api/v1/auth/me` | user | Current user profile |
 | GET/PATCH | `/api/v1/organizations/{id}` | user / admin | Read / update organization |
@@ -82,4 +83,14 @@ app/
   cli.py      `vulna` console entry point
   main.py     app factory + lifespan
 alembic/      migration environment and versions
+```
+
+When dependencies change, regenerate both reviewed lock files with Python 3.12
+and pip-tools 7.5.2:
+
+```bash
+pip-compile pyproject.toml --all-build-deps --generate-hashes --strip-extras \
+  --allow-unsafe -o requirements.lock
+pip-compile pyproject.toml --extra dev --generate-hashes --strip-extras \
+  --all-build-deps --allow-unsafe -o requirements-dev.lock
 ```

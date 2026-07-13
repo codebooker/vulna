@@ -65,6 +65,13 @@ func TestScopeFromConfigRejectsOutOfScopeStartURL(t *testing.T) {
 	}
 }
 
+func TestScopeFromConfigRejectsDNSNames(t *testing.T) {
+	cfg := map[string]any{"start_urls": []any{"http://rebind.example/"}}
+	if _, err := scopeFromConfig(cfg, []string{"10.20.0.0/24"}); err == nil {
+		t.Error("a DNS hostname must be rejected until address pinning is implemented")
+	}
+}
+
 func TestRunNoZapStageIsNoOp(t *testing.T) {
 	job := &policy.Job{
 		JobID:    "j1",

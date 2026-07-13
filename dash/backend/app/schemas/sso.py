@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, EmailStr, Field, HttpUrl, model_validator
+from pydantic import BaseModel, EmailStr, Field, HttpUrl, field_validator, model_validator
 
 from app.models.enums import IdentityProviderProtocol, SsoPolicyMode, UserRole
 
@@ -25,6 +25,16 @@ class IdentityProviderCreate(BaseModel):
     client_secret: str | None = Field(default=None, min_length=1, max_length=4096)
     scopes: list[str] = Field(default_factory=list, max_length=32)
     want_assertions_encrypted: bool = False
+
+    @field_validator("default_role")
+    @classmethod
+    def least_privilege_jit_default(cls, value: UserRole) -> UserRole:
+        if value != UserRole.VIEWER:
+            raise ValueError(
+                "The default JIT role must be Viewer; grant higher roles with "
+                "explicit group mappings"
+            )
+        return value
 
     @model_validator(mode="after")
     def protocol_fields(self) -> IdentityProviderCreate:
@@ -52,6 +62,16 @@ class IdentityProviderUpdate(BaseModel):
     scopes: list[str] | None = Field(default=None, max_length=32)
     want_assertions_encrypted: bool | None = None
     next_idp_certificate: str | None = Field(default=None, min_length=1, max_length=12000)
+
+    @field_validator("default_role")
+    @classmethod
+    def least_privilege_jit_default(cls, value: UserRole | None) -> UserRole | None:
+        if value is not None and value != UserRole.VIEWER:
+            raise ValueError(
+                "The default JIT role must be Viewer; grant higher roles with "
+                "explicit group mappings"
+            )
+        return value
 
 
 class IdentityProviderRead(BaseModel):

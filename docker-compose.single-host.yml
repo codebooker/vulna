@@ -54,7 +54,7 @@ services:
   # non-root local Scout can verify the orchestrator's TLS. Only the public cert
   # is copied — never Caddy's CA private key.
   scout-ca-export:
-    image: alpine:3.21
+    image: alpine:3.21@sha256:48b0309ca019d89d40f670aa1bc06e426dc0931948452e8491e3d65087abc07d
     restart: "no"
     volumes:
       - caddy_data:/caddy-data:ro
@@ -79,7 +79,7 @@ services:
   # tiny container separate lets relay-egress be upgraded/recreated without
   # stranding the local Scout in a retired namespace and Docker DNS socket.
   relay-netns:
-    image: alpine:3.21
+    image: alpine:3.21@sha256:48b0309ca019d89d40f670aa1bc06e426dc0931948452e8491e3d65087abc07d
     restart: unless-stopped
     command: ["sleep", "infinity"]
     ports:

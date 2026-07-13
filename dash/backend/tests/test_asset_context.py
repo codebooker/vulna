@@ -435,8 +435,9 @@ def test_rule_ast_is_bounded_and_never_accepts_expressions() -> None:
 
 async def test_phase40_capability_is_available_but_not_production_ready(
     client: AsyncClient,
+    admin_headers: dict[str, str],
 ) -> None:
-    response = await client.get("/api/v1/system/capabilities")
+    response = await client.get("/api/v1/system/capabilities", headers=admin_headers)
     assert response.status_code == 200
     capability = next(
         value for value in response.json()["capabilities"] if value["key"] == "asset_groups"
