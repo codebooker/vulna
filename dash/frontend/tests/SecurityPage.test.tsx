@@ -83,7 +83,8 @@ it('enrolls TOTP and pauses for one-time recovery-code acknowledgement', async (
     </AuthProvider>,
   );
 
-  await screen.findByText('No MFA method is enrolled.');
+  await screen.findByRole('heading', { name: 'Organization MFA policy' });
+  expect(screen.getByText('No MFA method is enrolled.')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Add method' }));
   fireEvent.click(screen.getByRole('button', { name: 'Authenticator app' }));
   expect(await screen.findByText('JBSWY3DPEHPK3PXP')).toBeInTheDocument();

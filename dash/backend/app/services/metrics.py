@@ -9,7 +9,7 @@ so no per-finding detail is ever placed in a label or value.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import func, select
@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import __version__
 from app.core.config import Settings
+from app.models.background_task import BackgroundTask, WorkerHeartbeat
 from app.models.feed_health import FeedHealth
 from app.models.finding import Finding
 from app.models.pentest_session import PentestSession
@@ -26,6 +27,10 @@ from app.models.scan_job import ScanJob
 from app.models.workflow_run import WorkflowRun
 
 _OK_FEED_STATES = {"ok", "degraded"}
+
+
+def _timestamp(value: datetime) -> float:
+    return (value if value.tzinfo is not None else value.replace(tzinfo=UTC)).timestamp()
 
 
 def _escape(value: str) -> str:
@@ -87,6 +92,27 @@ async def render_metrics(session: AsyncSession, settings: Settings, now: datetim
         w.metric("vulna_workflow_runs_by_status", "Workflow runs.", n, {"status": st})
     reports = await session.scalar(select(func.count()).select_from(Report))
     w.metric("vulna_reports_total", "Reports generated.", reports or 0)
+    for task_status, n in (await _grouped(session, BackgroundTask.status)).items():
+        w.metric(
+            "vulna_background_tasks_by_status",
+            "Durable background tasks by lifecycle status.",
+            n,
+            {"status": task_status},
+        )
+    heartbeat_cutoff = now.timestamp() - max(60, settings.background_task_lease_seconds * 2)
+    heartbeats = list((await session.execute(select(WorkerHeartbeat))).scalars())
+    for kind in {heartbeat.kind for heartbeat in heartbeats}:
+        alive = sum(
+            1
+            for heartbeat in heartbeats
+            if heartbeat.kind == kind and _timestamp(heartbeat.last_seen_at) >= heartbeat_cutoff
+        )
+        w.metric(
+            "vulna_background_processes_up",
+            "Scheduler/worker processes seen within five minutes.",
+            alive,
+            {"kind": kind},
+        )
 
     # Per-probe liveness/heartbeat (probe id is an opaque UUID, not sensitive).
     offline = settings.probe_offline_after_seconds

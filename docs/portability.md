@@ -30,8 +30,11 @@ the validation endpoint; full connector continuity still requires encrypted
 backup/restore. Schema v3 additionally includes non-secret authorization-role,
 permission-key, scoped-grant, and service-account metadata plus API-token lifecycle
 metadata (`has_secret`, expiry, revocation, restrictions, and last-use time). It
-never includes a token value or hash. Validation accepts schema v1 and v2 bundles;
+never includes a token value or hash. Validation accepts schema v1, v2, and v3 bundles;
 credential continuity still requires encrypted backup/restore.
+Background task payloads, leases, retries, dead letters, results, and process
+heartbeats are operational state and are excluded from portability exports. They
+remain available only through encrypted database backup/restore.
 
 The bundle can be validated **independently**:
 

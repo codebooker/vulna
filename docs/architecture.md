@@ -23,7 +23,7 @@ never opens a connection to a probe and never sends an arbitrary command.
 │                                                                │
 │  Caddy ─▶ Web/API (FastAPI) ─▶ Workers (queue / scheduler)     │
 │                │                        │                      │
-│           PostgreSQL                  Redis                    │
+│     PostgreSQL (data/tasks)        Redis (cache)               │
 │                │                        │                      │
 │         Report Service          CVE Intelligence              │
 │         (PDF/CSV/JSON)          (NVD / KEV / EPSS)             │
@@ -45,11 +45,17 @@ never opens a connection to a probe and never sends an arbitrary command.
 - **backend/** — FastAPI application exposing the REST API, authentication and
   RBAC, the job scheduler, findings database access, CVE intelligence
   (VulnaWatch), reporting controls (VulnaReport), and workflow orchestration.
-  Backed by PostgreSQL (SQLAlchemy 2.x + Alembic migrations) and Redis (queue /
-  cache via Dramatiq or Celery workers).
+  Backed by PostgreSQL (SQLAlchemy 2.x + Alembic migrations) and Redis caching.
 - **frontend/** — React + TypeScript single-page app (Vite) providing the
   dashboard, sites, probes, scans, assets, findings, CVE intelligence,
   remediation, reports, and administration pages.
+
+The scheduler and worker are dedicated processes built from the API image. They
+coordinate through PostgreSQL-leased tasks and advisory-lock leader election; no
+periodic loop runs inside the web process. See
+[Durable scheduler and worker](background-tasks.md).
+The worker shares the API's persistent signing-key and report/evidence volumes so
+scheduled jobs retain the same trust identity and artifacts survive restarts.
 
 ### VulnaScout (`scout/`)
 
@@ -93,7 +99,7 @@ Summarized here; rationale lives in [`adr/0001-initial-architecture.md`](adr/000
 | Area | Choice |
 |---|---|
 | Backend | Python 3.12+, FastAPI, SQLAlchemy 2.x, Alembic, Pydantic |
-| Queue | Redis + Dramatiq/Celery |
+| Queue | PostgreSQL leased tasks + advisory-lock scheduler election |
 | Database | PostgreSQL |
 | Frontend | React, TypeScript, Vite, TanStack Query/Table |
 | Probe | Go (single static binary), SQLite local state |

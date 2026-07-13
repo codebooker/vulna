@@ -24,7 +24,7 @@ var composeFiles = []string{"docker-compose.yml", "docker-compose.single-host.ym
 // singleHostServices/ports/capabilities describe the stack for the dry-run plan.
 var (
 	singleHostServices = []string{
-		"caddy", "api", "frontend", "postgres", "redis", "scout-ca-export", "relay-netns", "relay-egress", "local-scout",
+		"caddy", "api", "scheduler", "worker", "frontend", "postgres", "redis", "scout-ca-export", "relay-netns", "relay-egress", "local-scout",
 	}
 	singleHostCapabilities = []string{
 		"api & workers: no added Linux capabilities, no Docker socket",

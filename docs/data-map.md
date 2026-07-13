@@ -46,6 +46,7 @@ cross-installation identifier.
 | Roles, permission mappings, scoped grants, and service-account metadata | database | high | yes, metadata only |
 | Personal/service API-token values and hashes | value shown once / hash in database | critical | no |
 | API-token lifecycle metadata (expiry, revocation, restrictions, last use) | database | high | yes, metadata only |
+| Background task payloads, leases, results, errors, and worker heartbeats | database | medium | no |
 | Internal CA + signing keys | keys volume | critical | no |
 | Notification / SMTP secrets | database (encrypted) | high | no |
 

@@ -55,6 +55,11 @@
   execution time; restrict redirects.
 - Malicious update package → signed release manifests, checksums, rollback.
 - CVE feed poisoning → validate feed sources and record provenance.
+- Duplicate or attacker-selected background execution → code-defined task handlers,
+  unique idempotency keys, correlated database leases, bounded retries, scheduler
+  advisory locking, permissioned operations APIs, and non-secret payloads.
+- Worker crash during an external side effect → expiring/renewed leases, idempotent
+  connector contracts, durable retry/dead-letter inspection, and audited manual retry.
 - Identity-provider SSRF or DNS rebinding → HTTPS-only discovery/token/JWKS
   endpoints, address-class validation, and connection IP pinning; private IdPs
   require an explicit exception that never permits loopback/link-local/metadata.

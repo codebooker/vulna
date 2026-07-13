@@ -38,6 +38,7 @@ from app.api.v1 import (
     sites,
     sso,
     system,
+    tasks,
     users,
     workflows,
 )
@@ -46,6 +47,7 @@ api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(system.router)
 api_router.include_router(auth.router)
 api_router.include_router(authorization.router)
+api_router.include_router(tasks.router)
 api_router.include_router(sso.router)
 api_router.include_router(scim.router)
 api_router.include_router(organizations.router)

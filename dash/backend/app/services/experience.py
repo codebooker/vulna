@@ -34,6 +34,7 @@ ADVANCED_ROUTES: tuple[str, ...] = (
     "identity",
     "provisioning",
     "authorization",
+    "tasks",
     "system_health",
 )
 
@@ -99,7 +100,7 @@ CAPABILITIES: tuple[dict[str, Any], ...] = (
     {
         "key": "background_tasks",
         "name": "Dedicated scheduler and worker",
-        "status": "planned",
+        "status": "available",
         "production_ready": False,
     },
     {

@@ -85,6 +85,11 @@ suspended service accounts remain unusable, revoked/rotated API tokens stay
 unusable, active tokens retain their original organization and IP restrictions,
 and no token value appears in logs or exports.
 
+Post-Phase-39 background tasks, lease/retry/dead-letter state, and worker heartbeats
+are ordinary PostgreSQL records and are included in the encrypted database backup.
+After restore, start the API/migrations before the scheduler and worker. Leases from
+the old host expire and are reclaimed; do not edit lease rows manually.
+
 ## Destinations
 
 Local filesystem is the default. Generic S3-compatible destinations are supported;

@@ -1,7 +1,7 @@
 # Capability status
 
 This matrix is intentionally conservative. “Available” means implemented in the
-current codebase. “Planned” means it is part of the post-Phase-39 roadmap and must not be
+current codebase. “Planned” means it is part of the remaining roadmap and must not be
 presented as usable. **Production-ready remains false until final release
 qualification passes**, regardless of profile visibility.
 
@@ -16,7 +16,7 @@ qualification passes**, regardless of profile visibility.
 | OIDC and SAML SSO | Available (Phase 37) | No |
 | SCIM provisioning | Available (Phase 38) | No |
 | Granular RBAC and service accounts | Available (Phase 39) | No |
-| Dedicated scheduler and worker | Planned (post-39 gate) | No |
+| Dedicated scheduler and worker | Available (post-39 gate) | No |
 | Asset groups and ownership | Planned (Phase 40) | No |
 | Explainable risk and remediation units | Planned (Phase 41) | No |
 | Authenticated scanning and software inventory | Planned (Phase 42) | No |

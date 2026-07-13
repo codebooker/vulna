@@ -233,7 +233,10 @@ PERMISSIONS: tuple[PermissionDefinition, ...] = (
     _permission("demo.manage", "Manage demo state", "Reset or seed demo state.", high_risk=True),
     _permission("tasks.read", "View background tasks", "View task and worker health."),
     _permission(
-        "tasks.manage", "Manage background tasks", "Retry, cancel, or inspect failed tasks."
+        "tasks.manage",
+        "Manage background tasks",
+        "Retry, cancel, or inspect failed tasks.",
+        high_risk=True,
     ),
 )
 

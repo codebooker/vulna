@@ -98,6 +98,11 @@ directly. See also [`threat-model.md`](threat-model.md) and
 - [ ] Personal/service API-token values and hashes never appear in API reads, logs,
   audit metadata, notifications, or portability exports; only a one-time creation or
   rotation response contains the value.
+- [ ] Background task types are allowlisted in code; payloads contain no secrets or
+  executable expressions, leases expire/renew, attempts are bounded, and dead
+  letters/cancellation/retry require `tasks.*` permissions and audit events.
+- [ ] Scheduler replicas use PostgreSQL advisory-lock leader election and unique
+  idempotency keys; queue backpressure is configured before connector workloads.
 - [ ] Untrusted scanner output parsed defensively (defusedxml for XML; malformed lines skipped).
 - [ ] `/metrics` exposes aggregate-only data — no finding titles, evidence, IPs, or CVE ids in labels (`tests/test_metrics.py`).
 

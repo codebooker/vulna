@@ -1,1 +1,1 @@
-"""VulnaDash tasks package (populated in later phases)."""
+"""Durable task handlers and dedicated process runners."""

@@ -8,6 +8,7 @@ import {
   HardDrive,
   History,
   LayoutDashboard,
+  ListChecks,
   Network,
   Radar,
   Rocket,
@@ -47,6 +48,7 @@ import { UsersPage } from '../pages/UsersPage';
 import { IdentityProvidersPage } from '../pages/IdentityProvidersPage';
 import { ScimProvisioningPage } from '../pages/ScimProvisioningPage';
 import { AuthorizationPage } from '../pages/AuthorizationPage';
+import { TaskOperationsPage } from '../pages/TaskOperationsPage';
 import type { Role } from '../types/auth';
 
 export interface RouteDef {
@@ -261,6 +263,15 @@ export const ROUTE_CATALOGUE: RouteSection[] = [
         icon: ActivityIcon,
         Component: SystemHealthPage,
         permission: 'system.read',
+      },
+      {
+        id: 'tasks',
+        visibilityKey: 'tasks',
+        label: 'Task operations',
+        icon: ListChecks,
+        Component: TaskOperationsPage,
+        permission: 'tasks.read',
+        roles: ['administrator'],
       },
       {
         id: 'getting-started',

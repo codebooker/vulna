@@ -8,8 +8,6 @@ application lifespan.
 
 from __future__ import annotations
 
-import asyncio
-import contextlib
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -34,36 +32,6 @@ from app.services.metrics import render_metrics
 logger = logging.getLogger(__name__)
 
 
-async def _scheduler_loop(settings: Settings) -> None:
-    """Periodically fire due scan schedules, reap stale jobs, time out pentest
-    sessions, and enforce pentest evidence retention.
-
-    The single-host deployment has no external scheduler, so this in-process loop
-    provides one. Running the pentest timeout + retention sweeps here (not only via
-    the admin endpoint) makes ``data_retention_days`` and session timeouts actually
-    automatic and durable. A per-tick failure is logged and never crashes the loop.
-    """
-    from datetime import UTC, datetime
-
-    from app.services import pentest, reaper, scheduler
-
-    factory = get_sessionmaker()
-    while True:
-        await asyncio.sleep(settings.scheduler_interval_seconds)
-        try:
-            async with factory() as session:
-                now = datetime.now(UTC)
-                await scheduler.run_due_schedules(session, settings)
-                await reaper.reap_stale_jobs(session, settings)
-                await pentest.terminate_expired_sessions(session, now)
-                await pentest.purge_expired_evidence(session, now)
-                await session.commit()
-        except asyncio.CancelledError:
-            raise
-        except Exception:  # noqa: BLE001 - a background sweep must never die
-            logger.exception("scheduler sweep failed")
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialize the database and seed bootstrap data on startup."""
@@ -85,16 +53,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await run_bootstrap(session, settings)
         await session.commit()
 
-    scheduler_task = (
-        asyncio.create_task(_scheduler_loop(settings)) if settings.scheduler_enabled else None
-    )
     try:
         yield
     finally:
-        if scheduler_task is not None:
-            scheduler_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await scheduler_task
         await dispose_engine()
 
 

@@ -1,9 +1,7 @@
 # Production-oriented Docker Compose stack for the Vulna orchestrator (VulnaDash).
 #
-# This is the Phase 0 skeleton. It builds the API and frontend locally; later
-# phases publish images to GHCR and introduce the worker, scheduler, and report
-# worker as assessment functionality lands. Optional MinIO and Metasploit
-# services (disabled by default) are added in the phases that need them.
+# The API, scheduler, and worker use one image. Optional monitoring and
+# assessment services remain profile- or overlay-controlled.
 #
 # Usage:
 #   cp .env.example .env    # set POSTGRES_PASSWORD, VULNA_* secrets, VULNA_DOMAIN
@@ -72,6 +70,7 @@ services:
     expose:
       - "8000"
     volumes:
+      - keys:/var/lib/vulna/keys
       - reports:/var/lib/vulna/reports
       - evidence:/var/lib/vulna/evidence
     depends_on:
@@ -84,6 +83,52 @@ services:
       interval: 30s
       timeout: 5s
       retries: 5
+
+  scheduler:
+    image: ${VULNA_REGISTRY:-ghcr.io/codebooker}/vulna-api:${VULNA_VERSION:-dev}
+    build:
+      context: ./dash/backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      VULNA_ENV: production
+      VULNA_RUN_MIGRATIONS: "false"
+    command: ["vulna", "scheduler"]
+    # The image's HTTP healthcheck belongs to the API command. Process health is
+    # reported through durable scheduler heartbeats instead.
+    healthcheck:
+      disable: true
+    depends_on:
+      api:
+        condition: service_healthy
+
+  worker:
+    image: ${VULNA_REGISTRY:-ghcr.io/codebooker}/vulna-api:${VULNA_VERSION:-dev}
+    build:
+      context: ./dash/backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    stop_grace_period: 30s
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      VULNA_ENV: production
+      VULNA_RUN_MIGRATIONS: "false"
+    command: ["vulna", "worker"]
+    healthcheck:
+      disable: true
+    volumes:
+      # Scheduled scan jobs must use the same signing key as API-created jobs.
+      - keys:/var/lib/vulna/keys
+      - reports:/var/lib/vulna/reports
+      - evidence:/var/lib/vulna/evidence
+    depends_on:
+      api:
+        condition: service_healthy
 
   postgres:
     image: postgres:17
@@ -195,6 +240,7 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  keys:
   reports:
   evidence:
   caddy_data:

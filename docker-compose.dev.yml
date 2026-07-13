@@ -70,6 +70,7 @@ services:
     volumes:
       # Mount source for autoreload during development.
       - ./dash/backend/app:/app/app:ro
+      - keys_dev:/var/lib/vulna/keys
     ports:
       - "8000:8000"
     depends_on:
@@ -82,6 +83,54 @@ services:
       interval: 30s
       timeout: 5s
       retries: 5
+
+  scheduler:
+    build:
+      context: ./dash/backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment: &backend-dev-environment
+      VULNA_ENV: development
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-vulna}
+      POSTGRES_USER: ${POSTGRES_USER:-vulna}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-vulna_dev_password}
+      VULNA_SECRET_KEY: ${VULNA_SECRET_KEY:-dev-only-insecure-secret-change-me}
+      VULNA_RUN_MIGRATIONS: "false"
+    command: ["vulna", "scheduler"]
+    healthcheck:
+      disable: true
+    volumes:
+      - ./dash/backend/app:/app/app:ro
+    depends_on:
+      api:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: ./dash/backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    stop_grace_period: 30s
+    env_file:
+      - path: .env
+        required: false
+    environment: *backend-dev-environment
+    command: ["vulna", "worker"]
+    healthcheck:
+      disable: true
+    volumes:
+      - ./dash/backend/app:/app/app:ro
+      - keys_dev:/var/lib/vulna/keys
+      - reports_dev:/var/lib/vulna/reports
+      - evidence_dev:/var/lib/vulna/evidence
+    depends_on:
+      api:
+        condition: service_healthy
 
   frontend:
     image: node:22-alpine
@@ -103,3 +152,6 @@ volumes:
   postgres_dev_data:
   redis_dev_data:
   frontend_node_modules:
+  keys_dev:
+  reports_dev:
+  evidence_dev:

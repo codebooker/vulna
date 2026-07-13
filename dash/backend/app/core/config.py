@@ -86,10 +86,13 @@ class Settings(BaseSettings):
     # Fernet key is derived from it.
     master_key: str | None = None
 
-    # Background scheduler: fires due scan schedules and reaps stale jobs on an
-    # interval. Disable to run those only via API triggers / heartbeats.
+    # Dedicated database-backed scheduler/worker services.
     scheduler_enabled: bool = True
-    scheduler_interval_seconds: int = 60
+    scheduler_interval_seconds: int = Field(default=60, ge=1, le=86_400)
+    background_worker_poll_seconds: float = Field(default=2.0, ge=0.1, le=60)
+    background_task_lease_seconds: int = Field(default=300, ge=3, le=86_400)
+    background_task_max_attempts: int = Field(default=5, ge=1, le=100)
+    background_task_backpressure_limit: int = Field(default=10_000, ge=1)
 
     # ---- Administrator bootstrap -------------------------------------------
     # If both are provided and no administrator exists yet, a first admin user

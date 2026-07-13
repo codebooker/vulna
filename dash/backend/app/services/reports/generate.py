@@ -67,6 +67,7 @@ async def generate_reports(
     requested_by: uuid.UUID | None,
     settings: Settings,
     now: datetime,
+    report_ids: dict[ReportType, uuid.UUID] | None = None,
 ) -> list[Report]:
     """Render and store the requested report artifacts for a scan job."""
     snapshot = await build_snapshot(session, scan_job=scan_job, now=now)
@@ -77,8 +78,13 @@ async def generate_reports(
     created: list[Report] = []
     for report_type in report_types:
         spec = ARTIFACTS[report_type]
+        report_id = (report_ids or {}).get(report_type, uuid.uuid4())
+        existing = await session.get(Report, report_id)
+        if existing is not None:
+            created.append(existing)
+            continue
         report = Report(
-            id=uuid.uuid4(),
+            id=report_id,
             organization_id=scan_job.organization_id,
             site_id=scan_job.site_id,
             scan_job_id=scan_job.id,

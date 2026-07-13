@@ -103,6 +103,7 @@ import type {
   ScopedGrant,
   ServiceAccount,
 } from '../types/authorization';
+import type { BackgroundTask, TaskHealth, TaskPage } from '../types/task';
 
 // In development, Vite proxies /api to the backend (see vite.config.ts).
 // In production the frontend is served behind the same reverse proxy as the API.
@@ -995,6 +996,20 @@ export const api = {
     return request<{ deliveries: NotificationDelivery[] }>('/api/v1/notifications/deliveries', {
       token,
     });
+  },
+
+  // --- Durable task operations (post-Phase-39 gate) ---
+  listTasks(token: string): Promise<TaskPage> {
+    return request<TaskPage>('/api/v1/tasks?limit=100', { token });
+  },
+  taskHealth(token: string): Promise<TaskHealth> {
+    return request<TaskHealth>('/api/v1/tasks/health', { token });
+  },
+  cancelTask(token: string, id: string): Promise<BackgroundTask> {
+    return request<BackgroundTask>(`/api/v1/tasks/${id}/cancel`, { method: 'POST', token });
+  },
+  retryTask(token: string, id: string): Promise<BackgroundTask> {
+    return request<BackgroundTask>(`/api/v1/tasks/${id}/retry`, { method: 'POST', token });
   },
 
   // --- Help & demo (Phase 30) ---

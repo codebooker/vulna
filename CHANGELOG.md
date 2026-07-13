@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — post-Phase-39 worker and scheduler gate
+
+- Dedicated scheduler and worker services now use a durable database-backed task
+  queue with idempotency keys, scheduled execution, expiring leases, lease renewal,
+  retry/backoff, cancellation, dead letters, and process heartbeats.
+- PostgreSQL advisory-lock leader election serializes scheduler replicas. Queue
+  backpressure prevents unbounded scheduling, and expired worker leases are safely
+  reclaimed after a crash.
+- Scheduled scans, stale-job reaping, pentest timeout/evidence retention, and
+  notification dispatch run through the queue. Feed sync and report generation also
+  expose additive queued APIs while their existing synchronous `/api/v1` interfaces
+  remain backward-compatible.
+- Administrators can inspect task health/history, cancel work, and retry dead letters
+  from the Task operations page. Fresh/upgrade migration coverage, Compose services,
+  release-gate regressions, backup guidance, and security documentation are included.
+
 ### Added — Phase 39: granular RBAC and service accounts
 
 - A source-controlled permission catalogue now drives database roles and

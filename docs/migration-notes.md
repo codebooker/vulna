@@ -17,6 +17,14 @@ step is needed for schema changes unless noted.
 
 ## Unreleased (on `main`)
 
+- **Dedicated scheduler and worker (post-Phase-39 gate).** The additive upgrade
+  creates durable task and worker-heartbeat tables. Single-host Compose installs now
+  start `scheduler` and `worker` services automatically; the API no longer runs its
+  legacy in-process loop. Existing synchronous feed/report endpoints remain valid.
+  Queue state is included in encrypted database backups but excluded from portability
+  exports. Downgrade deletes task history and requires the API's legacy scheduler loop,
+  which this release no longer contains, so restore the prior application image and a
+  verified pre-upgrade backup together.
 - **Granular RBAC and service accounts (Phase 39).** The additive upgrade creates
   built-in/custom roles, role permissions, scoped grants, service principals, and
   hashed API-token records. Each existing user receives organization or site grants

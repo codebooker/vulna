@@ -7,10 +7,11 @@ and is therefore restricted to administrators.
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Header, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,7 +23,9 @@ from app.intelligence.fetchers import HttpFetcher
 from app.models.enums import FeedSource, FeedStatus
 from app.models.feed_health import FeedHealth
 from app.models.user import User
+from app.schemas.background_task import BackgroundTaskRead
 from app.schemas.intelligence import FeedHealthRead, SyncResultRead
+from app.services import background_tasks
 from app.services import intelligence as intel
 from app.services.audit import record_audit
 
@@ -55,6 +58,7 @@ def _with_derived_status(fh: FeedHealth, settings: Settings, now: datetime) -> F
 async def feed_health(
     current_user: CurrentUser,
     session: Annotated[AsyncSession, Depends(get_session)],
+    context: Annotated[RequestContext, Depends(get_request_context)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> list[FeedHealthRead]:
     """List every intelligence feed's sync health (build plan Section 14.7)."""
@@ -84,9 +88,7 @@ async def feed_health(
     return out
 
 
-@router.post(
-    "/{source}/sync", response_model=SyncResultRead, summary="Trigger a feed sync (admin)"
-)
+@router.post("/{source}/sync", response_model=SyncResultRead, summary="Trigger a feed sync (admin)")
 async def trigger_sync(
     source: FeedSource,
     admin: Annotated[User, Depends(require_permission("feeds.manage"))],
@@ -96,9 +98,7 @@ async def trigger_sync(
 ) -> SyncResultRead:
     """Fetch and ingest one intelligence feed now (Administrator only)."""
     now = datetime.now(UTC)
-    summary = await _SYNC_FUNCS[source](
-        session, HttpFetcher(), settings=settings, now=now
-    )
+    summary = await _SYNC_FUNCS[source](session, HttpFetcher(), settings=settings, now=now)
     record_audit(
         session,
         action="feed.sync",
@@ -120,3 +120,48 @@ async def trigger_sync(
         change_events=summary.change_events,
         error=summary.error,
     )
+
+
+@router.post(
+    "/{source}/tasks",
+    response_model=BackgroundTaskRead,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Queue a feed synchronization",
+)
+async def queue_sync(
+    source: FeedSource,
+    admin: Annotated[User, Depends(require_permission("feeds.manage"))],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    context: Annotated[RequestContext, Depends(get_request_context)],
+    idempotency_key: Annotated[
+        str | None, Header(alias="Idempotency-Key", min_length=1, max_length=255)
+    ] = None,
+) -> BackgroundTaskRead:
+    task, created = await background_tasks.enqueue_task(
+        session,
+        task_type="feeds.sync",
+        idempotency_key=(
+            background_tasks.scoped_idempotency_key(
+                f"api:feed:{admin.organization_id}:{source.value}", idempotency_key
+            )
+            if idempotency_key
+            else f"manual:feed:{source.value}:{uuid.uuid4()}"
+        ),
+        payload={"source": source.value},
+        organization_id=admin.organization_id,
+        created_by_user_id=admin.id,
+        max_attempts=3,
+    )
+    record_audit(
+        session,
+        action="feed.sync_queued",
+        actor=admin,
+        organization_id=admin.organization_id,
+        target_type="background_task",
+        target_id=task.id,
+        source_ip=context.source_ip,
+        user_agent=context.user_agent,
+        request_id=context.request_id,
+        metadata={"source": source.value, "idempotent_replay": not created},
+    )
+    return BackgroundTaskRead.model_validate(task)

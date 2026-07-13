@@ -40,6 +40,7 @@ REQUIRED_GATE_MODULES = [
     "test_sso.py",
     "test_scim.py",
     "test_authorization.py",
+    "test_background_tasks.py",
 ]
 
 

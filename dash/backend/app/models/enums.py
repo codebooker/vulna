@@ -50,6 +50,17 @@ class ServiceAccountStatus(StrEnum):
     SUSPENDED = "suspended"
 
 
+class BackgroundTaskStatus(StrEnum):
+    """Durable scheduler/worker task lifecycle."""
+
+    QUEUED = "queued"
+    RUNNING = "running"
+    RETRY = "retry"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+    DEAD_LETTER = "dead_letter"
+
+
 class AccountStatus(StrEnum):
     """Authoritative lifecycle state of an interactive user account."""
 

@@ -120,6 +120,23 @@ func TestPlanDoesNotWriteAnything(t *testing.T) {
 	}
 }
 
+func TestPlanInstallsDedicatedTaskRuntime(t *testing.T) {
+	dir := t.TempDir()
+	plan, err := PlanInstall(opts(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	services := make(map[string]bool, len(plan.Services))
+	for _, service := range plan.Services {
+		services[service] = true
+	}
+	for _, required := range []string{"api", "scheduler", "worker"} {
+		if !services[required] {
+			t.Fatalf("single-host plan is missing %s: %v", required, plan.Services)
+		}
+	}
+}
+
 func TestRemoveGeneratedFilesLeavesDataDir(t *testing.T) {
 	dir := t.TempDir()
 	o := opts(dir)

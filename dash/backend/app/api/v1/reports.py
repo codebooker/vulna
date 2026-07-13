@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from fastapi.responses import FileResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,8 +25,10 @@ from app.db.session import get_session
 from app.models.enums import ReportFormat, ReportStatus
 from app.models.report import Report
 from app.models.scan_job import ScanJob
+from app.schemas.background_task import BackgroundTaskRead
 from app.schemas.common import Page
 from app.schemas.report import ReportCreate, ReportRead
+from app.services import background_tasks
 from app.services.audit import record_audit
 from app.services.reports import generate_reports
 
@@ -50,9 +52,7 @@ async def _get_owned_report(
         select(Report).where(
             Report.id == report_id,
             Report.organization_id == current_user.organization_id,
-            optional_site_scope_clause(
-                current_user, Report.site_id, permission_key="reports.read"
-            ),
+            optional_site_scope_clause(current_user, Report.site_id, permission_key="reports.read"),
         )
     )
     if report is None:
@@ -71,8 +71,8 @@ async def create_reports(
     current_user: CurrentUser,
     _step_up: StepUpIdentity,
     session: Annotated[AsyncSession, Depends(get_session)],
-    settings: Annotated[Settings, Depends(get_settings)],
     context: Annotated[RequestContext, Depends(get_request_context)],
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> list[ReportRead]:
     """Render the requested report artifacts from a completed scan's snapshot."""
     scan_job = await session.get(ScanJob, payload.scan_job_id)
@@ -114,6 +114,73 @@ async def create_reports(
     return [ReportRead.model_validate(r) for r in reports]
 
 
+@router.post(
+    "/tasks",
+    response_model=BackgroundTaskRead,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Queue report generation for a scan",
+)
+async def queue_reports(
+    payload: ReportCreate,
+    current_user: CurrentUser,
+    _step_up: StepUpIdentity,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    context: Annotated[RequestContext, Depends(get_request_context)],
+    idempotency_key: Annotated[
+        str | None, Header(alias="Idempotency-Key", min_length=1, max_length=255)
+    ] = None,
+) -> BackgroundTaskRead:
+    scan_job = await session.get(ScanJob, payload.scan_job_id)
+    if scan_job is None or scan_job.organization_id != current_user.organization_id:
+        raise HTTPException(status_code=404, detail="Scan job not found")
+    await require_site_access(
+        session,
+        current_user,
+        scan_job.site_id,
+        not_found_detail="Scan job not found",
+        permission_key="reports.create",
+    )
+    if not payload.report_types:
+        raise HTTPException(status_code=422, detail="At least one report type is required")
+    report_key = ",".join(sorted(report_type.value for report_type in payload.report_types))
+    task, created = await background_tasks.enqueue_task(
+        session,
+        task_type="reports.generate",
+        idempotency_key=(
+            background_tasks.scoped_idempotency_key(
+                f"api:report:{current_user.organization_id}:{scan_job.id}", idempotency_key
+            )
+            if idempotency_key
+            else f"manual:report:{scan_job.id}:{report_key}:{uuid.uuid4()}"
+        ),
+        payload={
+            "scan_job_id": str(scan_job.id),
+            "report_types": [report_type.value for report_type in payload.report_types],
+            "requested_by": str(current_user.id),
+        },
+        organization_id=current_user.organization_id,
+        created_by_user_id=current_user.id,
+        max_attempts=3,
+    )
+    record_audit(
+        session,
+        action="report.generation_queued",
+        actor=current_user,
+        organization_id=current_user.organization_id,
+        target_type="background_task",
+        target_id=task.id,
+        source_ip=context.source_ip,
+        user_agent=context.user_agent,
+        request_id=context.request_id,
+        metadata={
+            "scan_job_id": str(scan_job.id),
+            "report_types": [report_type.value for report_type in payload.report_types],
+            "idempotent_replay": not created,
+        },
+    )
+    return BackgroundTaskRead.model_validate(task)
+
+
 @router.get("", response_model=Page[ReportRead], summary="List reports")
 async def list_reports(
     current_user: CurrentUser,
@@ -124,15 +191,17 @@ async def list_reports(
 ) -> Page[ReportRead]:
     filters = [
         Report.organization_id == current_user.organization_id,
-        optional_site_scope_clause(
-            current_user, Report.site_id, permission_key="reports.read"
-        ),
+        optional_site_scope_clause(current_user, Report.site_id, permission_key="reports.read"),
     ]
     if scan_job_id is not None:
         filters.append(Report.scan_job_id == scan_job_id)
     total = await session.scalar(select(func.count()).select_from(Report).where(*filters))
     result = await session.execute(
-        select(Report).where(*filters).order_by(Report.created_at.desc()).limit(limit).offset(offset)
+        select(Report)
+        .where(*filters)
+        .order_by(Report.created_at.desc())
+        .limit(limit)
+        .offset(offset)
     )
     return Page[ReportRead](
         items=[ReportRead.model_validate(r) for r in result.scalars().all()],
@@ -173,9 +242,7 @@ async def download_report(
         if expires_at.tzinfo is None:
             expires_at = expires_at.replace(tzinfo=UTC)
         if expires_at <= datetime.now(UTC):
-            raise HTTPException(
-                status_code=status.HTTP_410_GONE, detail="Report has expired"
-            )
+            raise HTTPException(status_code=status.HTTP_410_GONE, detail="Report has expired")
     path = Path(report.storage_path)
     if not path.is_file():
         raise HTTPException(

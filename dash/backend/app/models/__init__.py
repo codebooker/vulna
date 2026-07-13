@@ -13,6 +13,7 @@ from app.models.authorization import (
     ScopedGrant,
     ServiceAccount,
 )
+from app.models.background_task import BackgroundTask, WorkerHeartbeat
 from app.models.change_event import ChangeEvent
 from app.models.cve import CveRecord, ThreatIntelEnrichment
 from app.models.enrollment_token import EnrollmentToken
@@ -22,6 +23,7 @@ from app.models.enums import (
     AssetStatus,
     AssetType,
     AuthenticationSource,
+    BackgroundTaskStatus,
     ChangeEventType,
     FeedSource,
     FeedStatus,
@@ -117,6 +119,8 @@ __all__ = [
     "AssetStatus",
     "AssetType",
     "AuthenticationSource",
+    "BackgroundTask",
+    "BackgroundTaskStatus",
     "AuthenticationThrottle",
     "ApiToken",
     "AuthorizationRole",
@@ -202,6 +206,7 @@ __all__ = [
     "UserSession",
     "ValidationStatus",
     "WebScanProfile",
+    "WorkerHeartbeat",
     "WebAuthnChallenge",
     "WebAuthnCredential",
     "WorkflowRun",
