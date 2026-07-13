@@ -84,9 +84,11 @@ def register_builtin_adapters() -> None:
     # protocol and return TicketResult values.
     from app.services.ticket_adapters.github import GitHubIssuesAdapter
     from app.services.ticket_adapters.gitlab import GitLabIssuesAdapter
+    from app.services.ticket_adapters.glpi import GlpiTicketAdapter
 
     register_adapter(TicketConnectorType.GITHUB, GitHubIssuesAdapter())
     register_adapter(TicketConnectorType.GITLAB, GitLabIssuesAdapter())
+    register_adapter(TicketConnectorType.GLPI, GlpiTicketAdapter())
 
 
 def validate_public_config(value: dict[str, Any]) -> dict[str, Any]:

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 43 connector: GLPI
+
+- GLPI legacy REST v1 now supports user-token/App-Token session setup and cleanup,
+  profile tests, entity-bound ticket create/update/verified-close, severity mapping,
+  and deterministic title-marker lookup before create. Session tokens remain
+  ephemeral and never enter connector storage, task payloads, or result metadata.
+
 ### Added — Phase 43 connector: GitLab Issues
 
 - GitLab.com and self-managed GitLab projects now support token/bearer connection

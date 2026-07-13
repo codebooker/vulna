@@ -49,6 +49,7 @@ REQUIRED_GATE_MODULES = [
     "test_phase43_migration.py",
     "test_ticket_github.py",
     "test_ticket_gitlab.py",
+    "test_ticket_glpi.py",
 ]
 
 

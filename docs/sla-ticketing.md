@@ -71,13 +71,18 @@ changes so each protocol can be reviewed and qualified independently.
 |---|---|---|---|
 | GitHub Issues / GitHub Enterprise | Available | fine-grained token or GitHub App token | stored issue number; stable body-marker lookup before create |
 | GitLab Issues / self-managed GitLab | Available | project, personal, or OAuth token | stored issue iid; stable description-marker lookup before create |
-| GLPI | Planned | — | — |
+| GLPI REST v1 | Available | encrypted user token, optional App-Token | stored ticket id; deterministic title-marker lookup before create |
 | Jira | Planned | — | — |
 | Generic webhook/API | Planned | — | — |
 
 Provider requests use bounded time and response sizes, refuse redirects, resolve
 and validate every destination, pin the connection to the validated IP, and retain
 the original hostname for HTTP routing and TLS verification.
+
+For GLPI v1, enter the connector secret as the user token alone, or as
+`{"user_token":"...","app_token":"..."}` when the GLPI API client requires an
+App-Token. The configured project key is the numeric GLPI entity id. The connector
+opens an ephemeral session for each operation and always attempts to destroy it.
 
 ## Backup and portability
 
