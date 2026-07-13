@@ -564,13 +564,12 @@ function CreateProviderCard({
               disabled={!jit}
               onChange={(event) => setDefaultRole(event.target.value as Role)}
             >
-              {ROLES.map((role) => (
-                <option key={role} value={role}>
-                  {roleLabel(role)}
-                </option>
-              ))}
+              <option value="viewer">{roleLabel('viewer')}</option>
             </Select>
           </Field>
+          <p className="self-end pb-2 text-xs text-muted">
+            Higher roles require an explicit identity-provider group mapping.
+          </p>
         </div>
         <div className="mt-3 grid gap-2 text-xs text-muted sm:grid-cols-2">
           <label className="flex items-center gap-2">

@@ -43,6 +43,25 @@ func TestBuildResourceScriptRejectsInjection(t *testing.T) {
 	}
 }
 
+func TestBuildResourceScriptRejectsTemplateAndConsoleSyntax(t *testing.T) {
+	for _, value := range []string{
+		"<%=6*7%>",
+		"<ruby>puts(1)</ruby>",
+		"value;exit-y",
+		"value with spaces",
+		"`id`",
+	} {
+		_, err := buildResourceScript(ModuleSpec{
+			Module:  "auxiliary/scanner/ssh/ssh_version",
+			Target:  "10.20.0.5",
+			Options: map[string]any{"THREADS": value},
+		})
+		if err == nil {
+			t.Errorf("executable resource value %q must be rejected", value)
+		}
+	}
+}
+
 func TestBuildResourceScriptRejectsReservedOptions(t *testing.T) {
 	// RHOSTS/RHOST/PAYLOAD are set from the validated target/payload; an option that
 	// re-sets them would override the authorized target after the fact.

@@ -12,7 +12,7 @@ name: vulna-dev
 
 services:
   postgres:
-    image: postgres:17
+    image: postgres:17@sha256:0af65001d05296a2ead57ac4a6412433d8913d1bb5d0c88435a7d1e1ee5cb04b
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-vulna}
@@ -29,7 +29,7 @@ services:
       retries: 10
 
   redis:
-    image: redis:7-alpine
+    image: redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
     ports:
@@ -133,7 +133,7 @@ services:
         condition: service_healthy
 
   frontend:
-    image: node:22-alpine
+    image: node:22-alpine@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb9c86130c3e2
     restart: unless-stopped
     working_dir: /app
     command: sh -c "npm install && npm run dev -- --host 0.0.0.0"

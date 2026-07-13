@@ -83,7 +83,7 @@ import type { BrowserTest, NetworkStatus, ValidateResult } from '../types/networ
 import type { Preset, PresetPreview } from '../types/presets';
 import type { EnrollmentCommand } from '../types/remote';
 import type { Report } from '../types/report';
-import type { HealthResponse, SystemInfoResponse } from '../types/system';
+import type { HealthResponse } from '../types/system';
 import type { UpdateCenter } from '../types/update';
 import type {
   GroupMapping,
@@ -1623,22 +1623,26 @@ export const api = {
       token,
     });
   },
-  async listAllFindings(token: string): Promise<FindingPage<Finding>> {
+  async listFindingSnapshot(token: string): Promise<FindingPage<Finding> & { truncated: boolean }> {
     const items: Finding[] = [];
     const pageSize = 200;
+    // Tables and summary cards are intentionally bounded. Large installations
+    // must not download the entire findings corpus into one browser tab.
+    const maxItems = 1000;
     let offset = 0;
     let total = 0;
     do {
+      const limit = Math.min(pageSize, maxItems - items.length);
       const page = await request<FindingPage<Finding>>(
-        `/api/v1/findings?limit=${pageSize}&offset=${offset}`,
+        `/api/v1/findings?limit=${limit}&offset=${offset}`,
         { token },
       );
       total = page.total;
       items.push(...page.items);
       if (page.items.length === 0) break;
       offset += page.items.length;
-    } while (offset < total);
-    return { items, total, limit: items.length, offset: 0 };
+    } while (offset < total && items.length < maxItems);
+    return { items, total, limit: maxItems, offset: 0, truncated: items.length < total };
   },
   getFinding(token: string, id: string): Promise<Finding> {
     return request<Finding>(`/api/v1/findings/${encodeURIComponent(id)}`, { token });
@@ -1730,12 +1734,8 @@ export const api = {
   },
 };
 
-// --- Unauthenticated health/system endpoints (used by HealthPage) ---
+// --- Unauthenticated liveness endpoint (used by HealthPage) ---
 
 export function fetchHealth(): Promise<HealthResponse> {
   return request<HealthResponse>('/health');
-}
-
-export function fetchSystemInfo(): Promise<SystemInfoResponse> {
-  return request<SystemInfoResponse>('/api/v1/system/info');
 }

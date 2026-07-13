@@ -7,6 +7,9 @@
 # VULNA_RUN_MIGRATIONS=false.
 set -eu
 
+# Reject unsafe production configuration before migrations or application work.
+python -c 'from app.core.config import get_settings; get_settings().validate_for_startup()'
+
 if [ "${VULNA_RUN_MIGRATIONS:-true}" = "true" ]; then
 	echo "api: applying database migrations (alembic upgrade head)"
 	alembic upgrade head

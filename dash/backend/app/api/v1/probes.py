@@ -252,7 +252,12 @@ async def enroll_probe(
     )
     token_hash = hash_token(payload.token)
     result = await session.execute(
-        select(EnrollmentToken).where(EnrollmentToken.token_hash == token_hash)
+        select(EnrollmentToken)
+        .where(EnrollmentToken.token_hash == token_hash)
+        # Serialize consumers of this token until the request transaction
+        # commits. A concurrent enrollment then observes ``used_at`` and is
+        # rejected instead of issuing a second Scout identity.
+        .with_for_update()
     )
     token = result.scalar_one_or_none()
     now = datetime.now(UTC)

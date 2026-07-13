@@ -474,7 +474,9 @@ async def test_phase42_permissions_openapi_and_capability_status(
     ):
         assert path in openapi["paths"]
 
-    capabilities = (await client.get("/api/v1/system/capabilities")).json()
+    capabilities = (
+        await client.get("/api/v1/system/capabilities", headers=viewer_headers)
+    ).json()
     phase42 = next(
         item for item in capabilities["capabilities"] if item["key"] == "authenticated_scanning"
     )

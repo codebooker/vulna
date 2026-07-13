@@ -29,6 +29,7 @@ from app.tasks.runner import run_scheduler_once, run_worker_once, scheduler_loop
 
 async def _bootstrap_admin(create_tables: bool) -> int:
     settings = get_settings()
+    settings.validate_for_startup()
     if create_tables:
         import app.models  # noqa: F401
 
@@ -60,6 +61,7 @@ async def _bootstrap_admin(create_tables: bool) -> int:
 
 async def _run_worker(*, once: bool, worker_id: str | None) -> int:
     settings = get_settings()
+    settings.validate_for_startup()
     identity = worker_id or default_process_id("worker")
     try:
         if once:
@@ -73,6 +75,7 @@ async def _run_worker(*, once: bool, worker_id: str | None) -> int:
 
 async def _run_scheduler(*, once: bool, scheduler_id: str | None) -> int:
     settings = get_settings()
+    settings.validate_for_startup()
     identity = scheduler_id or default_process_id("scheduler")
     try:
         if once:

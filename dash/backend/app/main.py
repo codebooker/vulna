@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialize the database and seed bootstrap data on startup."""
     settings = get_settings()
+    settings.validate_for_startup()
 
     if settings.auto_create_tables:
         # Import models so every table is registered on the metadata, then
@@ -67,8 +68,10 @@ def create_app() -> FastAPI:
         title="VulnaDash API",
         version=__version__,
         summary="Central orchestrator API for the Vulna security-assessment platform.",
-        docs_url="/docs",
-        openapi_url="/openapi.json",
+        docs_url=("/docs" if settings.env != "production" or settings.expose_api_docs else None),
+        openapi_url=(
+            "/openapi.json" if settings.env != "production" or settings.expose_api_docs else None
+        ),
         lifespan=lifespan,
     )
 
@@ -93,7 +96,7 @@ def create_app() -> FastAPI:
     @app.get("/health", response_model=HealthResponse, tags=["system"])
     def health() -> HealthResponse:
         """Liveness probe used by Docker/Compose health checks and the frontend."""
-        return HealthResponse(status="ok", service=settings.app_name, version=__version__)
+        return HealthResponse(status="ok", service=settings.app_name)
 
     @app.get("/metrics", response_class=PlainTextResponse, tags=["system"], include_in_schema=False)
     async def metrics(

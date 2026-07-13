@@ -91,12 +91,15 @@ container exporters) alongside the main stack:
 docker compose --profile monitoring up -d
 ```
 
-- **Grafana** on `:3000` (user `admin`, password `GRAFANA_PASSWORD`) loads the
-  Prometheus datasource and the "Vulna Overview" dashboard automatically — no
-  manual import.
-- **Prometheus** on `:9090` scrapes VulnaDash at `api:8000/metrics`, plus the
-  exporters, and evaluates the alert rules in `deploy/monitoring/prometheus/alerts.yml`
+- **Grafana** (user `admin`, password `GRAFANA_PASSWORD`) loads the Prometheus
+  datasource and the "Vulna Overview" dashboard automatically. The password is
+  required, must be at least 16 characters, and cannot be a shipped placeholder.
+- **Prometheus** scrapes VulnaDash at `api:8000/metrics`, plus the exporters, and
+  evaluates the alert rules in `deploy/monitoring/prometheus/alerts.yml`
   (including a stale-CVE-feed alert).
+
+Neither UI is published on a host port. Reach it only through an authenticated
+operator tunnel or an explicit, access-controlled Compose override.
 
 VulnaDash exposes only **aggregate, non-sensitive** metrics at `/metrics`: counts
 by severity/status, probe liveness, and feed freshness. No finding titles,

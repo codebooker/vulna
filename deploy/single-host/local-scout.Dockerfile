@@ -9,7 +9,7 @@
 #   docker build -f deploy/single-host/local-scout.Dockerfile -t vulna-local-scout .
 
 # ---- Build the probe binary (stdlib-only, CGO-free) ----
-FROM golang:1.26-alpine AS build
+FROM golang:1.26-alpine@sha256:0178a641fbb4858c5f1b48e34bdaabe0350a330a1b1149aabd498d0699ff5fb2 AS build
 WORKDIR /src/scout
 COPY scout/go.mod ./
 RUN go mod download
@@ -28,7 +28,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     -o /out/vulnascout ./cmd/vulnascout
 
 # ---- Fetch the scanner pack (pinned; integrity-checked) ----
-FROM alpine:3.21 AS tools
+FROM alpine:3.21@sha256:48b0309ca019d89d40f670aa1bc06e426dc0931948452e8491e3d65087abc07d AS tools
 RUN apk add --no-cache curl unzip tar coreutils
 # nuclei — verified against the release's own checksums manifest.
 ARG NUCLEI_VERSION=3.3.7
@@ -50,16 +50,20 @@ RUN set -eu; \
 # scans have templates to match against; without them nuclei loads zero
 # templates (update checks are disabled by policy) and every scan finds nothing.
 ARG NUCLEI_TEMPLATES_VERSION=10.4.5
+ARG NUCLEI_TEMPLATES_SHA256=34f5f8a24400a4fff33a57806c2fbc842cdf599589f477430800140845e299cb
 RUN set -eu; \
     curl -fsSL -o /tmp/nuclei-templates.tar.gz \
       "https://github.com/projectdiscovery/nuclei-templates/archive/refs/tags/v${NUCLEI_TEMPLATES_VERSION}.tar.gz"; \
+    echo "${NUCLEI_TEMPLATES_SHA256}  /tmp/nuclei-templates.tar.gz" | sha256sum -c -; \
     mkdir -p /opt/nuclei-templates; \
     tar -xzf /tmp/nuclei-templates.tar.gz -C /opt/nuclei-templates --strip-components=1
 # testssl.sh — pinned stable tag.
 ARG TESTSSL_VERSION=3.0.9
+ARG TESTSSL_SHA256=75ecbe4470e74f9ad17f4c4ac733be123b0f67d676ed24cc2b30adb41561e05f
 RUN set -eu; \
     curl -fsSL -o /tmp/testssl.tar.gz \
       "https://github.com/testssl/testssl.sh/archive/refs/tags/v${TESTSSL_VERSION}.tar.gz"; \
+    echo "${TESTSSL_SHA256}  /tmp/testssl.tar.gz" | sha256sum -c -; \
     mkdir -p /opt/testssl; \
     tar -xzf /tmp/testssl.tar.gz -C /opt/testssl --strip-components=1
 

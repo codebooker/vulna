@@ -75,13 +75,14 @@ def _validate_web_start_urls(start_urls: list[str], approved: list[str]) -> list
         host = parts.hostname
         try:
             ipaddress.ip_address(host)
-        except ValueError:
-            pass  # hostname; scope is enforced by the probe's context
-        else:
-            if not _target_within_approved(host, approved):
-                raise JobValidationError(
-                    f"Web start URL host '{host}' is outside the approved scope"
-                )
+        except ValueError as exc:
+            raise JobValidationError(
+                "Web start URLs must use an IP-literal host; DNS names are disabled"
+            ) from exc
+        if not _target_within_approved(host, approved):
+            raise JobValidationError(
+                f"Web start URL host '{host}' is outside the approved scope"
+            )
         validated.append(raw)
     return validated
 

@@ -390,7 +390,6 @@ BUILTIN_ROLE_PERMISSIONS: dict[UserRole, frozenset[str]] = {
     | frozenset(
         {
             "jobs.create",
-            "pentest.request",
             "pentest.approve",
             "workflows.approve",
             "risk_acceptance.approve",

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -18,6 +19,8 @@ import (
 type ConsoleRunner struct {
 	Binary string // default "msfconsole"
 }
+
+var resourceTokenRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/@,+?&=%\[\]()-]*$`)
 
 func (c *ConsoleRunner) binary() string {
 	if c.Binary != "" {
@@ -77,8 +80,8 @@ func (c *ConsoleRunner) StopSession(ctx context.Context, id string) error {
 
 // buildResourceScript renders a safe msfconsole resource script: use the module,
 // set the (already scope-validated) target, payload, and options, run without
-// interacting, then kill all sessions. Every token is checked for newline/control
-// characters so an option value cannot inject an extra console command.
+// interacting, then kill all sessions. Every interpolated value must match a
+// conservative single-token grammar so it cannot become ERB or console source.
 func buildResourceScript(spec ModuleSpec) (string, error) {
 	if err := safeToken("module", spec.Module); err != nil {
 		return "", err
@@ -149,7 +152,9 @@ func stopSessionArgs(id string) ([]string, error) {
 	return []string{"-q", "-n", "-x", "sessions -k " + id + "; exit -y"}, nil
 }
 
-// safeToken rejects a value that could break out of its resource-script line.
+// safeToken accepts only a conservative single-token grammar. Metasploit parses
+// resource files as ERB before executing console commands, so newline filtering
+// alone cannot make interpolated text safe.
 func safeToken(what, s string) error {
 	if strings.ContainsAny(s, "\r\n") {
 		return fmt.Errorf("%s contains a newline", what)
@@ -158,6 +163,9 @@ func safeToken(what, s string) error {
 		if r < 0x20 && r != '\t' {
 			return fmt.Errorf("%s contains a control character", what)
 		}
+	}
+	if !resourceTokenRE.MatchString(s) {
+		return fmt.Errorf("%s is not a safe resource-file token", what)
 	}
 	return nil
 }

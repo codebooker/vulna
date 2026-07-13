@@ -416,7 +416,9 @@ async def test_ticket_connector_cannot_cross_organizations(
     assert response.status_code == 404
 
 
-async def test_phase43_interfaces_and_capability_are_truthful(client: AsyncClient) -> None:
+async def test_phase43_interfaces_and_capability_are_truthful(
+    client: AsyncClient, admin_headers: dict[str, str]
+) -> None:
     schema = (await client.get("/openapi.json")).json()
     for path in (
         "/api/v1/sla/policies",
@@ -426,7 +428,7 @@ async def test_phase43_interfaces_and_capability_are_truthful(client: AsyncClien
         "/api/v1/ticketing/findings/{finding_id}/sync",
     ):
         assert path in schema["paths"]
-    matrix = (await client.get("/api/v1/system/capabilities")).json()
+    matrix = (await client.get("/api/v1/system/capabilities", headers=admin_headers)).json()
     ticketing_capability = next(
         item for item in matrix["capabilities"] if item["key"] == "ticketing"
     )

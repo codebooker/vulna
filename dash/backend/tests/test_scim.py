@@ -430,7 +430,9 @@ async def test_scim_openapi_and_capability_status_are_additive(
     assert "/scim/v2/Users" in schema["paths"]
     assert "/scim/v2/Groups" in schema["paths"]
     assert "/api/v1/scim/tokens" in schema["paths"]
-    capabilities = (await client.get("/api/v1/system/capabilities")).json()
+    capabilities = (
+        await client.get("/api/v1/system/capabilities", headers=admin_headers)
+    ).json()
     scim_status = next(value for value in capabilities["capabilities"] if value["key"] == "scim")
     assert scim_status["status"] == "available"
     assert scim_status["production_ready"] is False

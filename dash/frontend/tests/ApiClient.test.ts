@@ -10,24 +10,22 @@ function page(items: unknown[], total: number, offset: number): Response {
 describe('API client pagination', () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it('loads every findings page instead of silently stopping at 200', async () => {
+  it('bounds the browser findings snapshot and reports truncation', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.includes('offset=0')) {
-        return page(
-          Array.from({ length: 200 }, (_, i) => ({ id: `f${i}` })),
-          201,
-          0,
-        );
-      }
-      if (url.includes('offset=200')) return page([{ id: 'f200' }], 201, 200);
-      return new Response(null, { status: 404 });
+      const url = new URL(String(input), 'http://test');
+      const offset = Number(url.searchParams.get('offset') ?? 0);
+      return page(
+        Array.from({ length: 200 }, (_, i) => ({ id: `f${offset + i}` })),
+        1001,
+        offset,
+      );
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    const result = await api.listAllFindings('token');
-    expect(result.items).toHaveLength(201);
-    expect(result.total).toBe(201);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const result = await api.listFindingSnapshot('token');
+    expect(result.items).toHaveLength(1000);
+    expect(result.total).toBe(1001);
+    expect(result.truncated).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
   });
 });

@@ -11,6 +11,8 @@ import (
 	"github.com/codebooker/vulna/scout/internal/policy"
 )
 
+const reviewedExploit = "exploit/windows/smb/ms17_010_eternalblue"
+
 type fakeRunner struct {
 	result   RunResult
 	runErr   error
@@ -58,7 +60,7 @@ func TestRunSuccess(t *testing.T) {
 		},
 	}}
 	w := NewWorker(fr)
-	out, err := w.Run(context.Background(), job("exploit/windows/smb/ms17_010_eternalblue", []string{"10.20.0.5"}))
+	out, err := w.Run(context.Background(), job(reviewedExploit, []string{"10.20.0.5"}))
 	if err != nil {
 		t.Fatalf("run failed: %v", err)
 	}
@@ -92,7 +94,7 @@ func TestRunReportsUnverifiedCleanupWhenStopFails(t *testing.T) {
 		stopErr: errors.New("kill failed"),
 	}
 	w := NewWorker(fr)
-	out, err := w.Run(context.Background(), job("exploit/windows/smb/ms17_010_eternalblue", []string{"10.20.0.5"}))
+	out, err := w.Run(context.Background(), job(reviewedExploit, []string{"10.20.0.5"}))
 	if err != nil {
 		t.Fatalf("run failed: %v", err)
 	}
@@ -108,7 +110,7 @@ func TestRunReportsUnverifiedCleanupWhenStopFails(t *testing.T) {
 func TestRunRejectsMultipleTargets(t *testing.T) {
 	fr := &fakeRunner{}
 	w := NewWorker(fr)
-	_, err := w.Run(context.Background(), job("exploit/x/y", []string{"10.20.0.5", "10.20.0.6"}))
+	_, err := w.Run(context.Background(), job(reviewedExploit, []string{"10.20.0.5", "10.20.0.6"}))
 	if err == nil {
 		t.Fatal("multiple targets must be rejected")
 	}
@@ -128,7 +130,7 @@ func TestRunBlocksDoSModule(t *testing.T) {
 
 func TestRunNotConfigured(t *testing.T) {
 	w := NewWorker(nil)
-	_, err := w.Run(context.Background(), job("exploit/x/y", []string{"10.20.0.5"}))
+	_, err := w.Run(context.Background(), job(reviewedExploit, []string{"10.20.0.5"}))
 	if err == nil {
 		t.Fatal("a scout with no metasploit runtime must error, not silently succeed")
 	}
@@ -140,7 +142,7 @@ func TestTeardownRunsEvenOnRunError(t *testing.T) {
 		runErr: errors.New("module failed"),
 	}
 	w := NewWorker(fr)
-	_, err := w.Run(context.Background(), job("exploit/x/y", []string{"10.20.0.5"}))
+	_, err := w.Run(context.Background(), job(reviewedExploit, []string{"10.20.0.5"}))
 	if err == nil {
 		t.Fatal("a run error must surface")
 	}
@@ -154,7 +156,7 @@ func TestRunTimeBoxedAndTornDown(t *testing.T) {
 	w := NewWorker(fr)
 	w.MaxTimeout = 30 * time.Millisecond // hard cap below the runner's block
 	start := time.Now()
-	if _, err := w.Run(context.Background(), job("exploit/x/y", []string{"10.20.0.5"})); err == nil {
+	if _, err := w.Run(context.Background(), job(reviewedExploit, []string{"10.20.0.5"})); err == nil {
 		t.Fatal("expected a time-box error")
 	}
 	if time.Since(start) > 2*time.Second {

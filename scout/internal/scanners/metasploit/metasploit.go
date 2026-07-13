@@ -81,8 +81,8 @@ func (w *Worker) Run(ctx context.Context, job *policy.Job) ([]byte, error) {
 		return nil, err
 	}
 	// Fail-closed local re-check. The signed controlled-pentest job is the
-	// authorization (approved + allowExploit); this still blocks DoS and any
-	// malformed/disallowed module even if the orchestrator were compromised.
+	// authorization. The local exact-match policy pack blocks arbitrary installed
+	// exploits even if the orchestrator is compromised.
 	if err := pentest.ValidateModule(spec.Module, true, true, spec.Payload, spec.Options); err != nil {
 		return nil, err
 	}

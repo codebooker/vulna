@@ -27,6 +27,7 @@ from app.core.config import Settings, get_settings
 from app.db.session import get_session
 from app.models.asset import Asset
 from app.models.enums import GrantScopeType, JobStatus, ProbeStatus, WebScanProfile
+from app.models.network import Network
 from app.models.organization import Organization
 from app.models.probe import Probe
 from app.models.scan_job import ScanJob
@@ -150,6 +151,19 @@ async def _create_job_impl(
         not_found_detail="Probe not found",
         permission_key="jobs.create",
     )
+    job_site_id = probe.site_id
+    if payload.network_id is not None:
+        network = await session.get(Network, payload.network_id)
+        if network is None or network.organization_id != operator.organization_id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Network not found")
+        await require_site_access(
+            session,
+            operator,
+            network.site_id,
+            not_found_detail="Network not found",
+            permission_key="jobs.create",
+        )
+        job_site_id = network.site_id
     if probe.status != ProbeStatus.ENROLLED:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -185,7 +199,7 @@ async def _create_job_impl(
             operator,
             "pentest.approve",
             scope_type=GrantScopeType.SITE,
-            scope_id=probe.site_id,
+            scope_id=job_site_id,
         ):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -198,7 +212,7 @@ async def _create_job_impl(
         operator,
         "jobs.manage",
         scope_type=GrantScopeType.SITE,
-        scope_id=probe.site_id,
+        scope_id=job_site_id,
     ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

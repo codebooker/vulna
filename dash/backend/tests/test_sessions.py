@@ -374,6 +374,31 @@ async def test_reauthentication_and_policy_are_configurable_and_audited(
     assert reauth_event is not None
 
 
+async def test_reauthentication_is_throttled_after_repeated_failures(
+    client: AsyncClient,
+    make_user: UserFactory,
+) -> None:
+    user = await make_user(email="step-up-throttle@example.com")
+    access, _ = await _login(client, user)
+    headers = {"Authorization": f"Bearer {access}"}
+
+    for _ in range(5):
+        failed = await client.post(
+            "/api/v1/auth/reauthenticate",
+            json={"password": "definitely-wrong"},
+            headers=headers,
+        )
+        assert failed.status_code == 401
+
+    throttled = await client.post(
+        "/api/v1/auth/reauthenticate",
+        json={"password": TEST_PASSWORD},
+        headers=headers,
+    )
+    assert throttled.status_code == 429
+    assert int(throttled.headers["Retry-After"]) >= 1
+
+
 async def test_role_change_revokes_real_server_session(
     client: AsyncClient,
     admin_headers: dict[str, str],

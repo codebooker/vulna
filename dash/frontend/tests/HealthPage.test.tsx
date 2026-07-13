@@ -12,7 +12,7 @@ describe('HealthPage', () => {
       const url = String(input);
       if (url.endsWith('/health')) {
         return new Response(
-          JSON.stringify({ status: 'ok', service: 'VulnaDash', version: '0.1.0' }),
+          JSON.stringify({ status: 'ok', service: 'VulnaDash' }),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         );
       }
@@ -31,7 +31,8 @@ describe('HealthPage', () => {
     render(<HealthPage />);
 
     await waitFor(() => expect(screen.getByText('Backend reachable')).toBeInTheDocument());
-    expect(screen.getByText(/environment/i)).toBeInTheDocument();
+    expect(screen.getByText('VulnaDash')).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('shows backend unreachable when the API fails', async () => {
