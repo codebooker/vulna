@@ -17,6 +17,15 @@ step is needed for schema changes unless noted.
 
 ## Unreleased (on `main`)
 
+- **Remaining Phase 44 passive inventory providers.** No schema migration is
+  required for Proxmox VE, XCP-ng/Xen Orchestra, AWS, Microsoft Azure, or Google
+  Cloud. Public origins/scopes/bounds use the existing connector configuration and
+  every provider credential uses the existing purpose-encrypted one-way secret.
+  Existing sources are unchanged and none is enabled automatically. Portability
+  excludes token secrets, cloud access keys, client secrets, service-account JSON,
+  private keys, signatures, and ephemeral access tokens, so full credential
+  continuity requires a verified encrypted backup.
+
 - **VMware vCenter passive inventory importer (Phase 44).** No schema migration is
   required. The public HTTPS origin, username, resource selectors, limits, public
   CA trust, and private-network opt-in use existing connector configuration; the

@@ -19,6 +19,105 @@ bounded attribute object, normalized identifiers, source timestamp, and payload
 hash. Source observations are never overwritten, so operators can explain how the
 current inventory was derived.
 
+### Proxmox VE importer
+
+The Proxmox source accepts only an exact HTTPS origin on the native `8006` port
+or a hardened port-443 reverse proxy. Configure a separated API token as
+`USER@REALM!TOKENID`, store its token UUID as the one-way secret, and grant only
+the documented `PVEAuditor` permissions. The adapter performs fixed `GET` reads of
+the Proxmox [cluster resource index](https://pve.proxmox.com/pve-docs/api-viewer/index.html#/cluster/resources)
+for nodes and guests; templates are excluded unless an administrator explicitly
+includes them. It exposes no configurable action, filter, provider path, or
+mutation. Proxmox documents token separation and a limited monitoring-token
+example in its [API token guidance](https://pve.proxmox.com/pve-docs/pve-admin-guide.html#pveum_tokens).
+
+System trust is used by default, with one optional public issuing CA for an
+internal PKI. DNS is pinned, redirects are disabled, private management networks
+require explicit opt-in, every response is capped at 1 MiB, and combined records
+are bounded. Token IDs are public connector metadata; token secrets and complete
+Authorization headers never enter results, observations, cursors, tasks, logs,
+errors, audits, or portability exports.
+
+### XCP-ng / Xen Orchestra importer
+
+The XCP-ng source uses the current Xen Orchestra
+[REST API](https://docs.xen-orchestra.com/restapi/) at an exact HTTPS port-443
+origin. Store an existing XO authentication token as the one-way secret and grant
+the account only `host:read` and `vm:read` (or the equivalent read-only ACL). Vulna
+sends the token only in XO's documented authentication cookie and performs fixed
+`GET` reads of bounded host and VM field projections. It never creates, refreshes,
+or deletes tokens and exposes no arbitrary fields, filters, actions, paths, or
+provider URLs. See Xen Orchestra's [ACL v2 guidance](https://docs.xen-orchestra.com/xo6/acl-v2)
+for the least-privilege permission model.
+
+System or operator-supplied public-CA trust always verifies TLS. DNS pinning,
+redirect denial, explicit private-network opt-in, a 1 MiB response cap, sentinel
+record limits, and strict UUID/identifier validation apply before observations are
+accepted. Authentication tokens and cookie headers remain absent from all durable
+and portable state.
+
+### Amazon Web Services importer
+
+One AWS source represents one explicit account/partition and a bounded list of
+regions. The one-way secret is a strict access-key credential envelope; temporary
+credentials with a session token are supported and preferred. Vulna never uses
+ambient environment, shared-file, container, or instance-metadata credentials.
+The adapter signs requests with maintained AWS Signature Version 4 primitives but
+retains Vulna's own endpoint allowlist, DNS pinning, redirect denial, timeouts, and
+1 MiB response bounds. It calls only fixed regional
+[`GetCallerIdentity`](https://docs.aws.amazon.com/STS/latest/APIReference/API_GetCallerIdentity.html)
+and [`DescribeInstances`](https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_DescribeInstances.html)
+actions; no endpoint, service, action, filter, or region discovery is configurable.
+
+The caller identity and every reservation owner must match the expected account
+when configured. Pagination is repeat-checked and kept only in worker memory;
+partial, malformed, duplicate, cross-account, or over-limit results fail the run.
+Recently terminated instances are excluded by default. AWS recommends temporary
+credentials and least privilege in its
+[IAM security guidance](https://docs.aws.amazon.com/IAM/latest/UserGuide/best-practices.html);
+the connector role needs only `ec2:DescribeInstances` for its configured regions.
+Access keys, secret keys, session tokens, signatures, and principal ARNs never
+enter results, errors, observations, tasks, logs, audits, or exports.
+
+### Microsoft Azure importer
+
+The Azure source uses an explicit cloud, tenant, application client, and one or
+more subscription UUIDs. The client secret is stored only in the encrypted
+one-way connector field. Vulna exchanges it at the code-defined Microsoft identity
+endpoint and performs a fixed, projected Azure Resource Graph query through the
+documented [`resources` API](https://learn.microsoft.com/en-us/rest/api/azureresourcegraph/resourcegraph/resources/resources?view=rest-azureresourcegraph-resourcegraph-2024-04-01).
+Queries run per subscription so an inaccessible subscription cannot be silently
+omitted, and the projection intentionally excludes arbitrary resource properties,
+custom data, secret URLs, and tags.
+
+Global, US Government, and China clouds use code-defined authority/resource hosts;
+custom endpoints and queries are unavailable. Pagination tokens, bearer tokens,
+and projected records are bounded and validated, while truncation, duplicates,
+partial authorization, or malformed identity fails closed. Grant Resource Graph
+read access plus read access to only the configured VM resources. Client secrets,
+OAuth tokens, and raw provider responses never enter persistent or portable state.
+
+### Google Cloud importer
+
+The Google Cloud source reads the fixed Compute Engine
+[`aggregatedList`](https://cloud.google.com/compute/docs/reference/rest/v1/instances/aggregatedList)
+resource for explicit projects. Upload a service-account JSON file as the one-way
+secret; Vulna strictly validates its Google token endpoint, service-account
+identity, key metadata, and RSA private key before signing a short-lived JWT for
+the `compute.readonly` scope. The credential JSON, private key, JWT assertion, and
+access token remain only in the encrypted secret or worker memory. Ambient
+Application Default Credentials and attacker-controlled token URLs are never used.
+
+The request uses a code-defined field projection that excludes instance metadata,
+user data, disks and encryption keys, service accounts, labels, and arbitrary
+provider properties. Page tokens are bounded/repeat-checked and URLs are rebuilt
+locally. Any unreachable zone, partial result, duplicate, malformed record, or
+limit breach fails the run. Prefer a custom role containing only
+`compute.instances.list` where policy permits; Google documents broader built-in
+roles in its [Compute IAM guidance](https://cloud.google.com/compute/docs/access/iam)
+and recommends short-lived credentials in its
+[service-account guidance](https://cloud.google.com/iam/docs/best-practices-service-accounts).
+
 ### VMware vCenter importer
 
 The vCenter source uses Broadcom's current
@@ -306,7 +405,15 @@ the API key and ciphertext are excluded. It excludes connector and source
 ciphertext. vCenter connectors export only their public HTTPS origin, username,
 resource selectors, limits, public CA trust, private-network opt-in, and
 `has_secret`; passwords, Basic credentials, API session tokens, and ciphertext are
-excluded. It excludes export passwords, analytics cache entries, task payloads,
-and leases. Restoring a usable CSV source or secret requires a verified encrypted
-backup. Downgrade removes Phase 44 history and cannot reconstruct source links, so
-verify a backup first.
+excluded. Proxmox and XCP-ng sources export only their public origins, resource
+selectors, bounds, TLS trust, private-network choice, public token ID where
+applicable, and `has_secret`; token secrets and authentication headers are excluded.
+AWS exports partition, explicit regions, optional expected account, bounds, and
+`has_secret`, never any access-key component or signature. Azure exports cloud,
+tenant/client/subscription identifiers, bounds, and `has_secret`; Google Cloud
+exports project identifiers, bounds, and `has_secret`. Their client secrets,
+service-account JSON, private keys, assertions, and access tokens are excluded. It
+also excludes export passwords, analytics cache entries, task payloads, and leases.
+Restoring a usable CSV source or secret requires a verified encrypted backup.
+Downgrade removes Phase 44 history and cannot reconstruct source links, so verify a
+backup first.

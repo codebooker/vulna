@@ -157,6 +157,18 @@ observations, cursors, audit metadata, errors, and logs. Ephemeral API sessions 
 never backup data, and restore must not contact vCenter until an operator explicitly
 tests, runs, or schedules the connector.
 
+Proxmox VE and XCP-ng/Xen Orchestra restore coverage must preserve their exact
+public origins, selectors, limits, public CA trust, private-network opt-in, public
+token identifiers where applicable, and disabled/tested/enabled state. AWS restore
+coverage must preserve partition, explicit regions, expected account, limits, and
+state; Azure must preserve cloud, tenant/client/subscription identifiers and state;
+Google Cloud must preserve project identifiers and state. Every provider secret
+must decrypt only with the inventory-connector purpose and remain absent from
+portability, task state, observations, cursors, audit metadata, errors, and logs.
+Ephemeral sessions, signatures, assertions, and access tokens are never backup
+data. Restore must not contact any provider until an operator explicitly tests,
+runs, or schedules that connector.
+
 CSV source uploads are included only in encrypted database backups. Restore tests
 must verify that source ciphertext decrypts under the CSV-specific purpose, its
 SHA-256 and size metadata still match, and a restored worker can derive the same

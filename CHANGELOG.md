@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 44 remaining inventory providers
+
+- Read-only Proxmox VE and XCP-ng/Xen Orchestra importers collect bounded host
+  and virtual-machine context through fixed inventory resources with least-
+  privilege API tokens, pinned destinations, verified TLS, and no mutation path.
+- Read-only AWS, Microsoft Azure, and Google Cloud importers collect bounded
+  virtual-machine inventory from explicit accounts/subscriptions/projects. Cloud
+  endpoints and actions are code-defined, pagination is bounded, partial reads fail
+  closed, and provider credentials and access tokens remain one-way secrets.
+- The administrator source form now captures provider-specific public settings and
+  one-way credentials without enabling a connector until its read-only test passes.
+  Self-hosted and offline operation remains complete when cloud connectors are not
+  configured.
+
 ### Added — Phase 44 connector: VMware vCenter
 
 - A read-only VMware vCenter importer now creates an ephemeral API session, reads

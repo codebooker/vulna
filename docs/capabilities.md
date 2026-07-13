@@ -21,6 +21,6 @@ qualification passes**, regardless of profile visibility.
 | Explainable risk and remediation units | Available (Phase 41) | No |
 | Authenticated scanning and software inventory | Available (Phase 42) | No |
 | SLAs and ticketing | Available (Phase 43) | No |
-| Passive inventory, analytics, and report builder | Planned (Phase 44 core plus generic API, CSV, Kea DHCP, authoritative DNS, Active Directory, Microsoft Entra, UniFi Network, and VMware vCenter adapters present; remaining providers stacked separately) | No |
+| Passive inventory, analytics, and report builder | Available (Phase 44; core, analytics, report builder, reconciliation, and all roadmap importers qualified) | No |
 
 This page and the API capability list must be updated in each subsequent phase.

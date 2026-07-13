@@ -163,6 +163,23 @@ directly. See also [`threat-model.md`](threat-model.md) and
   invalidates the session after success or failure. Passwords, Basic headers, and
   session IDs never enter results, observations, cursors, tasks, logs, errors, or
   exports (`tests/test_inventory_vcenter.py`).
+- [ ] Proxmox VE and XCP-ng/Xen Orchestra accept only exact HTTPS management
+  origins, verify system or supplied public-CA trust, pin DNS, require explicit
+  private-network access, and expose only fixed bounded node/host/VM reads. API
+  token secrets and complete authentication headers/cookies never enter results,
+  observations, cursors, tasks, logs, errors, or exports
+  (`tests/test_inventory_proxmox.py`, `tests/test_inventory_xcpng.py`).
+- [ ] AWS calls only code-defined regional STS/EC2 endpoints and read actions,
+  validates the account/partition/region on every page, bounds and repeat-checks
+  pagination, never uses ambient or metadata credentials, and keeps every access
+  key, session token, signature, and raw provider response out of durable state
+  (`tests/test_inventory_aws.py`).
+- [ ] Azure and Google Cloud use only code-defined identity/resource endpoints,
+  fixed read-only projections, explicit subscriptions/projects, and bounded
+  fail-closed pagination. Client secrets, service-account private keys, signed
+  assertions, bearer tokens, arbitrary resource properties, and partial results
+  never enter observations, tasks, logs, errors, or exports
+  (`tests/test_inventory_azure.py`, `tests/test_inventory_google_cloud.py`).
 - [ ] Report export passwords use a separate HKDF purpose, appear only as
   `has_export_password`, never enter task payloads/portability/audit metadata, and
   AES-256 protection is applied only in renderer memory (`tests/test_passive_inventory.py`).

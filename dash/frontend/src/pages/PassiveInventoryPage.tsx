@@ -67,8 +67,21 @@ export function PassiveInventoryPage() {
     entraClientId: '',
     entraCloud: 'global',
     unifiSiteId: '',
+    proxmoxTokenId: '',
+    awsPartition: 'aws',
+    awsRegions: '',
+    awsExpectedAccountId: '',
+    awsAccessKeyId: '',
+    awsSecretAccessKey: '',
+    awsSessionToken: '',
+    azureTenantId: '',
+    azureClientId: '',
+    azureSubscriptionIds: '',
+    azureCloud: 'global',
+    googleProjectIds: '',
   });
   const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [googleCredentialFilename, setGoogleCredentialFilename] = useState('');
   const [templateForm, setTemplateForm] = useState({
     name: '',
     siteId: '',
@@ -128,6 +141,18 @@ export function PassiveInventoryPage() {
       .split(/[\n,]/)
       .map((zone) => zone.trim())
       .filter(Boolean);
+    const awsRegions = connectorForm.awsRegions
+      .split(/[\n,]/)
+      .map((region) => region.trim())
+      .filter(Boolean);
+    const azureSubscriptionIds = connectorForm.azureSubscriptionIds
+      .split(/[\n,]/)
+      .map((subscription) => subscription.trim())
+      .filter(Boolean);
+    const googleProjectIds = connectorForm.googleProjectIds
+      .split(/[\n,]/)
+      .map((project) => project.trim())
+      .filter(Boolean);
     if (connectorForm.type === 'csv' && !csvFile) {
       setError('Select a CSV file before saving this source.');
       return;
@@ -183,6 +208,42 @@ export function PassiveInventoryPage() {
       setError('vCenter sources require an HTTPS server URL, read-only username, and password.');
       return;
     }
+    if (
+      connectorForm.type === 'proxmox' &&
+      (!connectorForm.baseUrl || !connectorForm.proxmoxTokenId || !connectorForm.secret)
+    ) {
+      setError('Proxmox sources require an HTTPS API origin, token ID, and token secret.');
+      return;
+    }
+    if (connectorForm.type === 'xcp_ng' && (!connectorForm.baseUrl || !connectorForm.secret)) {
+      setError('XCP-ng sources require an HTTPS Xen Orchestra origin and authentication token.');
+      return;
+    }
+    if (
+      connectorForm.type === 'aws' &&
+      (awsRegions.length === 0 ||
+        !connectorForm.awsAccessKeyId ||
+        !connectorForm.awsSecretAccessKey)
+    ) {
+      setError(
+        'AWS sources require at least one region, an access key ID, and a secret access key.',
+      );
+      return;
+    }
+    if (
+      connectorForm.type === 'azure' &&
+      (!connectorForm.azureTenantId ||
+        !connectorForm.azureClientId ||
+        azureSubscriptionIds.length === 0 ||
+        !connectorForm.secret)
+    ) {
+      setError('Azure sources require tenant, client, subscription, and client-secret values.');
+      return;
+    }
+    if (connectorForm.type === 'google_cloud' && !connectorForm.secret) {
+      setError('Google Cloud sources require a service-account JSON credential file.');
+      return;
+    }
     setBusy('connector');
     setError(null);
     let connectorCreated = false;
@@ -195,11 +256,28 @@ export function PassiveInventoryPage() {
         connectorForm.type !== 'dns' &&
         connectorForm.type !== 'active_directory' &&
         connectorForm.type !== 'entra' &&
+        connectorForm.type !== 'aws' &&
+        connectorForm.type !== 'azure' &&
+        connectorForm.type !== 'google_cloud' &&
         connectorForm.baseUrl
           ? { base_url: connectorForm.baseUrl }
           : {}),
-        ...(connectorForm.type !== 'csv' && connectorForm.secret
-          ? { secret: connectorForm.secret }
+        ...(connectorForm.type !== 'csv' &&
+        (connectorForm.type === 'aws'
+          ? connectorForm.awsAccessKeyId && connectorForm.awsSecretAccessKey
+          : connectorForm.secret)
+          ? {
+              secret:
+                connectorForm.type === 'aws'
+                  ? JSON.stringify({
+                      access_key_id: connectorForm.awsAccessKeyId,
+                      secret_access_key: connectorForm.awsSecretAccessKey,
+                      ...(connectorForm.awsSessionToken
+                        ? { session_token: connectorForm.awsSessionToken }
+                        : {}),
+                    })
+                  : connectorForm.secret,
+            }
           : {}),
         ...(connectorForm.type === 'dhcp'
           ? {
@@ -267,6 +345,58 @@ export function PassiveInventoryPage() {
               },
             }
           : {}),
+        ...(connectorForm.type === 'proxmox'
+          ? {
+              config: {
+                api_identity: connectorForm.proxmoxTokenId,
+                allow_private: connectorForm.allowPrivate,
+                include_nodes: true,
+                include_guests: true,
+                include_templates: false,
+                ...(connectorForm.trustPem ? { trust_pem: connectorForm.trustPem } : {}),
+              },
+            }
+          : {}),
+        ...(connectorForm.type === 'xcp_ng'
+          ? {
+              config: {
+                allow_private: connectorForm.allowPrivate,
+                include_hosts: true,
+                include_vms: true,
+                ...(connectorForm.trustPem ? { trust_pem: connectorForm.trustPem } : {}),
+              },
+            }
+          : {}),
+        ...(connectorForm.type === 'aws'
+          ? {
+              config: {
+                partition: connectorForm.awsPartition,
+                regions: awsRegions,
+                ...(connectorForm.awsExpectedAccountId
+                  ? { expected_account_id: connectorForm.awsExpectedAccountId }
+                  : {}),
+                include_terminated: false,
+              },
+            }
+          : {}),
+        ...(connectorForm.type === 'azure'
+          ? {
+              config: {
+                tenant_id: connectorForm.azureTenantId,
+                client_id: connectorForm.azureClientId,
+                subscription_ids: azureSubscriptionIds,
+                cloud: connectorForm.azureCloud,
+                include_scale_set_instances: true,
+              },
+            }
+          : {}),
+        ...(connectorForm.type === 'google_cloud'
+          ? {
+              config: {
+                ...(googleProjectIds.length > 0 ? { project_ids: googleProjectIds } : {}),
+              },
+            }
+          : {}),
         interval_minutes: 1440,
       });
       connectorCreated = true;
@@ -290,8 +420,21 @@ export function PassiveInventoryPage() {
         entraClientId: '',
         entraCloud: 'global',
         unifiSiteId: '',
+        proxmoxTokenId: '',
+        awsPartition: 'aws',
+        awsRegions: '',
+        awsExpectedAccountId: '',
+        awsAccessKeyId: '',
+        awsSecretAccessKey: '',
+        awsSessionToken: '',
+        azureTenantId: '',
+        azureClientId: '',
+        azureSubscriptionIds: '',
+        azureCloud: 'global',
+        googleProjectIds: '',
       }));
       setCsvFile(null);
+      setGoogleCredentialFilename('');
       toast('success', 'Inventory source saved disabled. Test it before enabling collection.');
       await load();
     } catch (err) {
@@ -630,12 +773,40 @@ export function PassiveInventoryPage() {
                   <Select
                     aria-label="Type"
                     value={connectorForm.type}
-                    onChange={(event) =>
+                    onChange={(event) => {
                       setConnectorForm((current) => ({
                         ...current,
                         type: event.target.value as PassiveConnectorType,
-                      }))
-                    }
+                        baseUrl: '',
+                        username: '',
+                        secret: '',
+                        allowPrivate: false,
+                        legacyControlAgent: false,
+                        dnsZones: '',
+                        tsigName: '',
+                        allowUnsigned: false,
+                        directoryBaseDn: '',
+                        trustPem: '',
+                        entraTenantId: '',
+                        entraClientId: '',
+                        entraCloud: 'global',
+                        unifiSiteId: '',
+                        proxmoxTokenId: '',
+                        awsPartition: 'aws',
+                        awsRegions: '',
+                        awsExpectedAccountId: '',
+                        awsAccessKeyId: '',
+                        awsSecretAccessKey: '',
+                        awsSessionToken: '',
+                        azureTenantId: '',
+                        azureClientId: '',
+                        azureSubscriptionIds: '',
+                        azureCloud: 'global',
+                        googleProjectIds: '',
+                      }));
+                      setCsvFile(null);
+                      setGoogleCredentialFilename('');
+                    }}
                   >
                     {CONNECTOR_TYPES.map((type) => (
                       <option key={type} value={type}>
@@ -664,7 +835,7 @@ export function PassiveInventoryPage() {
                   </Field>
                 ) : (
                   <>
-                    {connectorForm.type !== 'entra' && (
+                    {!['entra', 'aws', 'azure', 'google_cloud'].includes(connectorForm.type) && (
                       <Field
                         label={
                           connectorForm.type === 'dns'
@@ -675,7 +846,11 @@ export function PassiveInventoryPage() {
                                 ? 'UniFi Network API root'
                                 : connectorForm.type === 'vcenter'
                                   ? 'vCenter server URL'
-                                  : 'HTTPS URL (when required)'
+                                  : connectorForm.type === 'proxmox'
+                                    ? 'Proxmox API origin'
+                                    : connectorForm.type === 'xcp_ng'
+                                      ? 'Xen Orchestra origin'
+                                      : 'HTTPS URL (when required)'
                         }
                       >
                         <Input
@@ -688,7 +863,11 @@ export function PassiveInventoryPage() {
                                   ? 'UniFi Network API root'
                                   : connectorForm.type === 'vcenter'
                                     ? 'vCenter server URL'
-                                    : 'HTTPS URL (when required)'
+                                    : connectorForm.type === 'proxmox'
+                                      ? 'Proxmox API origin'
+                                      : connectorForm.type === 'xcp_ng'
+                                        ? 'Xen Orchestra origin'
+                                        : 'HTTPS URL (when required)'
                           }
                           value={connectorForm.baseUrl}
                           onChange={(event) =>
@@ -823,6 +1002,248 @@ export function PassiveInventoryPage() {
                         </Field>
                       </>
                     )}
+                    {connectorForm.type === 'proxmox' && (
+                      <>
+                        <Field label="Proxmox API token ID">
+                          <Input
+                            aria-label="Proxmox API token ID"
+                            placeholder="vulna@pve!inventory"
+                            value={connectorForm.proxmoxTokenId}
+                            onChange={(event) =>
+                              setConnectorForm((current) => ({
+                                ...current,
+                                proxmoxTokenId: event.target.value,
+                              }))
+                            }
+                          />
+                        </Field>
+                        <Field label="Proxmox CA PEM (optional)">
+                          <Textarea
+                            aria-label="Proxmox CA PEM (optional)"
+                            placeholder="Use system trust, or paste the issuing CA certificate"
+                            value={connectorForm.trustPem}
+                            onChange={(event) =>
+                              setConnectorForm((current) => ({
+                                ...current,
+                                trustPem: event.target.value,
+                              }))
+                            }
+                          />
+                        </Field>
+                      </>
+                    )}
+                    {connectorForm.type === 'xcp_ng' && (
+                      <Field label="Xen Orchestra CA PEM (optional)">
+                        <Textarea
+                          aria-label="Xen Orchestra CA PEM (optional)"
+                          placeholder="Use system trust, or paste the issuing CA certificate"
+                          value={connectorForm.trustPem}
+                          onChange={(event) =>
+                            setConnectorForm((current) => ({
+                              ...current,
+                              trustPem: event.target.value,
+                            }))
+                          }
+                        />
+                      </Field>
+                    )}
+                    {connectorForm.type === 'aws' && (
+                      <>
+                        <Field label="AWS partition">
+                          <Select
+                            aria-label="AWS partition"
+                            value={connectorForm.awsPartition}
+                            onChange={(event) =>
+                              setConnectorForm((current) => ({
+                                ...current,
+                                awsPartition: event.target.value,
+                              }))
+                            }
+                          >
+                            <option value="aws">Commercial</option>
+                            <option value="aws-us-gov">US GovCloud</option>
+                            <option value="aws-cn">China</option>
+                          </Select>
+                        </Field>
+                        <Field label="AWS regions">
+                          <Input
+                            aria-label="AWS regions"
+                            placeholder="us-east-1, us-west-2"
+                            value={connectorForm.awsRegions}
+                            onChange={(event) =>
+                              setConnectorForm((current) => ({
+                                ...current,
+                                awsRegions: event.target.value,
+                              }))
+                            }
+                          />
+                        </Field>
+                        <Field label="Expected AWS account ID (optional)">
+                          <Input
+                            aria-label="Expected AWS account ID (optional)"
+                            placeholder="123456789012"
+                            value={connectorForm.awsExpectedAccountId}
+                            onChange={(event) =>
+                              setConnectorForm((current) => ({
+                                ...current,
+                                awsExpectedAccountId: event.target.value,
+                              }))
+                            }
+                          />
+                        </Field>
+                        <Field label="AWS access key ID">
+                          <Input
+                            aria-label="AWS access key ID"
+                            type="password"
+                            value={connectorForm.awsAccessKeyId}
+                            onChange={(event) =>
+                              setConnectorForm((current) => ({
+                                ...current,
+                                awsAccessKeyId: event.target.value,
+                              }))
+                            }
+                          />
+                        </Field>
+                        <Field label="AWS secret access key">
+                          <Input
+                            aria-label="AWS secret access key"
+                            type="password"
+                            value={connectorForm.awsSecretAccessKey}
+                            onChange={(event) =>
+                              setConnectorForm((current) => ({
+                                ...current,
+                                awsSecretAccessKey: event.target.value,
+                              }))
+                            }
+                          />
+                        </Field>
+                        <Field label="AWS session token (optional)">
+                          <Input
+                            aria-label="AWS session token (optional)"
+                            type="password"
+                            value={connectorForm.awsSessionToken}
+                            onChange={(event) =>
+                              setConnectorForm((current) => ({
+                                ...current,
+                                awsSessionToken: event.target.value,
+                              }))
+                            }
+                          />
+                        </Field>
+                      </>
+                    )}
+                    {connectorForm.type === 'azure' && (
+                      <>
+                        <Field label="Azure tenant ID">
+                          <Input
+                            aria-label="Azure tenant ID"
+                            placeholder="00000000-0000-0000-0000-000000000000"
+                            value={connectorForm.azureTenantId}
+                            onChange={(event) =>
+                              setConnectorForm((current) => ({
+                                ...current,
+                                azureTenantId: event.target.value,
+                              }))
+                            }
+                          />
+                        </Field>
+                        <Field label="Azure application client ID">
+                          <Input
+                            aria-label="Azure application client ID"
+                            placeholder="00000000-0000-0000-0000-000000000000"
+                            value={connectorForm.azureClientId}
+                            onChange={(event) =>
+                              setConnectorForm((current) => ({
+                                ...current,
+                                azureClientId: event.target.value,
+                              }))
+                            }
+                          />
+                        </Field>
+                        <Field label="Azure subscription IDs">
+                          <Input
+                            aria-label="Azure subscription IDs"
+                            placeholder="UUIDs separated by commas"
+                            value={connectorForm.azureSubscriptionIds}
+                            onChange={(event) =>
+                              setConnectorForm((current) => ({
+                                ...current,
+                                azureSubscriptionIds: event.target.value,
+                              }))
+                            }
+                          />
+                        </Field>
+                        <Field label="Azure cloud">
+                          <Select
+                            aria-label="Azure cloud"
+                            value={connectorForm.azureCloud}
+                            onChange={(event) =>
+                              setConnectorForm((current) => ({
+                                ...current,
+                                azureCloud: event.target.value,
+                              }))
+                            }
+                          >
+                            <option value="global">Global</option>
+                            <option value="us_government">US Government</option>
+                            <option value="china">China (21Vianet)</option>
+                          </Select>
+                        </Field>
+                      </>
+                    )}
+                    {connectorForm.type === 'google_cloud' && (
+                      <>
+                        <Field label="Google Cloud project IDs (optional)">
+                          <Input
+                            aria-label="Google Cloud project IDs (optional)"
+                            placeholder="Default from credential, or comma-separated projects"
+                            value={connectorForm.googleProjectIds}
+                            onChange={(event) =>
+                              setConnectorForm((current) => ({
+                                ...current,
+                                googleProjectIds: event.target.value,
+                              }))
+                            }
+                          />
+                        </Field>
+                        <Field label="Google service-account JSON">
+                          <Input
+                            aria-label="Google service-account JSON"
+                            type="file"
+                            accept=".json,application/json"
+                            onChange={(event) => {
+                              const file = event.target.files?.[0];
+                              if (!file) {
+                                setGoogleCredentialFilename('');
+                                setConnectorForm((current) => ({ ...current, secret: '' }));
+                                return;
+                              }
+                              if (file.size > 32 * 1024) {
+                                setError('Google service-account JSON cannot exceed 32 KiB.');
+                                setGoogleCredentialFilename('');
+                                setConnectorForm((current) => ({ ...current, secret: '' }));
+                                event.target.value = '';
+                                return;
+                              }
+                              void file.text().then(
+                                (value) => {
+                                  setConnectorForm((current) => ({ ...current, secret: value }));
+                                  setGoogleCredentialFilename(file.name);
+                                },
+                                () => {
+                                  setError('Google service-account JSON could not be read.');
+                                  setGoogleCredentialFilename('');
+                                  setConnectorForm((current) => ({ ...current, secret: '' }));
+                                },
+                              );
+                            }}
+                          />
+                          {googleCredentialFilename && (
+                            <p className="text-xs text-muted">Loaded {googleCredentialFilename}</p>
+                          )}
+                        </Field>
+                      </>
+                    )}
                     {connectorForm.type === 'active_directory' && (
                       <>
                         <Field label="Bind user">
@@ -870,7 +1291,9 @@ export function PassiveInventoryPage() {
                       connectorForm.type === 'dns' ||
                       connectorForm.type === 'active_directory' ||
                       connectorForm.type === 'unifi' ||
-                      connectorForm.type === 'vcenter') && (
+                      connectorForm.type === 'vcenter' ||
+                      connectorForm.type === 'proxmox' ||
+                      connectorForm.type === 'xcp_ng') && (
                       <Field
                         label={
                           connectorForm.type === 'dns'
@@ -881,7 +1304,11 @@ export function PassiveInventoryPage() {
                                 ? 'Private UniFi controller'
                                 : connectorForm.type === 'vcenter'
                                   ? 'Private vCenter server'
-                                  : 'Private network URL'
+                                  : connectorForm.type === 'proxmox'
+                                    ? 'Private Proxmox server'
+                                    : connectorForm.type === 'xcp_ng'
+                                      ? 'Private Xen Orchestra server'
+                                      : 'Private network URL'
                         }
                       >
                         <Select
@@ -894,7 +1321,11 @@ export function PassiveInventoryPage() {
                                   ? 'Private UniFi controller'
                                   : connectorForm.type === 'vcenter'
                                     ? 'Private vCenter server'
-                                    : 'Private network URL'
+                                    : connectorForm.type === 'proxmox'
+                                      ? 'Private Proxmox server'
+                                      : connectorForm.type === 'xcp_ng'
+                                        ? 'Private Xen Orchestra server'
+                                        : 'Private network URL'
                           }
                           value={connectorForm.allowPrivate ? 'yes' : 'no'}
                           onChange={(event) =>
@@ -954,25 +1385,9 @@ export function PassiveInventoryPage() {
                         </Field>
                       </>
                     )}
-                    <Field
-                      label={
-                        connectorForm.type === 'dhcp'
-                          ? 'Kea password'
-                          : connectorForm.type === 'dns'
-                            ? 'TSIG secret (base64)'
-                            : connectorForm.type === 'active_directory'
-                              ? 'Bind password'
-                              : connectorForm.type === 'entra'
-                                ? 'Application client secret'
-                                : connectorForm.type === 'unifi'
-                                  ? 'UniFi API key'
-                                  : connectorForm.type === 'vcenter'
-                                    ? 'vCenter password'
-                                    : 'Secret (optional)'
-                      }
-                    >
-                      <Input
-                        aria-label={
+                    {connectorForm.type !== 'aws' && connectorForm.type !== 'google_cloud' && (
+                      <Field
+                        label={
                           connectorForm.type === 'dhcp'
                             ? 'Kea password'
                             : connectorForm.type === 'dns'
@@ -985,18 +1400,48 @@ export function PassiveInventoryPage() {
                                     ? 'UniFi API key'
                                     : connectorForm.type === 'vcenter'
                                       ? 'vCenter password'
-                                      : 'Secret (optional)'
+                                      : connectorForm.type === 'proxmox'
+                                        ? 'Proxmox token secret'
+                                        : connectorForm.type === 'xcp_ng'
+                                          ? 'Xen Orchestra authentication token'
+                                          : connectorForm.type === 'azure'
+                                            ? 'Azure client secret'
+                                            : 'Secret (optional)'
                         }
-                        type="password"
-                        value={connectorForm.secret}
-                        onChange={(event) =>
-                          setConnectorForm((current) => ({
-                            ...current,
-                            secret: event.target.value,
-                          }))
-                        }
-                      />
-                    </Field>
+                      >
+                        <Input
+                          aria-label={
+                            connectorForm.type === 'dhcp'
+                              ? 'Kea password'
+                              : connectorForm.type === 'dns'
+                                ? 'TSIG secret (base64)'
+                                : connectorForm.type === 'active_directory'
+                                  ? 'Bind password'
+                                  : connectorForm.type === 'entra'
+                                    ? 'Application client secret'
+                                    : connectorForm.type === 'unifi'
+                                      ? 'UniFi API key'
+                                      : connectorForm.type === 'vcenter'
+                                        ? 'vCenter password'
+                                        : connectorForm.type === 'proxmox'
+                                          ? 'Proxmox token secret'
+                                          : connectorForm.type === 'xcp_ng'
+                                            ? 'Xen Orchestra authentication token'
+                                            : connectorForm.type === 'azure'
+                                              ? 'Azure client secret'
+                                              : 'Secret (optional)'
+                          }
+                          type="password"
+                          value={connectorForm.secret}
+                          onChange={(event) =>
+                            setConnectorForm((current) => ({
+                              ...current,
+                              secret: event.target.value,
+                            }))
+                          }
+                        />
+                      </Field>
+                    )}
                   </>
                 )}
                 <div className="flex items-end">
@@ -1032,7 +1477,23 @@ export function PassiveInventoryPage() {
                       (connectorForm.type === 'vcenter' &&
                         (!connectorForm.baseUrl ||
                           !connectorForm.username ||
-                          !connectorForm.secret))
+                          !connectorForm.secret)) ||
+                      (connectorForm.type === 'proxmox' &&
+                        (!connectorForm.baseUrl ||
+                          !connectorForm.proxmoxTokenId ||
+                          !connectorForm.secret)) ||
+                      (connectorForm.type === 'xcp_ng' &&
+                        (!connectorForm.baseUrl || !connectorForm.secret)) ||
+                      (connectorForm.type === 'aws' &&
+                        (!connectorForm.awsRegions.trim() ||
+                          !connectorForm.awsAccessKeyId ||
+                          !connectorForm.awsSecretAccessKey)) ||
+                      (connectorForm.type === 'azure' &&
+                        (!connectorForm.azureTenantId ||
+                          !connectorForm.azureClientId ||
+                          !connectorForm.azureSubscriptionIds.trim() ||
+                          !connectorForm.secret)) ||
+                      (connectorForm.type === 'google_cloud' && !connectorForm.secret)
                     }
                   >
                     <Plus size={14} /> Save source

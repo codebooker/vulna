@@ -61,6 +61,11 @@ REQUIRED_GATE_MODULES = [
     "test_inventory_entra.py",
     "test_inventory_unifi.py",
     "test_inventory_vcenter.py",
+    "test_inventory_proxmox.py",
+    "test_inventory_xcpng.py",
+    "test_inventory_aws.py",
+    "test_inventory_azure.py",
+    "test_inventory_google_cloud.py",
     "test_phase44_migration.py",
     "test_phase44_csv_migration.py",
 ]

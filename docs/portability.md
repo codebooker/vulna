@@ -65,6 +65,16 @@ VMware vCenter connectors export only the public HTTPS origin, username, resourc
 selectors, limits, public CA trust, private-network opt-in, and `has_secret`;
 passwords, Basic credentials, ephemeral API sessions, and ciphertext are never
 portable.
+Proxmox VE and XCP-ng/Xen Orchestra connectors export only public origins,
+selectors, limits, public CA trust, private-network opt-in, the public Proxmox
+token ID where applicable, and `has_secret`; token secrets and authentication
+headers/cookies are never portable. AWS connectors export only partition, explicit
+regions, optional expected account, limits, and `has_secret`; access-key IDs,
+secret keys, session tokens, and signatures are never portable. Azure connectors
+export only cloud, tenant/client/subscription identifiers, limits, and
+`has_secret`. Google Cloud connectors export only project identifiers, limits, and
+`has_secret`. Cloud client secrets, service-account JSON, private keys, signed
+assertions, bearer tokens, and ciphertext are never portable.
 Background task payloads, leases, retries, dead letters, results, and process
 heartbeats are operational state and are excluded from portability exports. They
 remain available only through encrypted database backup/restore.

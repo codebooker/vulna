@@ -34,6 +34,9 @@ dependencies = [
     "dnspython>=2.8,<3.0",
     # Phase 44: read-only, TLS-verified Active Directory LDAP inventory.
     "ldap3>=2.9.1,<2.10",
+    # Phase 44: maintained AWS Signature Version 4 primitives. Vulna retains
+    # control of DNS pinning, response bounds, and provider endpoint selection.
+    "botocore>=1.43,<2.0",
     # Runtime HTTP client for VulnaWatch feed syncs (Phase 7).
     "httpx>=0.28,<1.0",
     # Pure-Python PDF generation for reports (Phase 8) — no system libraries,

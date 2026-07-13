@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import UTC, datetime
 
@@ -104,6 +105,93 @@ async def _site(session: AsyncSession, organization: Organization, code: str = "
     session.add(site)
     await session.commit()
     return site
+
+
+@pytest.mark.parametrize(
+    ("connector_type", "base_url", "config", "secret"),
+    [
+        (
+            "proxmox",
+            "https://pve.example.test:8006",
+            {
+                "api_identity": "vulna@pve!inventory",
+                "allow_private": True,
+                "include_nodes": True,
+                "include_guests": True,
+                "include_templates": False,
+            },
+            "11111111-1111-4111-8111-111111111111",
+        ),
+        (
+            "xcp_ng",
+            "https://xo.example.test",
+            {"allow_private": True, "include_hosts": True, "include_vms": True},
+            "xoa_test_authentication_value_12345",
+        ),
+        (
+            "aws",
+            None,
+            {
+                "partition": "aws",
+                "regions": ["us-east-1", "us-west-2"],
+                "expected_account_id": "123456789012",
+                "include_terminated": False,
+            },
+            json.dumps(
+                {
+                    "access_key_id": "EXAMPLEACCESSKEY01",
+                    "secret_access_key": "example-secret-access-value",
+                }
+            ),
+        ),
+        (
+            "azure",
+            None,
+            {
+                "tenant_id": "22222222-2222-4222-8222-222222222222",
+                "client_id": "33333333-3333-4333-8333-333333333333",
+                "subscription_ids": ["44444444-4444-4444-8444-444444444444"],
+                "cloud": "global",
+                "include_scale_set_instances": True,
+            },
+            "example-azure-client-value",
+        ),
+        (
+            "google_cloud",
+            None,
+            {"project_ids": ["example-project-1"]},
+            '{"type":"service_account","private_key":"one-way"}',
+        ),
+    ],
+)
+async def test_remaining_provider_configs_cross_the_public_one_way_secret_boundary(
+    client: AsyncClient,
+    admin_headers: dict[str, str],
+    db_session: AsyncSession,
+    organization: Organization,
+    connector_type: str,
+    base_url: str | None,
+    config: dict[str, object],
+    secret: str,
+) -> None:
+    site = await _site(db_session, organization, code="PROVIDER")
+    response = await client.post(
+        "/api/v1/inventory/connectors",
+        headers=admin_headers,
+        json={
+            "site_id": str(site.id),
+            "name": f"{connector_type} inventory",
+            "connector_type": connector_type,
+            "base_url": base_url,
+            "config": config,
+            "secret": secret,
+            "interval_minutes": 1440,
+        },
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["config_json"] == config
+    assert response.json()["has_secret"] is True
+    assert secret not in response.text
 
 
 async def test_connector_secret_worker_observation_and_audit(

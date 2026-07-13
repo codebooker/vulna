@@ -395,7 +395,209 @@ it('shows scoped analytics and keeps connector secrets one-way', async () => {
     });
   });
 
+  fireEvent.change(screen.getByLabelText('Type'), { target: { value: 'proxmox' } });
+  fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Proxmox inventory' } });
+  fireEvent.change(screen.getByLabelText('Proxmox API origin'), {
+    target: { value: 'https://proxmox.internal.test:8006' },
+  });
+  fireEvent.change(screen.getByLabelText('Proxmox API token ID'), {
+    target: { value: 'vulna@pve!inventory' },
+  });
+  fireEvent.change(screen.getByLabelText('Proxmox token secret'), {
+    target: { value: 'proxmox-token-secret' },
+  });
+  fireEvent.change(screen.getByLabelText('Private Proxmox server'), {
+    target: { value: 'yes' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save source' }));
+  await waitFor(() => {
+    const call = vi.mocked(fetch).mock.calls.find(([, init]) => {
+      if (init?.method !== 'POST' || typeof init.body !== 'string') return false;
+      return (JSON.parse(init.body) as { connector_type?: string }).connector_type === 'proxmox';
+    });
+    expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({
+      connector_type: 'proxmox',
+      base_url: 'https://proxmox.internal.test:8006',
+      secret: 'proxmox-token-secret',
+      config: {
+        api_identity: 'vulna@pve!inventory',
+        allow_private: true,
+        include_nodes: true,
+        include_guests: true,
+        include_templates: false,
+      },
+    });
+  });
+
+  fireEvent.change(screen.getByLabelText('Type'), { target: { value: 'xcp_ng' } });
+  fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'XCP-ng inventory' } });
+  fireEvent.change(screen.getByLabelText('Xen Orchestra origin'), {
+    target: { value: 'https://xo.internal.test' },
+  });
+  fireEvent.change(screen.getByLabelText('Xen Orchestra authentication token'), {
+    target: { value: 'xoa-authentication-token' },
+  });
+  fireEvent.change(screen.getByLabelText('Private Xen Orchestra server'), {
+    target: { value: 'yes' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save source' }));
+  await waitFor(() => {
+    const call = vi.mocked(fetch).mock.calls.find(([, init]) => {
+      if (init?.method !== 'POST' || typeof init.body !== 'string') return false;
+      return (JSON.parse(init.body) as { connector_type?: string }).connector_type === 'xcp_ng';
+    });
+    expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({
+      connector_type: 'xcp_ng',
+      base_url: 'https://xo.internal.test',
+      secret: 'xoa-authentication-token',
+      config: {
+        allow_private: true,
+        include_hosts: true,
+        include_vms: true,
+      },
+    });
+  });
+
+  fireEvent.change(screen.getByLabelText('Type'), { target: { value: 'aws' } });
+  fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'AWS inventory' } });
+  fireEvent.change(screen.getByLabelText('AWS regions'), {
+    target: { value: 'us-east-1, us-west-2' },
+  });
+  fireEvent.change(screen.getByLabelText('Expected AWS account ID (optional)'), {
+    target: { value: '123456789012' },
+  });
+  fireEvent.change(screen.getByLabelText('AWS access key ID'), {
+    target: { value: 'EXAMPLEACCESSKEY01' },
+  });
+  fireEvent.change(screen.getByLabelText('AWS secret access key'), {
+    target: { value: 'aws-secret-access-key' },
+  });
+  fireEvent.change(screen.getByLabelText('AWS session token (optional)'), {
+    target: { value: 'aws-session-token' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save source' }));
+  await waitFor(() => {
+    const call = vi.mocked(fetch).mock.calls.find(([, init]) => {
+      if (init?.method !== 'POST' || typeof init.body !== 'string') return false;
+      return (JSON.parse(init.body) as { connector_type?: string }).connector_type === 'aws';
+    });
+    const payload = JSON.parse(String(call?.[1]?.body)) as {
+      secret: string;
+      base_url?: string;
+      config: Record<string, unknown>;
+    };
+    expect(payload).not.toHaveProperty('base_url');
+    expect(payload.config).toEqual({
+      partition: 'aws',
+      regions: ['us-east-1', 'us-west-2'],
+      expected_account_id: '123456789012',
+      include_terminated: false,
+    });
+    expect(JSON.parse(payload.secret)).toEqual({
+      access_key_id: 'EXAMPLEACCESSKEY01',
+      secret_access_key: 'aws-secret-access-key',
+      session_token: 'aws-session-token',
+    });
+  });
+
+  fireEvent.change(screen.getByLabelText('Type'), { target: { value: 'azure' } });
+  fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Azure inventory' } });
+  fireEvent.change(screen.getByLabelText('Azure tenant ID'), {
+    target: { value: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' },
+  });
+  fireEvent.change(screen.getByLabelText('Azure application client ID'), {
+    target: { value: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' },
+  });
+  fireEvent.change(screen.getByLabelText('Azure subscription IDs'), {
+    target: { value: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc' },
+  });
+  fireEvent.change(screen.getByLabelText('Azure cloud'), {
+    target: { value: 'us_government' },
+  });
+  fireEvent.change(screen.getByLabelText('Azure client secret'), {
+    target: { value: 'azure-client-secret' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save source' }));
+  await waitFor(() => {
+    const call = vi.mocked(fetch).mock.calls.find(([, init]) => {
+      if (init?.method !== 'POST' || typeof init.body !== 'string') return false;
+      return (JSON.parse(init.body) as { connector_type?: string }).connector_type === 'azure';
+    });
+    expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({
+      connector_type: 'azure',
+      secret: 'azure-client-secret',
+      config: {
+        tenant_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        client_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        subscription_ids: ['cccccccc-cccc-4ccc-8ccc-cccccccccccc'],
+        cloud: 'us_government',
+        include_scale_set_instances: true,
+      },
+    });
+  });
+
+  fireEvent.change(screen.getByLabelText('Type'), { target: { value: 'google_cloud' } });
+  fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Google inventory' } });
+  fireEvent.change(screen.getByLabelText('Google Cloud project IDs (optional)'), {
+    target: { value: 'security-project-1, workload-project-2' },
+  });
+  const serviceAccount = JSON.stringify({
+    type: 'service_account',
+    project_id: 'security-project-1',
+    private_key: 'one-way-private-key',
+  });
+  fireEvent.change(screen.getByLabelText('Google service-account JSON'), {
+    target: {
+      files: [
+        {
+          name: 'service-account.json',
+          size: serviceAccount.length,
+          text: async () => serviceAccount,
+        },
+      ],
+    },
+  });
+  expect(await screen.findByText('Loaded service-account.json')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Save source' }));
+  await waitFor(() => {
+    const call = vi.mocked(fetch).mock.calls.find(([, init]) => {
+      if (init?.method !== 'POST' || typeof init.body !== 'string') return false;
+      return (
+        (JSON.parse(init.body) as { connector_type?: string }).connector_type === 'google_cloud'
+      );
+    });
+    const payload = JSON.parse(String(call?.[1]?.body)) as Record<string, unknown>;
+    expect(payload).toMatchObject({
+      connector_type: 'google_cloud',
+      secret: serviceAccount,
+      config: { project_ids: ['security-project-1', 'workload-project-2'] },
+    });
+    expect(payload).not.toHaveProperty('base_url');
+  });
+
   fireEvent.click(screen.getByRole('tab', { name: /Reconciliation/ }));
   expect(await screen.findByText('75')).toBeInTheDocument();
   expect(screen.getByText('1 exact identifier match(es)')).toBeInTheDocument();
+});
+
+it('clears one-way credentials when the provider type changes', async () => {
+  render(
+    <AuthProvider>
+      <PassiveInventoryPage />
+    </AuthProvider>,
+  );
+
+  expect(await screen.findByText('42')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('tab', { name: /Sources/ }));
+  fireEvent.change(screen.getByLabelText('Type'), { target: { value: 'vcenter' } });
+  fireEvent.change(screen.getByLabelText('vCenter password'), {
+    target: { value: 'must-not-cross-provider-boundary' },
+  });
+  fireEvent.change(screen.getByLabelText('vCenter server URL'), {
+    target: { value: 'https://vcenter.internal.test' },
+  });
+
+  fireEvent.change(screen.getByLabelText('Type'), { target: { value: 'proxmox' } });
+  expect(screen.getByLabelText('Proxmox token secret')).toHaveValue('');
+  expect(screen.getByLabelText('Proxmox API origin')).toHaveValue('');
 });

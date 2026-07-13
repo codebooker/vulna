@@ -75,22 +75,32 @@ def register_adapter(connector_type: PassiveConnectorType, adapter: InventoryAda
 
 def register_builtin_adapters() -> None:
     from app.services.inventory_active_directory import ActiveDirectoryInventoryAdapter
+    from app.services.inventory_aws import AwsInventoryAdapter
+    from app.services.inventory_azure import AzureInventoryAdapter
     from app.services.inventory_csv import CsvInventoryAdapter
     from app.services.inventory_dhcp import DhcpInventoryAdapter
     from app.services.inventory_dns import DnsInventoryAdapter
     from app.services.inventory_entra import EntraInventoryAdapter
     from app.services.inventory_generic_api import GenericApiInventoryAdapter
+    from app.services.inventory_google_cloud import GoogleCloudInventoryAdapter
+    from app.services.inventory_proxmox import ProxmoxInventoryAdapter
     from app.services.inventory_unifi import UnifiInventoryAdapter
     from app.services.inventory_vcenter import VcenterInventoryAdapter
+    from app.services.inventory_xcpng import XcpNgInventoryAdapter
 
     register_adapter(PassiveConnectorType.ACTIVE_DIRECTORY, ActiveDirectoryInventoryAdapter())
+    register_adapter(PassiveConnectorType.AWS, AwsInventoryAdapter())
+    register_adapter(PassiveConnectorType.AZURE, AzureInventoryAdapter())
     register_adapter(PassiveConnectorType.CSV, CsvInventoryAdapter())
     register_adapter(PassiveConnectorType.DHCP, DhcpInventoryAdapter())
     register_adapter(PassiveConnectorType.DNS, DnsInventoryAdapter())
     register_adapter(PassiveConnectorType.ENTRA, EntraInventoryAdapter())
     register_adapter(PassiveConnectorType.GENERIC_API, GenericApiInventoryAdapter())
+    register_adapter(PassiveConnectorType.GOOGLE_CLOUD, GoogleCloudInventoryAdapter())
+    register_adapter(PassiveConnectorType.PROXMOX, ProxmoxInventoryAdapter())
     register_adapter(PassiveConnectorType.UNIFI, UnifiInventoryAdapter())
     register_adapter(PassiveConnectorType.VCENTER, VcenterInventoryAdapter())
+    register_adapter(PassiveConnectorType.XCP_NG, XcpNgInventoryAdapter())
 
 
 def validate_public_config(value: dict[str, Any]) -> dict[str, Any]:
