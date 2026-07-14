@@ -13,7 +13,7 @@ func TestBuildArgsSafePolicy(t *testing.T) {
 	args := BuildArgs("/tmp/out.jsonl", "/tmp/targets.txt", "", safeSeverities)
 	for _, want := range []string{
 		"-list", "/tmp/targets.txt", "-jsonl", "-output", "/tmp/out.jsonl",
-		"-silent", "-no-color", "-disable-update-check", "-exclude-tags", "-severity",
+		"-stats-json", "-no-color", "-disable-update-check", "-exclude-tags", "-severity",
 	} {
 		if !slices.Contains(args, want) {
 			t.Errorf("args missing %q: %v", want, args)
