@@ -46,6 +46,9 @@ class ParsedFinding:
     description: str | None = None
     cvss_score: float | None = None
     cvss_vector: str | None = None
+    # 0-100 confidence that this finding is real; defaults to the Finding model's
+    # neutral 50. Version-based CVE correlation sets it from the match confidence.
+    confidence: int = 50
     cve_ids: list[str] = field(default_factory=list)
     cwe_ids: list[str] = field(default_factory=list)
     references: list[str] = field(default_factory=list)
@@ -172,6 +175,7 @@ async def ingest_findings(
                     severity=pf.severity,
                     cvss_score=pf.cvss_score,
                     cvss_vector=pf.cvss_vector,
+                    confidence=pf.confidence,
                     cve_ids_json=pf.cve_ids,
                     cwe_ids_json=pf.cwe_ids,
                     evidence_json=pf.evidence,

@@ -42,6 +42,20 @@ def parse_cpe(criteria: str) -> Cpe | None:
     )
 
 
+def products_from_cpe_matches(cpe_matches: list[dict[str, Any]]) -> set[str]:
+    """Distinct application/OS product names (lower-cased) referenced by a CVE's
+    CPE matches — the keys under which the CVE is indexed for correlation. Wildcard
+    products (``*``/``-``) carry no product identity and are skipped."""
+    products: set[str] = set()
+    for m in cpe_matches:
+        if not isinstance(m, dict):
+            continue
+        cpe = parse_cpe(m.get("criteria", ""))
+        if cpe is not None and cpe.part in ("a", "o") and cpe.product not in ("*", "-", ""):
+            products.add(cpe.product)
+    return products
+
+
 def _version_tuple(version: str) -> tuple[Any, ...]:
     """Split a version into comparable components (numeric where possible)."""
     parts: list[Any] = []
