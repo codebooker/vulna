@@ -111,6 +111,21 @@ export function FindingsPage() {
         align: 'right',
       },
       {
+        id: 'cves',
+        header: 'CVEs',
+        cell: (f) =>
+          f.cve_ids_json.length > 0 ? (
+            <span className="font-mono text-xs text-muted" title={f.cve_ids_json.join(', ')}>
+              {f.cve_ids_json[0]}
+              {f.cve_ids_json.length > 1 ? ` +${f.cve_ids_json.length - 1}` : ''}
+            </span>
+          ) : (
+            <span className="text-faint">—</span>
+          ),
+        sortValue: (f) => f.cve_ids_json[0] ?? '',
+        csvValue: (f) => f.cve_ids_json.join(' '),
+      },
+      {
         id: 'asset',
         header: 'Affected asset',
         cell: (f) =>
