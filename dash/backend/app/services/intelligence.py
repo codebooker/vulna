@@ -24,18 +24,19 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from typing import TypeVar
+from typing import Any, TypeVar
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
 from app.intelligence.epss import EpssData, parse_epss
 from app.intelligence.fetchers import Fetcher, FetchError, fetch_with_retry
 from app.intelligence.kev import KevCatalog, parse_kev
+from app.intelligence.matching import products_from_cpe_matches
 from app.intelligence.nvd import CveData, cvss_base_score, cvss_vector, parse_nvd
 from app.models.change_event import ChangeEvent
-from app.models.cve import CveRecord, ThreatIntelEnrichment
+from app.models.cve import CveProductIndex, CveRecord, ThreatIntelEnrichment
 from app.models.enums import ChangeEventType, FeedSource, FeedStatus
 from app.models.feed_health import FeedHealth
 from app.models.finding import Finding
@@ -232,6 +233,31 @@ async def apply_enrichment(
 # --------------------------------------------------------------------------- #
 # Ingest (pure DB upserts)
 # --------------------------------------------------------------------------- #
+async def _reindex_cve_products(
+    session: AsyncSession, cve_id: str, cpe_matches: list[dict[str, Any]]
+) -> None:
+    """Sync ``cve_product_index`` for one CVE to the products in its CPE matches,
+    adding new product rows and removing any that no longer apply."""
+    wanted = products_from_cpe_matches(cpe_matches)
+    existing = set(
+        (
+            await session.execute(
+                select(CveProductIndex.product).where(CveProductIndex.cve_id == cve_id)
+            )
+        ).scalars().all()
+    )
+    for product in wanted - existing:
+        session.add(CveProductIndex(product=product, cve_id=cve_id))
+    stale = existing - wanted
+    if stale:
+        await session.execute(
+            delete(CveProductIndex).where(
+                CveProductIndex.cve_id == cve_id,
+                CveProductIndex.product.in_(stale),
+            )
+        )
+
+
 async def ingest_nvd(
     session: AsyncSession, cves: list[CveData], *, now: datetime
 ) -> tuple[int, int, int]:
@@ -239,6 +265,9 @@ async def ingest_nvd(
     for c in cves:
         processed += 1
         rec = await session.get(CveRecord, c.cve_id)
+        # New or upstream-modified records need their product index rebuilt; an
+        # unchanged record already has the right index rows.
+        touched = rec is None or rec.modified_at != c.modified_at
         if rec is None:
             rec = CveRecord(cve_id=c.cve_id)
             session.add(rec)
@@ -256,6 +285,8 @@ async def ingest_nvd(
         rec.references_json = c.references
         rec.rejected = c.rejected
         rec.last_synced_at = now
+        if touched:
+            await _reindex_cve_products(session, c.cve_id, c.cpe_matches)
     enrich = await apply_enrichment(session, {c.cve_id for c in cves}, now)
     return processed, changed, enrich.events
 

@@ -28,7 +28,9 @@ from app.models.scan_artifact import ScanArtifact
 from app.models.scan_job import ScanJob
 from app.models.service import Service
 from app.services import asset_context
+from app.services.cve_correlation import correlate_hosts
 from app.services.evidence_crypto import encrypt_evidence
+from app.services.findings import ingest_findings
 from app.services.nmap_parser import ParsedHost, ParsedService, parse_nmap_xml
 
 
@@ -42,6 +44,7 @@ class IngestSummary:
     services_upserted: int = 0
     change_events: int = 0
     hosts_skipped_empty: int = 0
+    cve_findings_created: int = 0
 
 
 def store_scan_artifact(
@@ -344,4 +347,11 @@ async def ingest_nmap_result(
     summary = IngestSummary(hosts_seen=len(hosts))
     for host in hosts:
         await _ingest_host(session, job, host, now, summary)
+
+    # Turn the products/versions just discovered into vulnerability findings by
+    # correlating them against the locally cached CVE data.
+    correlated = await correlate_hosts(session, hosts)
+    if correlated:
+        result = await ingest_findings(session, job=job, parsed=correlated, now=now)
+        summary.cve_findings_created = result.findings_created
     return summary

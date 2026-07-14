@@ -43,6 +43,22 @@ class CveRecord(TimestampMixin, Base):
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class CveProductIndex(Base):
+    """Maps a CPE product name to each CVE whose CPE matches reference it.
+
+    Correlation needs "which CVEs mention product X"; ``cve_records`` only stores
+    the CPE matches as JSON, so answering that without this table means scanning
+    every row. Maintained alongside ``CveRecord`` on NVD sync. The composite
+    primary key ``(product, cve_id)`` also serves the product-prefix lookup, so
+    no extra index is required.
+    """
+
+    __tablename__ = "cve_product_index"
+
+    product: Mapped[str] = mapped_column(String(255), primary_key=True)
+    cve_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+
+
 class ThreatIntelEnrichment(TimestampMixin, Base):
     """KEV/EPSS/exploit signals for a CVE (build plan Section 9.14)."""
 
