@@ -189,3 +189,40 @@ async def test_correlate_uses_cpe_product_over_nmap_product(db_session: AsyncSes
 
     findings = await correlate_hosts(db_session, hosts)
     assert [f.cve_ids[0] for f in findings] == ["CVE-2021-41773"]
+
+
+def test_match_confidence_exact_service_cpe_is_high() -> None:
+    from app.intelligence.matching import match_confidence
+    from app.models.enums import MatchConfidence
+
+    criteria = "cpe:2.3:a:apache:http_server:2.4.49:*:*:*:*:*:*:*"
+    matches = [{"vulnerable": True, "criteria": criteria}]
+    # The service's own CPE (nmap's 2.2 format) matching the product -> high.
+    assert (
+        match_confidence(
+            matches, product="http_server", version="2.4.49",
+            service_cpe="cpe:/a:apache:http_server:2.4.49",
+        )
+        is MatchConfidence.HIGH
+    )
+    # The 2.3 CPE form is accepted too.
+    assert (
+        match_confidence(
+            matches, product="http_server", version="2.4.49",
+            service_cpe="cpe:2.3:a:apache:http_server:2.4.49:*:*:*:*:*:*:*",
+        )
+        is MatchConfidence.HIGH
+    )
+    # Without a service CPE the same match stays medium.
+    assert (
+        match_confidence(matches, product="http_server", version="2.4.49")
+        is MatchConfidence.MEDIUM
+    )
+
+
+async def test_correlate_exact_cpe_yields_high_confidence(db_session: AsyncSession) -> None:
+    exact = {"vulnerable": True, "criteria": "cpe:2.3:a:apache:http_server:2.4.49:*:*:*:*:*:*:*"}
+    await _add_cve(db_session, "CVE-2021-41773", [exact], ["http_server"])
+    svc = _service("Apache httpd", "2.4.49", cpe="cpe:/a:apache:http_server:2.4.49")
+    findings = await correlate_hosts(db_session, [ParsedHost(ip="10.0.0.1", services=[svc])])
+    assert findings[0].confidence == 90  # high: exact CPE match on the service

@@ -162,7 +162,9 @@ def match_confidence(
     if not product:
         return None
     product_l = product.lower()
-    service_cpe_parsed = parse_cpe(service_cpe) if service_cpe else None
+    # Accept both the 2.3 and the older 2.2 CPE nmap emits, so an exact service
+    # CPE (the strongest signal) can raise confidence regardless of format.
+    service_cpe_product = cpe_product(service_cpe)
     best: MatchConfidence | None = None
     rank = {MatchConfidence.LOW: 1, MatchConfidence.MEDIUM: 2, MatchConfidence.HIGH: 3}
 
@@ -196,8 +198,8 @@ def match_confidence(
             # An exact CPE recorded on the service itself raises confidence.
             if (
                 confidence is MatchConfidence.MEDIUM
-                and service_cpe_parsed is not None
-                and service_cpe_parsed.product == cpe.product
+                and service_cpe_product is not None
+                and service_cpe_product == cpe.product
             ):
                 confidence = MatchConfidence.HIGH
         if confidence is None and not specific_version and not has_range:
