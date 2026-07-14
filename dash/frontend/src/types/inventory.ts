@@ -54,6 +54,29 @@ export interface Asset {
   updated_at: string;
 }
 
+export type IdentifierType =
+  | 'ip_address'
+  | 'mac_address'
+  | 'hostname'
+  | 'fqdn'
+  | 'smb_name'
+  | 'ssh_host_key'
+  | 'tls_cert_fingerprint'
+  | 'snmp_engine_id'
+  | 'cloud_instance_id'
+  | 'agent_id';
+
+export interface AssetIdentifier {
+  identifier_type: IdentifierType;
+  identifier_value: string;
+}
+
+/** An asset plus its discovered identifiers (hostname, MAC, IPs) and services. */
+export interface AssetDetail extends Asset {
+  identifiers: AssetIdentifier[];
+  services: unknown[];
+}
+
 export interface AssetTag {
   id: string;
   organization_id: string;

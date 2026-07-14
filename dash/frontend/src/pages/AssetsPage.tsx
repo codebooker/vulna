@@ -18,6 +18,7 @@ import { InlineError } from '../components/ui/states';
 import type {
   Asset,
   AssetContextPatch,
+  AssetDetail,
   DepartmentOwner,
   AssetGroup,
   AssetTag,
@@ -53,6 +54,7 @@ export function AssetsPage() {
   const [selected, setSelected] = useState<AssetRow | null>(null);
   const [selectedFinding, setSelectedFinding] = useState<Finding | null>(null);
   const [ownership, setOwnership] = useState<OwnershipResolution | null>(null);
+  const [detail, setDetail] = useState<AssetDetail | null>(null);
   const [ownershipHistory, setOwnershipHistory] = useState<OwnershipHistory[]>([]);
   const [departmentOwners, setDepartmentOwners] = useState<DepartmentOwner[]>([]);
   const [editAsset, setEditAsset] = useState<AssetRow | null>(null);
@@ -116,6 +118,18 @@ export function AssetsPage() {
         setOwnership(null);
         setOwnershipHistory([]);
       });
+  }, [selected, token]);
+
+  // Fetch the asset's discovered identifiers (hostname, MAC, IPs) for the drawer.
+  useEffect(() => {
+    if (!token || !selected) {
+      setDetail(null);
+      return;
+    }
+    api
+      .getAsset(token, selected.id)
+      .then(setDetail)
+      .catch(() => setDetail(null));
   }, [selected, token]);
 
   useEffect(() => {
@@ -387,6 +401,19 @@ export function AssetsPage() {
   const preFiltered =
     current.params.filter === 'attention' ? rows.filter((a) => a.critical > 0 || a.high > 0) : rows;
 
+  // Discovered network identifiers for the selected asset's drawer. `detail` may
+  // briefly belong to a previously-selected asset while the new one loads.
+  const detailReady = !!detail && !!selected && detail.id === selected.id;
+  const identifierValues = (type: string): string[] =>
+    detailReady
+      ? detail!.identifiers.filter((i) => i.identifier_type === type).map((i) => i.identifier_value)
+      : [];
+  const hostnames = [...identifierValues('hostname'), ...identifierValues('fqdn')];
+  const macAddresses = identifierValues('mac_address');
+  const ipAddresses = identifierValues('ip_address');
+  const identifierText = (values: string[]) =>
+    !detailReady ? 'Loading…' : values.length ? values.join(', ') : '—';
+
   return (
     <div aria-label="Assets">
       <PageHeader
@@ -470,6 +497,9 @@ export function AssetsPage() {
             <dl className="divide-y divide-border rounded-lg border border-border px-3">
               <DetailRow label="Type">{humanize(selected.asset_type)}</DetailRow>
               <DetailRow label="Operating system">{selected.operating_system ?? '—'}</DetailRow>
+              <DetailRow label="Hostname">{identifierText(hostnames)}</DetailRow>
+              <DetailRow label="IP address">{identifierText(ipAddresses)}</DetailRow>
+              <DetailRow label="MAC address">{identifierText(macAddresses)}</DetailRow>
               <DetailRow label="Manufacturer">{selected.manufacturer ?? '—'}</DetailRow>
               <DetailRow label="Site">{siteName(selected.site_id)}</DetailRow>
               <DetailRow label="Department">{selected.department ?? '—'}</DetailRow>

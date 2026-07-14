@@ -27,6 +27,7 @@ import type {
   AssetBulkPayload,
   AssetBulkResult,
   AssetContextPatch,
+  AssetDetail,
   AssetFilters,
   AssetGroup,
   AssetTag,
@@ -724,6 +725,9 @@ export const api = {
       if (value !== undefined && value !== '') params.set(key, String(value));
     }
     return request<Page<Asset>>(`/api/v1/assets?${params.toString()}`, { token });
+  },
+  getAsset(token: string, assetId: string): Promise<AssetDetail> {
+    return request<AssetDetail>(`/api/v1/assets/${encodeURIComponent(assetId)}`, { token });
   },
   updateAssetContext(
     token: string,
