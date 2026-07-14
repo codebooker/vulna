@@ -67,6 +67,29 @@ RUN set -eu; \
     mkdir -p /opt/testssl; \
     tar -xzf /tmp/testssl.tar.gz -C /opt/testssl --strip-components=1
 
+# Point nuclei's config at the bundled templates. nuclei resolves RELATIVE
+# template/workflow references and helper (wordlist) files against its config's
+# templates directory — NOT the -templates flag the Scout passes — so without this
+# ~730 of the ~10.5k templates fail to load ("could not find file" / "helper file
+# denied"), silently shrinking what the vulnerability stage detects. XDG_CONFIG_HOME
+# keeps the config independent of the runtime user's HOME so it survives the copy.
+ENV XDG_CONFIG_HOME=/opt/nuclei-config
+RUN mkdir -p /opt/nuclei-config/nuclei \
+ && printf '{"nuclei-templates-directory":"/opt/nuclei-templates"}' \
+      > /opt/nuclei-config/nuclei/.templates-config.json
+
+# Fail the build if the template set does not actually load — a scanner that loads
+# zero or a broken template set finds nothing while looking successful. Require a
+# healthy template count and keep validation errors within the small intrinsic set
+# (upstream templates needing code/py/ruby engines this image doesn't ship).
+RUN set -eu; \
+    count="$(/out/nuclei -tl -templates /opt/nuclei-templates -disable-update-check -silent 2>/dev/null | grep -c '\.yaml$' || true)"; \
+    echo "nuclei: ${count} templates listed"; \
+    [ "$count" -ge 5000 ] || { echo "FAIL: too few templates loaded (${count})"; exit 1; }; \
+    errs="$(/out/nuclei -validate -templates /opt/nuclei-templates -disable-update-check -no-color 2>&1 | grep -c '^\[ERR\]' || true)"; \
+    echo "nuclei: ${errs} template validation errors"; \
+    [ "$errs" -le 50 ] || { echo "FAIL: ${errs} validation errors — template dir/version regression"; exit 1; }
+
 # ---- Runtime: scanner pack + Metasploit, still unprivileged (uid 10001) ----
 #
 # Metasploit ships in the Scout image by default. That is deliberate and safe:
@@ -102,16 +125,23 @@ RUN apk add --no-cache \
 COPY --from=build /out/vulnascout /usr/local/bin/vulnascout
 COPY --from=tools /out/nuclei /usr/local/bin/nuclei
 COPY --from=tools /opt/nuclei-templates /opt/nuclei-templates
+# The nuclei config that resolves relative template/helper references to the
+# bundled pack (see the tools stage); XDG_CONFIG_HOME below activates it. Owned by
+# the vulna user because nuclei writes a provider-config there on first run.
+COPY --from=tools --chown=vulna:vulna /opt/nuclei-config /opt/nuclei-config
 COPY --from=tools /opt/testssl /opt/testssl
 RUN ln -s /opt/testssl/testssl.sh /usr/local/bin/testssl.sh
 COPY deploy/single-host/local-scout-entrypoint.sh /usr/local/bin/local-scout-entrypoint.sh
 RUN chmod +x /usr/local/bin/local-scout-entrypoint.sh
 
-# nuclei writes its config under $HOME; VULNA_NUCLEI_TEMPLATES points the Scout's
-# nuclei adapter at the bundled template set (see scanners/nuclei). VULNA_MSF_CONSOLE
-# points the controlled-pentest worker at the bundled msfconsole; the worker only
-# runs a module when the signed policy + a per-session approval authorize it.
+# nuclei writes its config under XDG_CONFIG_HOME; VULNA_NUCLEI_TEMPLATES points the
+# Scout's nuclei adapter at the bundled template set (see scanners/nuclei), and
+# XDG_CONFIG_HOME points nuclei at the config that resolves its relative template
+# and helper references to that same set. VULNA_MSF_CONSOLE points the
+# controlled-pentest worker at the bundled msfconsole; the worker only runs a
+# module when the signed policy + a per-session approval authorize it.
 ENV HOME=/var/lib/vulna \
+    XDG_CONFIG_HOME=/opt/nuclei-config \
     VULNA_NUCLEI_TEMPLATES=/opt/nuclei-templates \
     VULNA_MSF_CONSOLE=/usr/src/metasploit-framework/msfconsole
 USER vulna
