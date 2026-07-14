@@ -8,9 +8,12 @@ package nuclei
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -43,7 +46,11 @@ func BuildArgs(outPath, targetFile, templatesDir string, severities []string) []
 		"-list", targetFile,
 		"-jsonl",
 		"-output", outPath,
-		"-silent",
+		// Not -silent: we need nuclei's stderr (the "Templates loaded" line and
+		// -stats-json snapshots) to tell a genuinely-clean scan from a broken one
+		// where templates failed to load or every request errored. Findings still
+		// go to -output, so this doesn't change what we ingest.
+		"-stats-json",
 		"-no-color",
 		"-disable-update-check",
 		"-exclude-tags", strings.Join(excludedTags, ","),
@@ -148,7 +155,72 @@ func (w *Worker) Run(ctx context.Context, job *policy.Job) ([]byte, error) {
 	if runErr != nil {
 		return nil, fmt.Errorf("nuclei failed: %v: %s", runErr, strings.TrimSpace(stderr.String()))
 	}
+	// A zero exit with empty output can mean "clean" OR "nothing was actually
+	// scanned" (templates failed to load, every request errored). Those are not
+	// the same, and reporting the latter as a clean pass hides false negatives —
+	// so fail loudly instead of silently accepting an untrustworthy result.
+	if reason := scanIntegrityFailure(stderr.Bytes()); reason != "" {
+		return nil, fmt.Errorf("nuclei result is not trustworthy: %s", reason)
+	}
 	data, _ := os.ReadFile(outPath)
 	// Empty output is valid (no findings matched).
 	return data, nil
+}
+
+var templatesLoadedRE = regexp.MustCompile(`Templates loaded for current scan:\s*(\d+)`)
+
+// nucleiStats mirrors the -stats-json snapshot nuclei writes to stderr. Nuclei
+// encodes the counts as strings (e.g. "requests":"350").
+type nucleiStats struct {
+	Requests string `json:"requests"`
+	Errors   string `json:"errors"`
+}
+
+// scanIntegrityFailure inspects nuclei's stderr and returns a non-empty reason
+// when the run cannot be trusted as a clean scan: zero templates loaded, zero
+// requests sent, or every request errored. An empty string means the run looks
+// genuine (including a real "no findings" result). It is conservative — anything
+// it can't positively identify as broken is treated as fine, so it never turns a
+// good scan into a failure.
+func scanIntegrityFailure(stderr []byte) string {
+	// Printed at scan start regardless of run length; the clearest signal that the
+	// bundled template set failed to load (see the templatesEnv note above).
+	if m := templatesLoadedRE.FindSubmatch(stderr); m != nil {
+		if n, err := strconv.Atoi(string(m[1])); err == nil && n == 0 {
+			return "nuclei loaded 0 templates (the bundled template set failed to load)"
+		}
+	}
+	// The most recent -stats-json snapshot: catches runs that reached hosts but
+	// where nothing actually completed.
+	if s, ok := lastStats(stderr); ok {
+		req, _ := strconv.Atoi(s.Requests)
+		errs, _ := strconv.Atoi(s.Errors)
+		if req == 0 {
+			return "nuclei sent 0 requests (nothing was actually scanned)"
+		}
+		if errs >= req {
+			return fmt.Sprintf("all %d nuclei request(s) errored (result is inconclusive)", req)
+		}
+	}
+	return ""
+}
+
+// lastStats returns the most recent -stats-json snapshot on stderr, or ok=false
+// when none was emitted (e.g. a scan too short for the stats interval), so the
+// caller falls back safely rather than misjudging the run.
+func lastStats(stderr []byte) (nucleiStats, bool) {
+	var latest nucleiStats
+	found := false
+	for _, line := range bytes.Split(stderr, []byte("\n")) {
+		line = bytes.TrimSpace(line)
+		if len(line) == 0 || line[0] != '{' || !bytes.Contains(line, []byte(`"requests"`)) {
+			continue
+		}
+		var s nucleiStats
+		if json.Unmarshal(line, &s) == nil && s.Requests != "" {
+			latest = s
+			found = true
+		}
+	}
+	return latest, found
 }
