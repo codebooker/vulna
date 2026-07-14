@@ -38,6 +38,28 @@ _SCRIPT_FINDINGS: dict[str, _ScriptFinding] = {
         severity=Severity.MEDIUM,
         matches=lambda out: "anonymous ftp login allowed" in out.lower(),
     ),
+    "http-git": _ScriptFinding(
+        title="Exposed Git repository",
+        description=(
+            "A .git directory is served over HTTP, letting an attacker download "
+            "the repository and reconstruct source code — and any secrets "
+            "committed to it. Block web access to .git."
+        ),
+        finding_type=FindingType.WEB_APPLICATION_ISSUE,
+        severity=Severity.HIGH,
+        matches=lambda out: "git repository found" in out.lower(),
+    ),
+    "http-methods": _ScriptFinding(
+        title="Risky HTTP methods enabled",
+        description=(
+            "The web server advertises potentially dangerous HTTP methods (e.g. "
+            "TRACE, PUT, DELETE). Disable any method the application does not "
+            "require; see the evidence for the specific methods."
+        ),
+        finding_type=FindingType.MISCONFIGURATION,
+        severity=Severity.LOW,
+        matches=lambda out: "potentially risky methods:" in out.lower(),
+    ),
 }
 
 

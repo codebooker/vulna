@@ -71,7 +71,11 @@ type Profile struct {
 // port), so they add real detection (like the anonymous-FTP exposure a plain
 // -sV scan misses) at negligible cost. Referenced by name only; extend
 // deliberately and keep the parallel finding mapping in the backend in sync.
-var safeScripts = []string{"ftp-anon"}
+var safeScripts = []string{
+	"ftp-anon",     // anonymous FTP login allowed
+	"http-git",     // exposed .git repository (source/secret disclosure)
+	"http-methods", // risky HTTP methods enabled (TRACE/PUT/DELETE/...)
+}
 
 // scriptNameRE bounds an NSE script name to lowercase, digits and hyphens so a
 // name can never be mistaken for an nmap flag or smuggle extra arguments.
