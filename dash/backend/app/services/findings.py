@@ -201,6 +201,14 @@ async def ingest_findings(
             existing.evidence_json = pf.evidence
             existing.description = pf.description or existing.description
             existing.references_json = pf.references or existing.references_json
+            # Refresh the scanner-derived presentation too, so a re-scan picks up
+            # improved titles/remediation/CVE mapping on findings that already
+            # exist (these are never operator-edited — status/owner are separate).
+            existing.title = pf.title
+            existing.confidence = pf.confidence
+            existing.remediation = pf.remediation or existing.remediation
+            existing.cve_ids_json = pf.cve_ids or existing.cve_ids_json
+            existing.cwe_ids_json = pf.cwe_ids or existing.cwe_ids_json
             existing.scan_job_id = job.id
             summary.findings_updated += 1
             if existing.status in (FindingStatus.RESOLVED,):

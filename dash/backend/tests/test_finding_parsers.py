@@ -65,9 +65,33 @@ def test_parse_testssl_json() -> None:
     assert sslv3.port == 443
     assert sslv3.weakness_key == "SSLv3"
     assert sslv3.finding_type == FindingType.WEAK_PROTOCOL
+    # A readable title from the catalog instead of the raw "SSLv3 is offered".
+    assert sslv3.title == "SSLv3 supported"
+    assert "Disable SSLv3" in (sslv3.remediation or "")
+    assert sslv3.evidence["check_id"] == "SSLv3"
+    assert sslv3.evidence["finding"] == "SSLv3 is offered"
 
     cert = findings[1]
     assert cert.cve_ids == ["CVE-2020-1971"]
+    # A check without a catalog entry still gets a humanized title, a category
+    # finding type, and non-empty remediation.
+    assert cert.title == "Cert expiration"
+    assert cert.finding_type == FindingType.MISCONFIGURATION
+    assert cert.remediation
+
+
+def test_parse_testssl_named_vuln_has_cve_and_remediation() -> None:
+    data = (
+        b'[{"id":"heartbleed","ip":"10.0.0.5","port":"443","severity":"CRITICAL",'
+        b'"finding":"VULNERABLE","cve":"CVE-2014-0160","cwe":"CWE-119"}]'
+    )
+    (f,) = parse_testssl_json(data)
+    assert f.title == "Heartbleed"  # not the raw "VULNERABLE"
+    assert f.finding_type == FindingType.VULNERABILITY
+    assert f.cve_ids == ["CVE-2014-0160"]
+    assert f.cwe_ids == ["CWE-119"]
+    assert "OpenSSL" in (f.remediation or "")
+    assert f.evidence["cve"] == "CVE-2014-0160"
 
 
 def test_parse_testssl_wrapped_object() -> None:

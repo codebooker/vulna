@@ -85,6 +85,11 @@ def _finding_from_cve(
     version = svc.version or ""
     product = svc.product or ""
     title = f"{cve.cve_id} affects {product} {version}".strip()
+    remediation = (
+        f"Update {product} to a release that is not affected by {cve.cve_id}"
+        + (f" (the running version is {version})" if version else "")
+        + ". Review the linked advisories for the fixed version and any interim mitigations."
+    )
     return ParsedFinding(
         scanner="cve-correlation",
         weakness_key=cve.cve_id,
@@ -100,6 +105,7 @@ def _finding_from_cve(
         cve_ids=[cve.cve_id],
         cwe_ids=list(cve.cwe_ids_json),
         references=list(cve.references_json),
+        remediation=remediation,
         confidence=_CONFIDENCE_SCORE[confidence],
         evidence={
             "matched_product": product,
