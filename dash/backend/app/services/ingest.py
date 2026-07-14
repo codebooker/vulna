@@ -32,6 +32,7 @@ from app.services.cve_correlation import correlate_hosts
 from app.services.evidence_crypto import encrypt_evidence
 from app.services.findings import ingest_findings
 from app.services.nmap_parser import ParsedHost, ParsedService, parse_nmap_xml
+from app.services.nse_findings import findings_from_hosts
 
 
 @dataclass
@@ -45,6 +46,7 @@ class IngestSummary:
     change_events: int = 0
     hosts_skipped_empty: int = 0
     cve_findings_created: int = 0
+    nse_findings_created: int = 0
 
 
 def store_scan_artifact(
@@ -354,4 +356,10 @@ async def ingest_nmap_result(
     if correlated:
         result = await ingest_findings(session, job=job, parsed=correlated, now=now)
         summary.cve_findings_created = result.findings_created
+
+    # Turn allowlisted NSE script results (e.g. anonymous FTP) into findings.
+    nse = findings_from_hosts(hosts)
+    if nse:
+        result = await ingest_findings(session, job=job, parsed=nse, now=now)
+        summary.nse_findings_created = result.findings_created
     return summary

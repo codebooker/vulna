@@ -53,6 +53,18 @@ APACHE_CVE = CveData(
     cvss_v3={"baseScore": 7.5, "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"},
 )
 
+# Real Nmap output shape for the ftp-anon NSE script against an anonymous FTP
+# service — the anonymous-FTP exposure a plain -sV scan misses (the motivating
+# printer case).
+ANON_FTP_NMAP_XML = (
+    b'<?xml version="1.0"?><nmaprun scanner="nmap"><host><status state="up"/>'
+    b'<address addr="10.10.10.21" addrtype="ipv4"/><ports>'
+    b'<port protocol="tcp" portid="21"><state state="open"/>'
+    b'<service name="ftp" product="vsftpd" version="2.3.4"/>'
+    b'<script id="ftp-anon" output="Anonymous FTP login allowed (FTP code 230)"/>'
+    b"</port></ports></host></nmaprun>"
+)
+
 
 async def _completed_job(session: AsyncSession, org: Organization) -> tuple[ScanJob, Probe]:
     now = datetime.now(UTC)
@@ -113,3 +125,26 @@ async def test_known_vulnerable_apache_produces_a_finding(
     assert "CVE-2021-41773" in finding.cve_ids_json
     assert finding.severity is Severity.HIGH  # CVSS 7.5
     assert finding.confidence >= 60  # version confirmed in the affected set
+
+
+async def test_anonymous_ftp_exposure_produces_a_finding(
+    db_session: AsyncSession, organization: Organization
+) -> None:
+    job, probe = await _completed_job(db_session, organization)
+
+    summary = await ingest_nmap_result(
+        db_session, job=job, xml_bytes=ANON_FTP_NMAP_XML, probe_id=probe.id
+    )
+
+    assert summary.nse_findings_created >= 1, (
+        "RELEASE BLOCKER: an anonymous-FTP service on a discovered host produced no "
+        "finding — the NSE detection path is broken."
+    )
+    finding = await db_session.scalar(
+        select(Finding).where(
+            Finding.organization_id == organization.id,
+            Finding.scanner_name == "nmap-nse",
+        )
+    )
+    assert finding is not None
+    assert finding.title == "Anonymous FTP access allowed"

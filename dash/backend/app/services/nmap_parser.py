@@ -37,6 +37,8 @@ class ParsedService:
     # OS label inferred from this service's -sV data (nmap's ``ostype`` or an OS
     # CPE). Aggregated per host to fingerprint the OS without a raw-socket scan.
     os_hint: str | None = None
+    # NSE script results on this port, keyed by script id (e.g. "ftp-anon").
+    scripts: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -215,4 +217,9 @@ def _parse_port(port_el: Element) -> ParsedService | None:
         if cpe_el is not None and cpe_el.text:
             service.cpe = cpe_el.text
         service.os_hint = _service_os_hint(svc_el)
+    for script_el in port_el.findall("script"):
+        sid = script_el.get("id")
+        output = script_el.get("output")
+        if sid and output:
+            service.scripts[sid] = output
     return service

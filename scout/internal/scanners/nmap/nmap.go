@@ -53,15 +53,29 @@ const ImportantPorts = "1-1024,1099,1433,1434,1521,1723,2049,2082,2083,2181," +
 
 // Profile is a curated, non-intrusive discovery configuration.
 type Profile struct {
-	Ports            string // explicit nmap -p spec; overrides TopPorts when set
-	TopPorts         int    // number of top ports to scan (1..65535); used if Ports == ""
-	Timing           int    // nmap -T level, clamped to 0..4
-	MaxRate          int    // --max-rate packets/sec ceiling (0 = unset)
-	MinRate          int    // --min-rate packets/sec floor (0 = unset); clamped to <= MaxRate
-	MaxRetries       int    // --max-retries probe retransmissions (0 = unset / nmap default)
-	HostTimeout      string // --host-timeout, e.g. "15m" ("" = unset)
-	ServiceDetection bool   // -sV
+	Ports            string   // explicit nmap -p spec; overrides TopPorts when set
+	TopPorts         int      // number of top ports to scan (1..65535); used if Ports == ""
+	Timing           int      // nmap -T level, clamped to 0..4
+	MaxRate          int      // --max-rate packets/sec ceiling (0 = unset)
+	MinRate          int      // --min-rate packets/sec floor (0 = unset); clamped to <= MaxRate
+	MaxRetries       int      // --max-retries probe retransmissions (0 = unset / nmap default)
+	HostTimeout      string   // --host-timeout, e.g. "15m" ("" = unset)
+	ServiceDetection bool     // -sV
+	Scripts          []string // NSE scripts to run (--script); allowlisted names only
 }
+
+// safeScripts is the allowlist of NSE scripts the default discovery runs. Only
+// nmap's non-intrusive "safe"-category scripts that yield an actionable finding
+// belong here — never anything that writes, brute-forces, or exploits. They run
+// only against the matching service (e.g. ftp-anon only touches an open FTP
+// port), so they add real detection (like the anonymous-FTP exposure a plain
+// -sV scan misses) at negligible cost. Referenced by name only; extend
+// deliberately and keep the parallel finding mapping in the backend in sync.
+var safeScripts = []string{"ftp-anon"}
+
+// scriptNameRE bounds an NSE script name to lowercase, digits and hyphens so a
+// name can never be mistaken for an nmap flag or smuggle extra arguments.
+var scriptNameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 
 // SafeDiscoveryProfile returns the default discovery profile: the curated
 // important-ports set (see ImportantPorts) with service detection, over a
@@ -79,6 +93,7 @@ func SafeDiscoveryProfile() Profile {
 		MaxRetries:       2,
 		HostTimeout:      "15m",
 		ServiceDetection: true,
+		Scripts:          safeScripts,
 	}
 }
 
@@ -152,6 +167,14 @@ func BuildArgs(profile Profile, outPath string, targets []string) ([]string, err
 			return nil, fmt.Errorf("invalid host-timeout %q", profile.HostTimeout)
 		}
 		args = append(args, "--host-timeout", profile.HostTimeout)
+	}
+	if len(profile.Scripts) > 0 {
+		for _, s := range profile.Scripts {
+			if !scriptNameRE.MatchString(s) {
+				return nil, fmt.Errorf("invalid NSE script name %q", s)
+			}
+		}
+		args = append(args, "--script", strings.Join(profile.Scripts, ","))
 	}
 	args = append(args, "-oX", outPath)
 	for _, t := range targets {
