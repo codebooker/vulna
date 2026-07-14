@@ -39,10 +39,29 @@ func TestBuildArgsSafeProfile(t *testing.T) {
 		t.Errorf("explicit port set should not also use --top-ports: %v", args)
 	}
 	// No raw-socket scan types (unprivileged agent).
-	for _, bad := range []string{"-sS", "-sU", "-O", "--script"} {
+	for _, bad := range []string{"-sS", "-sU", "-O"} {
 		if slices.Contains(args, bad) {
 			t.Errorf("args unexpectedly contain %q", bad)
 		}
+	}
+	// The safe profile runs the allowlisted NSE scripts (e.g. anonymous-FTP).
+	i := slices.Index(args, "--script")
+	if i < 0 || i+1 >= len(args) || !strings.Contains(args[i+1], "ftp-anon") {
+		t.Errorf("safe profile should run the ftp-anon NSE script: %v", args)
+	}
+}
+
+func TestBuildArgsRejectsUnsafeScriptName(t *testing.T) {
+	p := SafeDiscoveryProfile()
+	p.Scripts = []string{"http-vuln; rm -rf /"}
+	if _, err := BuildArgs(p, "/tmp/o.xml", []string{"10.0.0.1"}); err == nil {
+		t.Error("expected rejection of a non-allowlisted-shaped script name")
+	}
+	// A clean profile with no scripts omits --script entirely.
+	p.Scripts = nil
+	args, _ := BuildArgs(p, "/tmp/o.xml", []string{"10.0.0.1"})
+	if slices.Contains(args, "--script") {
+		t.Errorf("no scripts configured should omit --script: %v", args)
 	}
 }
 
