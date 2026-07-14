@@ -17,7 +17,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.intelligence.matching import match_confidence
+from app.intelligence.matching import cpe_product, match_confidence
 from app.intelligence.nvd import cvss_base_score, cvss_vector
 from app.models.cve import CveProductIndex, CveRecord
 from app.models.enums import FindingType, MatchConfidence, Severity
@@ -124,15 +124,19 @@ async def correlate_hosts(
         if not host.ip:
             continue
         for svc in host.services:
-            if not svc.product:
+            # Prefer the CPE's machine product name (e.g. "http_server") over
+            # Nmap's human product ("Apache httpd"): CVEs are indexed under the
+            # former, so keying on the latter would silently match nothing.
+            product = cpe_product(svc.cpe) or svc.product
+            if not product:
                 continue
-            key = svc.product.lower()
+            key = product.lower()
             if key not in cache:
                 cache[key] = await lookup_cves_by_product(session, key)
             for cve in cache[key]:
                 confidence = match_confidence(
                     cve.cpe_matches_json,
-                    product=svc.product,
+                    product=product,
                     version=svc.version,
                     service_cpe=svc.cpe,
                 )

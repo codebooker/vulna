@@ -167,3 +167,25 @@ async def test_ingest_nvd_maintains_product_index(db_session: AsyncSession) -> N
     assert [c.cve_id for c in await lookup_cves_by_product(db_session, "nginx")] == [
         "CVE-2021-41773"
     ]
+
+
+def test_cpe_product_parses_22_and_23_formats() -> None:
+    from app.intelligence.matching import cpe_product
+
+    assert cpe_product("cpe:/a:apache:http_server:2.4.49") == "http_server"  # nmap 2.2
+    assert cpe_product("cpe:2.3:a:apache:http_server:2.4.49:*:*:*:*:*:*:*") == "http_server"
+    assert cpe_product("cpe:/o:linux:linux_kernel:5.4") == "linux_kernel"
+    assert cpe_product("cpe:/h:cisco:router:1.0") is None  # hardware
+    assert cpe_product(None) is None
+    assert cpe_product("not-a-cpe") is None
+
+
+async def test_correlate_uses_cpe_product_over_nmap_product(db_session: AsyncSession) -> None:
+    # Nmap reports the human product "Apache httpd"; the CVE is indexed under the
+    # CPE product "http_server". Correlation must key on the CPE product.
+    await _add_cve(db_session, "CVE-2021-41773", [RANGE_MATCH], ["http_server"])
+    svc = _service("Apache httpd", "2.4.49", cpe="cpe:/a:apache:http_server:2.4.49")
+    hosts = [ParsedHost(ip="10.0.0.1", services=[svc])]
+
+    findings = await correlate_hosts(db_session, hosts)
+    assert [f.cve_ids[0] for f in findings] == ["CVE-2021-41773"]

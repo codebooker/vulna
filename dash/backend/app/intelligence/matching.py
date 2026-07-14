@@ -42,6 +42,26 @@ def parse_cpe(criteria: str) -> Cpe | None:
     )
 
 
+def cpe_product(cpe: str | None) -> str | None:
+    """Extract the lower-cased product from a service CPE, accepting both the 2.3
+    formatted URI (``cpe:2.3:a:vendor:product:version:...``) and the older 2.2 URI
+    (``cpe:/a:vendor:product:version``) that Nmap emits. Only application/OS parts
+    yield a product. This matters because Nmap's human ``product`` name (e.g.
+    "Apache httpd") is not the CPE product ("http_server") CVEs are indexed under."""
+    if not isinstance(cpe, str):
+        return None
+    if cpe.startswith("cpe:2.3:"):
+        parsed = parse_cpe(cpe)
+        return parsed.product if parsed else None
+    if cpe.startswith("cpe:/"):
+        fields = cpe.split(":")
+        # ["cpe", "/a", vendor, product, version?, ...]
+        if len(fields) >= 4 and fields[1] in ("/a", "/o"):
+            product = fields[3].lower()
+            return product or None
+    return None
+
+
 def products_from_cpe_matches(cpe_matches: list[dict[str, Any]]) -> set[str]:
     """Distinct application/OS product names (lower-cased) referenced by a CVE's
     CPE matches — the keys under which the CVE is indexed for correlation. Wildcard
