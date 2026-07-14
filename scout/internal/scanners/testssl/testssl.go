@@ -8,6 +8,8 @@ package testssl
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -15,11 +17,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/codebooker/vulna/scout/internal/policy"
-	"github.com/codebooker/vulna/scout/internal/scanners"
 )
 
 const (
@@ -40,15 +40,38 @@ func BuildArgs(outPath, hostPort string) []string {
 	}
 }
 
-// firstSingleHost returns the first target that is a single IP address (not a
-// CIDR); testssl.sh cannot scan a range.
-func firstSingleHost(targets []string) string {
-	for _, t := range targets {
-		if _, err := netip.ParseAddr(t); err == nil {
-			return t
+// endpoints returns the host:port TLS endpoints to scan, one per target that
+// testssl.sh can actually handle. A bare IP becomes ip:defaultPort; a host:port
+// target (an IP with an explicit port, e.g. a discovered TLS service) is kept as
+// given. CIDRs and anything else are skipped — testssl.sh scans a single
+// host:port at a time, not a range. Duplicates are collapsed.
+func (w *Worker) endpoints(targets []string) []string {
+	var out []string
+	seen := map[string]bool{}
+	add := func(host, port string) {
+		if _, err := netip.ParseAddr(host); err != nil {
+			return // only literal IPs — never a flag-like or hostname value
+		}
+		ep := net.JoinHostPort(host, port)
+		if !seen[ep] {
+			seen[ep] = true
+			out = append(out, ep)
 		}
 	}
-	return ""
+	for _, t := range targets {
+		if _, err := netip.ParseAddr(t); err == nil {
+			add(t, strconv.Itoa(w.port()))
+			continue
+		}
+		if host, port, err := net.SplitHostPort(t); err == nil {
+			if p, err := strconv.Atoi(port); err == nil && p > 0 && p <= 65535 {
+				add(host, port)
+			}
+			continue
+		}
+		// CIDR / range / other: not a single host:port testssl can scan — skip.
+	}
+	return out
 }
 
 // Worker runs testssl.sh scans. It satisfies scanners.Scanner.
@@ -87,18 +110,45 @@ func (w *Worker) port() int {
 	return defaultPort
 }
 
-// Run scans the first single-host target's TLS on the configured port and
-// returns the raw JSON. If no single-host target is present, it returns no
-// output (nothing to scan).
+// Run scans the TLS of every single-host endpoint in the job and returns the
+// merged JSON. Each discovered host:port (or bare IP on the configured port) is
+// scanned in turn — not just the first — so a scan of several hosts, or of
+// service-aware TLS endpoints, no longer silently checks only one of them. When
+// there are no single-host endpoints (e.g. only CIDR targets), it returns no
+// output. A host with no reachable TLS is skipped, but the testssl.sh binary
+// being unavailable fails the stage loudly rather than reporting a clean scan.
 func (w *Worker) Run(ctx context.Context, job *policy.Job) ([]byte, error) {
-	target := firstSingleHost(job.Targets)
-	if target == "" {
+	endpoints := w.endpoints(job.Targets)
+	if len(endpoints) == 0 {
 		return nil, nil
 	}
-	if err := scanners.ValidateTarget(target); err != nil {
-		return nil, err
-	}
 
+	var parts [][]byte
+	for _, ep := range endpoints {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		data, err := w.scanOne(ctx, ep)
+		if err != nil {
+			// The binary not being found means TLS scanning is broken, not that a
+			// host lacks TLS — surface it instead of hiding it as an empty result.
+			if errors.Is(err, exec.ErrNotFound) {
+				return nil, fmt.Errorf("testssl.sh unavailable: %w", err)
+			}
+			// Otherwise testssl ran but this endpoint had no scannable TLS (non-zero
+			// exit, no output). That is a normal per-host outcome — skip it and keep
+			// scanning the remaining endpoints.
+			continue
+		}
+		if len(data) > 0 {
+			parts = append(parts, data)
+		}
+	}
+	return mergeJSONArrays(parts), nil
+}
+
+// scanOne runs testssl.sh against a single host:port and returns its raw JSON.
+func (w *Worker) scanOne(ctx context.Context, hostPort string) ([]byte, error) {
 	// testssl.sh will not overwrite an existing --jsonfile, so hand it a fresh
 	// path inside a temp dir rather than a pre-created file.
 	dir, err := os.MkdirTemp("", "vulnascout-testssl-*")
@@ -108,7 +158,6 @@ func (w *Worker) Run(ctx context.Context, job *policy.Job) ([]byte, error) {
 	defer func() { _ = os.RemoveAll(dir) }()
 	outPath := filepath.Join(dir, "testssl.json")
 
-	hostPort := net.JoinHostPort(target, strconv.Itoa(w.port()))
 	args := BuildArgs(outPath, hostPort)
 	runCtx, cancel := context.WithTimeout(ctx, w.timeout())
 	defer cancel()
@@ -122,9 +171,30 @@ func (w *Worker) Run(ctx context.Context, job *policy.Job) ([]byte, error) {
 	}
 	data, _ := os.ReadFile(outPath)
 	if len(data) == 0 {
-		return nil, fmt.Errorf(
-			"testssl produced no output: %v: %s", runErr, strings.TrimSpace(stderr.String()),
-		)
+		// No JSON produced: propagate the run error (which may be exec.ErrNotFound)
+		// so Run can tell a missing binary from a host that simply has no TLS.
+		if runErr != nil {
+			return nil, runErr
+		}
+		return nil, nil
 	}
 	return data, nil
+}
+
+// mergeJSONArrays concatenates the elements of several testssl.sh JSON arrays
+// into one array so the ingest side sees a single result for the stage. Parts
+// that don't parse as a JSON array are skipped. Returns nil when nothing merged.
+func mergeJSONArrays(parts [][]byte) []byte {
+	var all []json.RawMessage
+	for _, p := range parts {
+		var arr []json.RawMessage
+		if json.Unmarshal(p, &arr) == nil {
+			all = append(all, arr...)
+		}
+	}
+	if len(all) == 0 {
+		return nil
+	}
+	out, _ := json.Marshal(all)
+	return out
 }
