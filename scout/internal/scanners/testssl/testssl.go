@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/codebooker/vulna/scout/internal/discovery"
 	"github.com/codebooker/vulna/scout/internal/policy"
 )
 
@@ -88,6 +89,26 @@ func NewWorker() *Worker {
 
 func (w *Worker) Stage() string { return "tls" }
 func (w *Worker) Name() string  { return "testssl" }
+
+// TargetsFor returns the discovered TLS endpoints as host:port targets, so the
+// TLS stage scans the services discovery actually found TLS on (on their real
+// ports) instead of the raw address range. When discovery found no TLS the
+// result is empty and the executor falls back to the range (a no-op for a CIDR).
+func (w *Worker) TargetsFor(endpoints []discovery.Endpoint) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, e := range endpoints {
+		if !e.TLS || e.Transport != "tcp" {
+			continue
+		}
+		addr := e.Addr()
+		if !seen[addr] {
+			seen[addr] = true
+			out = append(out, addr)
+		}
+	}
+	return out
+}
 
 func (w *Worker) binary() string {
 	if w.Binary != "" {

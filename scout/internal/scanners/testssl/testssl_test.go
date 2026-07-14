@@ -8,6 +8,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/codebooker/vulna/scout/internal/discovery"
 	"github.com/codebooker/vulna/scout/internal/policy"
 )
 
@@ -122,5 +123,20 @@ func TestStageAndName(t *testing.T) {
 	w := NewWorker()
 	if w.Stage() != "tls" || w.Name() != "testssl" {
 		t.Errorf("unexpected stage/name: %s/%s", w.Stage(), w.Name())
+	}
+}
+
+func TestTargetsForReturnsTLSEndpoints(t *testing.T) {
+	w := NewWorker()
+	eps := []discovery.Endpoint{
+		{IP: "10.0.0.1", Port: 443, Transport: "tcp", Service: "https", TLS: true, HTTP: true},
+		{IP: "10.0.0.1", Port: 80, Transport: "tcp", Service: "http", HTTP: true}, // not TLS -> excluded
+		{IP: "10.0.0.2", Port: 8443, Transport: "tcp", Service: "https", TLS: true},
+		{IP: "10.0.0.3", Port: 443, Transport: "udp", TLS: true}, // udp -> excluded
+	}
+	got := w.TargetsFor(eps)
+	want := []string{"10.0.0.1:443", "10.0.0.2:8443"}
+	if !slices.Equal(got, want) {
+		t.Errorf("TargetsFor = %v, want %v (only TCP TLS endpoints)", got, want)
 	}
 }

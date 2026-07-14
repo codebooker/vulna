@@ -10,9 +10,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/codebooker/vulna/scout/internal/discovery"
 	"github.com/codebooker/vulna/scout/internal/executor"
 	"github.com/codebooker/vulna/scout/internal/policy"
 )
+
+// discoveryStage is the workflow stage whose output (host/service discovery)
+// drives the targets of the stages that follow it.
+const discoveryStage = "discovery"
 
 // ValidateTarget ensures a target is a plain IP or CIDR and cannot be mistaken
 // for a command flag — an argument-injection defense shared by adapters.
@@ -55,6 +60,28 @@ type Streamer interface {
 	) error
 }
 
+// EndpointTargeter is an optional capability: a scanner that can turn the
+// endpoints discovered by the discovery stage into its own targets, so it scans
+// the services that were actually found rather than the original address range.
+// When it returns no targets (e.g. discovery found nothing it can use), the
+// executor falls back to the range.
+type EndpointTargeter interface {
+	TargetsFor(endpoints []discovery.Endpoint) []string
+}
+
+// stageTargets returns the targets a stage should scan: the service-aware
+// endpoints discovered so far when the scanner can use them, otherwise the
+// original chunk targets. Keeping this in one place means every run path
+// (streaming and not) targets discovered services identically.
+func stageTargets(scanner Scanner, endpoints []discovery.Endpoint, fallback []string) []string {
+	if targeter, ok := scanner.(EndpointTargeter); ok && len(endpoints) > 0 {
+		if derived := targeter.TargetsFor(endpoints); len(derived) > 0 {
+			return derived
+		}
+	}
+	return fallback
+}
+
 // Workflow runs a job's workflow by dispatching each stage's plugin to the
 // registered scanner. It satisfies executor.JobRunner.
 type Workflow struct {
@@ -85,6 +112,9 @@ func (w *Workflow) RunWithProgress(
 ) (executor.Result, error) {
 	res := executor.Result{JobID: job.JobID, StagesTotal: len(job.Workflow)}
 	started := time.Now()
+	// Endpoints discovered by the discovery stage; later stages target these
+	// services instead of the raw range (empty => fall back to the range).
+	var endpoints []discovery.Endpoint
 	for _, stage := range job.Workflow {
 		stageName, _ := stage["stage"].(string)
 		plugin, _ := stage["plugin"].(string)
@@ -107,7 +137,9 @@ func (w *Workflow) RunWithProgress(
 			res.Cancelled = true
 			return res, ctx.Err()
 		}
-		raw, err := scanner.Run(ctx, job)
+		stageJob := *job
+		stageJob.Targets = stageTargets(scanner, endpoints, job.Targets)
+		raw, err := scanner.Run(ctx, &stageJob)
 		if ctx.Err() != nil {
 			res.Cancelled = true
 			return res, ctx.Err()
@@ -123,6 +155,9 @@ func (w *Workflow) RunWithProgress(
 			})
 			reportWorkflowProgress(report, job, res, started, stageName, plugin)
 			continue
+		}
+		if scanner.Stage() == discoveryStage {
+			endpoints = append(endpoints, discovery.ParseEndpoints(raw)...)
 		}
 		res.Outputs = append(res.Outputs, executor.StageOutput{
 			Stage: scanner.Stage(), Scanner: scanner.Name(), Raw: raw,
@@ -190,6 +225,10 @@ func (w *Workflow) RunStreaming(
 	for _, chunk := range chunks {
 		chunkJob := *job
 		chunkJob.Targets = chunk
+		// Endpoints discovered by this chunk's discovery stage. The stages that
+		// follow target these services instead of re-scanning the raw range; empty
+		// (discovery found nothing usable, or failed) falls back to the range.
+		var endpoints []discovery.Endpoint
 		for si := range runnable {
 			st := runnable[si]
 			if ctx.Err() != nil {
@@ -197,12 +236,21 @@ func (w *Workflow) RunStreaming(
 				return res, ctx.Err()
 			}
 
+			stageJob := chunkJob
+			stageJob.Targets = stageTargets(st.scanner, endpoints, chunk)
+			isDiscovery := st.scanner.Stage() == discoveryStage
+			var discovered [][]byte
+
 			// deliver sends one raw batch to the sink, carrying it in the Result if
 			// the sink (e.g. a full durable queue) rejects it, so Finalize still
-			// delivers it. With no sink it is collected for end-of-job delivery.
+			// delivers it. With no sink it is collected for end-of-job delivery. A
+			// discovery batch is also retained so later stages can target its services.
 			deliver := func(raw []byte) {
 				if len(raw) == 0 {
 					return
+				}
+				if isDiscovery {
+					discovered = append(discovered, raw)
 				}
 				out := executor.StageOutput{
 					Stage: st.scanner.Stage(), Scanner: st.scanner.Name(), Raw: raw,
@@ -219,9 +267,9 @@ func (w *Workflow) RunStreaming(
 				// Per-host streaming: emit each host as it completes and advance the
 				// bar fractionally within this stage, so a single subnet visibly
 				// fills in instead of sitting at 0% until it finishes.
-				total := executor.TargetAddressCount(chunk)
+				total := executor.TargetAddressCount(stageJob.Targets)
 				base := completed
-				err = streamer.Stream(ctx, &chunkJob,
+				err = streamer.Stream(ctx, &stageJob,
 					func(raw []byte) error { deliver(raw); return nil },
 					func(hostsDone int) {
 						frac := 0.0
@@ -236,7 +284,7 @@ func (w *Workflow) RunStreaming(
 				)
 			} else {
 				var raw []byte
-				if raw, err = st.scanner.Run(ctx, &chunkJob); err == nil {
+				if raw, err = st.scanner.Run(ctx, &stageJob); err == nil {
 					deliver(raw)
 				}
 			}
@@ -244,6 +292,14 @@ func (w *Workflow) RunStreaming(
 			if ctx.Err() != nil {
 				res.Cancelled = true
 				return res, ctx.Err()
+			}
+			// Derive endpoints from the discovery output so the stages that follow
+			// scan the services actually found (each streamed batch is a self-
+			// contained nmaprun document).
+			if isDiscovery && err == nil {
+				for _, batch := range discovered {
+					endpoints = append(endpoints, discovery.ParseEndpoints(batch)...)
+				}
 			}
 			completed++
 			if err != nil {

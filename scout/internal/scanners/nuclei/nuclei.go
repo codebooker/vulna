@@ -10,6 +10,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/netip"
+	"net/url"
 	"os"
 	"os/exec"
 	"regexp"
@@ -17,8 +19,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/codebooker/vulna/scout/internal/discovery"
 	"github.com/codebooker/vulna/scout/internal/policy"
-	"github.com/codebooker/vulna/scout/internal/scanners"
 )
 
 const (
@@ -87,6 +89,51 @@ func NewWorker() *Worker {
 func (w *Worker) Stage() string { return "vulnerability" }
 func (w *Worker) Name() string  { return "nuclei" }
 
+// TargetsFor turns discovered endpoints into nuclei targets: every live host as
+// a bare IP (so network and default-port templates run against hosts that are
+// actually up), plus an explicit http(s):// URL for each HTTP service so nuclei
+// checks web apps on non-standard ports it would otherwise never probe. The
+// executor uses this instead of re-handing nuclei the raw address range.
+func (w *Worker) TargetsFor(endpoints []discovery.Endpoint) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(t string) {
+		if t != "" && !seen[t] {
+			seen[t] = true
+			out = append(out, t)
+		}
+	}
+	for _, e := range endpoints {
+		add(e.IP)
+		if e.HTTP && e.Transport == "tcp" {
+			add(e.URL())
+		}
+	}
+	return out
+}
+
+// validateNucleiTarget accepts a bare IP, a CIDR, or an http(s):// URL whose host
+// is a literal IP (the service-aware form). Hostnames and flag-like values are
+// rejected — an argument-injection and scope defense, since only addresses that
+// passed discovery's own validation should ever reach here.
+func validateNucleiTarget(t string) error {
+	if t == "" || strings.HasPrefix(t, "-") {
+		return fmt.Errorf("invalid nuclei target %q", t)
+	}
+	if _, err := netip.ParseAddr(t); err == nil {
+		return nil
+	}
+	if _, err := netip.ParsePrefix(t); err == nil {
+		return nil
+	}
+	if u, err := url.Parse(t); err == nil && (u.Scheme == "http" || u.Scheme == "https") {
+		if _, err := netip.ParseAddr(u.Hostname()); err == nil {
+			return nil
+		}
+	}
+	return fmt.Errorf("nuclei target %q is not an IP, CIDR, or http(s) URL to a literal IP", t)
+}
+
 func (w *Worker) binary() string {
 	if w.Binary != "" {
 		return w.Binary
@@ -105,7 +152,7 @@ func (w *Worker) timeout() time.Duration {
 // output (no findings) is a valid result, not an error.
 func (w *Worker) Run(ctx context.Context, job *policy.Job) ([]byte, error) {
 	for _, t := range job.Targets {
-		if err := scanners.ValidateTarget(t); err != nil {
+		if err := validateNucleiTarget(t); err != nil {
 			return nil, err
 		}
 	}
