@@ -16,11 +16,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
+	"time"
 )
 
 // ErrFull is returned by Enqueue when the durable backlog is at its byte cap.
@@ -28,27 +30,33 @@ var ErrFull = errors.New("queue: durable backlog is full")
 
 // Item is one result batch awaiting upload.
 type Item struct {
-	Key     string `json:"key"`
-	JobID   string `json:"job_id"`
-	Stage   string `json:"stage"`
-	Scanner string `json:"scanner"`
-	Raw     []byte `json:"raw"`
+	Key               string `json:"key"`
+	JobID             string `json:"job_id"`
+	Stage             string `json:"stage"`
+	Scanner           string `json:"scanner"`
+	Raw               []byte `json:"raw"`
+	Complete          bool   `json:"complete,omitempty"`
+	CreatedAtUnixNano int64  `json:"created_at_unix_nano,omitempty"`
 }
 
 // Key derives the stable idempotency key for a batch from its content, so the
 // same batch always maps to the same queue file and the same server-side key.
-func Key(jobID, stage, scanner string, raw []byte) string {
+func Key(jobID, stage, scanner string, raw []byte, complete ...bool) string {
 	h := sha256.New()
 	h.Write([]byte(jobID + "\x00" + stage + "\x00" + scanner + "\x00"))
+	if len(complete) > 0 && complete[0] {
+		h.Write([]byte("complete\x00"))
+	}
 	h.Write(raw)
 	return hex.EncodeToString(h.Sum(nil))
 }
 
 // Queue is a durable directory-backed result queue.
 type Queue struct {
-	dir      string
-	maxBytes int64
-	mu       sync.Mutex
+	dir           string
+	maxBytes      int64
+	lastCreatedAt int64
+	mu            sync.Mutex
 }
 
 // Open returns a Queue rooted at dir (created 0700), capped at maxBytes of
@@ -60,7 +68,17 @@ func Open(dir string, maxBytes int64) (*Queue, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
-	return &Queue{dir: dir, maxBytes: maxBytes}, nil
+	q := &Queue{dir: dir, maxBytes: maxBytes}
+	items, err := q.pendingLocked()
+	if err != nil {
+		return nil, err
+	}
+	for _, item := range items {
+		if item.CreatedAtUnixNano > q.lastCreatedAt {
+			q.lastCreatedAt = item.CreatedAtUnixNano
+		}
+	}
+	return q, nil
 }
 
 func (q *Queue) file(key string) string { return filepath.Join(q.dir, key+".json") }
@@ -72,10 +90,19 @@ func (q *Queue) Enqueue(it Item) error {
 	defer q.mu.Unlock()
 
 	if it.Key == "" {
-		it.Key = Key(it.JobID, it.Stage, it.Scanner, it.Raw)
+		it.Key = Key(it.JobID, it.Stage, it.Scanner, it.Raw, it.Complete)
 	}
 	if _, err := os.Stat(q.file(it.Key)); err == nil {
 		return nil // already queued
+	}
+	if it.CreatedAtUnixNano == 0 {
+		it.CreatedAtUnixNano = time.Now().UnixNano()
+		if it.CreatedAtUnixNano <= q.lastCreatedAt {
+			it.CreatedAtUnixNano = q.lastCreatedAt + 1
+		}
+	}
+	if it.CreatedAtUnixNano > q.lastCreatedAt {
+		q.lastCreatedAt = it.CreatedAtUnixNano
 	}
 
 	if q.maxBytes > 0 {
@@ -100,7 +127,7 @@ func (q *Queue) Enqueue(it Item) error {
 	return os.Rename(tmp, q.file(it.Key))
 }
 
-// Pending returns the queued items in a stable order (by key).
+// Pending returns queued items in durable insertion order.
 func (q *Queue) Pending() ([]Item, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -118,8 +145,6 @@ func (q *Queue) pendingLocked() ([]Item, error) {
 			names = append(names, e.Name())
 		}
 	}
-	sort.Strings(names)
-
 	items := make([]Item, 0, len(names))
 	for _, name := range names {
 		data, err := os.ReadFile(filepath.Join(q.dir, name))
@@ -128,10 +153,18 @@ func (q *Queue) pendingLocked() ([]Item, error) {
 		}
 		var it Item
 		if err := json.Unmarshal(data, &it); err != nil {
-			continue // skip a corrupt entry rather than wedge the whole queue
+			// Never skip past a corrupt result: a later completion marker could
+			// otherwise finalize verification without the missing evidence.
+			return nil, fmt.Errorf("queue: decode %s: %w", name, err)
 		}
 		items = append(items, it)
 	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].CreatedAtUnixNano == items[j].CreatedAtUnixNano {
+			return items[i].Key < items[j].Key
+		}
+		return items[i].CreatedAtUnixNano < items[j].CreatedAtUnixNano
+	})
 	return items, nil
 }
 

@@ -136,8 +136,9 @@ func (w *Worker) port() int {
 // scanned in turn — not just the first — so a scan of several hosts, or of
 // service-aware TLS endpoints, no longer silently checks only one of them. When
 // there are no single-host endpoints (e.g. only CIDR targets), it returns no
-// output. A host with no reachable TLS is skipped, but the testssl.sh binary
-// being unavailable fails the stage loudly rather than reporting a clean scan.
+// output. Any endpoint execution failure is retained and fails the stage after
+// the remaining endpoints are attempted; it must never be presented as a clean
+// TLS result.
 func (w *Worker) Run(ctx context.Context, job *policy.Job) ([]byte, error) {
 	endpoints := w.endpoints(job.Targets)
 	if len(endpoints) == 0 {
@@ -145,27 +146,28 @@ func (w *Worker) Run(ctx context.Context, job *policy.Job) ([]byte, error) {
 	}
 
 	var parts [][]byte
+	var scanErrors []error
 	for _, ep := range endpoints {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
 		data, err := w.scanOne(ctx, ep)
-		if err != nil {
-			// The binary not being found means TLS scanning is broken, not that a
-			// host lacks TLS — surface it instead of hiding it as an empty result.
-			if errors.Is(err, exec.ErrNotFound) {
-				return nil, fmt.Errorf("testssl.sh unavailable: %w", err)
-			}
-			// Otherwise testssl ran but this endpoint had no scannable TLS (non-zero
-			// exit, no output). That is a normal per-host outcome — skip it and keep
-			// scanning the remaining endpoints.
-			continue
-		}
 		if len(data) > 0 {
 			parts = append(parts, data)
 		}
+		if err != nil {
+			if errors.Is(err, exec.ErrNotFound) {
+				return nil, fmt.Errorf("testssl.sh unavailable: %w", err)
+			}
+			scanErrors = append(scanErrors, fmt.Errorf("%s: %w", ep, err))
+			continue
+		}
 	}
-	return mergeJSONArrays(parts), nil
+	merged := mergeJSONArrays(parts)
+	if len(scanErrors) > 0 {
+		return merged, fmt.Errorf("testssl failed on %d endpoint(s): %w", len(scanErrors), errors.Join(scanErrors...))
+	}
+	return merged, nil
 }
 
 // scanOne runs testssl.sh against a single host:port and returns its raw JSON.
@@ -190,6 +192,9 @@ func (w *Worker) scanOne(ctx context.Context, hostPort string) ([]byte, error) {
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
+	if runCtx.Err() != nil {
+		return nil, runCtx.Err()
+	}
 	data, _ := os.ReadFile(outPath)
 	if len(data) == 0 {
 		// No JSON produced: propagate the run error (which may be exec.ErrNotFound)
@@ -199,12 +204,19 @@ func (w *Worker) scanOne(ctx context.Context, hostPort string) ([]byte, error) {
 		}
 		return nil, nil
 	}
+	var records []json.RawMessage
+	if err := json.Unmarshal(data, &records); err != nil {
+		return nil, fmt.Errorf("invalid testssl JSON: %w", err)
+	}
+	if runErr != nil {
+		return data, runErr
+	}
 	return data, nil
 }
 
 // mergeJSONArrays concatenates the elements of several testssl.sh JSON arrays
-// into one array so the ingest side sees a single result for the stage. Parts
-// that don't parse as a JSON array are skipped. Returns nil when nothing merged.
+// into one array so the ingest side sees a single result for the stage. Inputs
+// have already been validated by scanOne. Returns nil when nothing merged.
 func mergeJSONArrays(parts [][]byte) []byte {
 	var all []json.RawMessage
 	for _, p := range parts {

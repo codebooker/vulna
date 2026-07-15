@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ShieldOff } from 'lucide-react';
+import { Power, ShieldOff, Trash2 } from 'lucide-react';
 import { ApiError, api } from '../api/client';
 import { useAuth } from '../auth/useAuth';
 import { useToast } from '../lib/toast';
@@ -9,6 +9,7 @@ import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { ConfirmDialog } from '../components/ui/overlay';
+import { Switch } from '../components/ui/misc';
 import { EmptyState, InlineError } from '../components/ui/states';
 import type { Relay } from '../types/relay';
 import type { Site } from '../types/inventory';
@@ -21,19 +22,31 @@ export function RelayPage({ refreshKey }: { refreshKey?: number }) {
   const { toast } = useToast();
   const [relays, setRelays] = useState<Relay[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
-  const [scopeDrafts, setScopeDrafts] = useState<Record<string, string>>({});
+  const [scopeDrafts, setScopeDrafts] = useState<
+    Record<string, { approved: string; denied: string; allowPublic: boolean }>
+  >({});
+  const [relayEnabled, setRelayEnabled] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [killTarget, setKillTarget] = useState<Relay | null>(null);
+  const [revokeTarget, setRevokeTarget] = useState<Relay | null>(null);
   const [busy, setBusy] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
-  const isAdmin = user?.role === 'administrator';
+  const isAdmin = user?.permissions
+    ? user.permissions.includes('relays.manage')
+    : user?.role === 'administrator';
 
   const load = useCallback(async () => {
     if (!token) return;
     try {
-      setSites((await api.listSites(token)).items);
-      setRelays((await api.listRelays(token)).relays);
+      const [sitePage, relayList, settings] = await Promise.all([
+        api.listSites(token),
+        api.listRelays(token),
+        api.relaySettings(token),
+      ]);
+      setSites(sitePage.items);
+      setRelays(relayList.relays);
+      setRelayEnabled(settings.enabled);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) return;
       setError(err instanceof Error ? err.message : 'Failed to load relays.');
@@ -48,17 +61,57 @@ export function RelayPage({ refreshKey }: { refreshKey?: number }) {
 
   const saveScope = async (relay: Relay) => {
     if (!token) return;
-    const text = scopeDrafts[relay.id] ?? relay.approved_cidrs.join(', ');
-    const cidrs = text
+    const draft = scopeDrafts[relay.id] ?? {
+      approved: relay.approved_cidrs.join(', '),
+      denied: relay.denied_cidrs.join(', '),
+      allowPublic: relay.allow_public_addresses,
+    };
+    const cidrs = draft.approved
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean);
+    const denied = draft.denied
       .split(',')
       .map((value) => value.trim())
       .filter(Boolean);
     try {
-      await api.setRelayScope(token, relay.id, cidrs);
+      await api.setRelayScope(token, relay.id, cidrs, denied, draft.allowPublic);
       await load();
       toast('success', 'Relay scope updated.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update relay scope.');
+    }
+  };
+
+  const toggleRelayMode = async () => {
+    if (!token) return;
+    setBusy(true);
+    try {
+      const result = await api.setRelayEnabled(token, !relayEnabled);
+      setRelayEnabled(result.enabled);
+      toast(
+        result.enabled ? 'success' : 'warning',
+        result.enabled ? 'Relay mode enabled.' : 'Relay mode disabled; relay egress is blocked.',
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update relay mode.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const revoke = async (relay: Relay) => {
+    if (!token) return;
+    setBusy(true);
+    try {
+      await api.revokeRelay(token, relay.id);
+      setRevokeTarget(null);
+      await load();
+      toast('success', `${relay.name} was revoked and its managed scope was removed.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Relay revocation failed.');
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -94,6 +147,26 @@ export function RelayPage({ refreshKey }: { refreshKey?: number }) {
     <div aria-label="VulnaRelay">
       {error && <InlineError message={error} className="mb-3" />}
 
+      {isAdmin && (
+        <Card className="mb-3 flex items-center gap-3 p-3.5">
+          <Power className="h-4 w-4 text-muted" />
+          <div className="min-w-0 flex-1">
+            <div className="text-[13px] font-semibold text-text">Organization relay mode</div>
+            <div className="text-xs text-muted">
+              {relayEnabled
+                ? 'Relay enrollment and central tunnel egress are enabled.'
+                : 'All relay egress is blocked until this is enabled.'}
+            </div>
+          </div>
+          <Switch
+            checked={relayEnabled}
+            disabled={busy}
+            onChange={() => void toggleRelayMode()}
+            ariaLabel="Organization relay mode"
+          />
+        </Card>
+      )}
+
       {relays.length === 0 ? (
         <Card className="mb-3">
           <EmptyState
@@ -125,6 +198,17 @@ export function RelayPage({ refreshKey }: { refreshKey?: number }) {
                       Resume
                     </Button>
                   )}
+                  {isAdmin && r.status !== 'revoked' && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      aria-label={`Revoke ${r.name}`}
+                      onClick={() => setRevokeTarget(r)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Revoke
+                    </Button>
+                  )}
                 </span>
               </div>
               {isAdmin && (
@@ -133,11 +217,51 @@ export function RelayPage({ refreshKey }: { refreshKey?: number }) {
                     aria-label={`Approved CIDRs for ${r.name}`}
                     placeholder="Approved CIDRs, comma-separated"
                     className="max-w-md flex-1"
-                    value={scopeDrafts[r.id] ?? r.approved_cidrs.join(', ')}
+                    value={scopeDrafts[r.id]?.approved ?? r.approved_cidrs.join(', ')}
                     onChange={(event) =>
-                      setScopeDrafts((current) => ({ ...current, [r.id]: event.target.value }))
+                      setScopeDrafts((current) => ({
+                        ...current,
+                        [r.id]: {
+                          approved: event.target.value,
+                          denied: current[r.id]?.denied ?? r.denied_cidrs.join(', '),
+                          allowPublic: current[r.id]?.allowPublic ?? r.allow_public_addresses,
+                        },
+                      }))
                     }
                   />
+                  <Input
+                    aria-label={`Denied CIDRs for ${r.name}`}
+                    placeholder="Denied CIDRs, comma-separated"
+                    className="max-w-md flex-1"
+                    value={scopeDrafts[r.id]?.denied ?? r.denied_cidrs.join(', ')}
+                    onChange={(event) =>
+                      setScopeDrafts((current) => ({
+                        ...current,
+                        [r.id]: {
+                          approved: current[r.id]?.approved ?? r.approved_cidrs.join(', '),
+                          denied: event.target.value,
+                          allowPublic: current[r.id]?.allowPublic ?? r.allow_public_addresses,
+                        },
+                      }))
+                    }
+                  />
+                  <label className="flex items-center gap-1.5 text-xs text-muted">
+                    <input
+                      type="checkbox"
+                      checked={scopeDrafts[r.id]?.allowPublic ?? r.allow_public_addresses}
+                      onChange={(event) =>
+                        setScopeDrafts((current) => ({
+                          ...current,
+                          [r.id]: {
+                            approved: current[r.id]?.approved ?? r.approved_cidrs.join(', '),
+                            denied: current[r.id]?.denied ?? r.denied_cidrs.join(', '),
+                            allowPublic: event.target.checked,
+                          },
+                        }))
+                      }
+                    />
+                    Allow public addresses
+                  </label>
                   <Button size="sm" variant="outline" onClick={() => void saveScope(r)}>
                     Save scope
                   </Button>
@@ -158,6 +282,18 @@ export function RelayPage({ refreshKey }: { refreshKey?: number }) {
         confirmLabel="Engage kill switch"
         onConfirm={() => {
           if (killTarget) void kill(killTarget);
+        }}
+      />
+      <ConfirmDialog
+        open={revokeTarget !== null}
+        onClose={() => setRevokeTarget(null)}
+        destructive
+        busy={busy}
+        title={`Revoke “${revokeTarget?.name}”?`}
+        body="This permanently invalidates the relay certificate, tears down the tunnel, and removes its managed scan scope. Enrolling it again will require a new token."
+        confirmLabel="Revoke relay"
+        onConfirm={() => {
+          if (revokeTarget) void revoke(revokeTarget);
         }}
       />
     </div>

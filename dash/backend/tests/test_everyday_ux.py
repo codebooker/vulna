@@ -169,6 +169,10 @@ async def test_dashboard_summary(
     assert body["next_action"]["kind"] == "review_fix_now"
     assert body["next_action"]["priority"] == "fix_now"
     assert "health" in body and "changed_recently" in body and "unassessed" in body
+    assert body["finding_metrics"]["by_severity"]["critical"]["total"] >= 1
+    assert body["finding_metrics"]["active_total"] >= 1
+    assert body["operational_metrics"]["asset_total"] >= 0
+    assert isinstance(body["operational_metrics"]["recent_jobs"], list)
     # The highest-priority issue is discoverable from the summary.
     assert body["needs_attention"]["top"][0]["priority"] == "fix_now"
 

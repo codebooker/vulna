@@ -21,12 +21,7 @@ import { ApiError, api } from '../api/client';
 import { useAuth } from '../auth/useAuth';
 import { useNav } from '../lib/nav';
 import { formatRelative, humanize } from '../lib/utils';
-import {
-  normalizeSeverity,
-  PriorityBadge,
-  StatusBadge,
-  type Severity,
-} from '../components/app/badges';
+import { PriorityBadge, StatusBadge, type Severity } from '../components/app/badges';
 import { ChartContainer, chartTheme } from '../components/app/chart-container';
 import { SeverityMetricCard, StatTile } from '../components/app/metric-card';
 import { PageHeader, ViewAllLink } from '../components/app/page-header';
@@ -36,7 +31,6 @@ import { Card, CardBody, CardHeader } from '../components/ui/card';
 import { Progress } from '../components/ui/misc';
 import { CardSkeleton, ErrorState } from '../components/ui/states';
 import type { DashboardSummary } from '../types/dashboard';
-import type { Finding } from '../types/finding';
 import type { ProbeSummary, OnboardingState } from '../types/onboarding';
 import type { ScanSchedule } from '../types/schedule';
 import type { Site } from '../types/inventory';
@@ -49,7 +43,6 @@ export function HomeDashboard() {
   const { token } = useAuth();
   const { go } = useNav();
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
-  const [findings, setFindings] = useState<Finding[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
   const [schedules, setSchedules] = useState<ScanSchedule[]>([]);
   const [probes, setProbes] = useState<ProbeSummary[]>([]);
@@ -57,7 +50,6 @@ export function HomeDashboard() {
   const [setupHidden, setSetupHidden] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [assetTotal, setAssetTotal] = useState(0);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -65,22 +57,18 @@ export function HomeDashboard() {
     setError(null);
     try {
       // The summary powers the headline; the rest fills the compact sections.
-      const [sum, f, s, sch, p, ob, a] = await Promise.all([
+      const [sum, s, sch, p, ob] = await Promise.all([
         api.dashboardSummary(token),
-        api.listFindingSnapshot(token).catch(() => null),
-        api.listSites(token).catch(() => null),
+        api.listAllSites(token).catch(() => null),
         api.listSchedules(token).catch(() => []),
         api.listProbes(token).catch(() => null),
         api.onboardingState(token).catch(() => null),
-        api.listAssets(token).catch(() => null),
       ]);
       setSummary(sum);
-      setFindings(f?.items ?? []);
       setSites(s?.items ?? []);
       setSchedules(sch ?? []);
       setProbes(p?.items ?? []);
       setOnboarding(ob);
-      setAssetTotal(a?.total ?? 0);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) return;
       setError(err instanceof Error ? err.message : 'Failed to load the dashboard.');
@@ -93,27 +81,18 @@ export function HomeDashboard() {
     void load();
   }, [load]);
 
-  /* -------- derived, all from the same findings dataset so counts agree -------- */
-
-  const active = useMemo(() => findings.filter((f) => f.resolved_at === null), [findings]);
-  const resolved = useMemo(() => findings.filter((f) => f.resolved_at !== null), [findings]);
-
-  const sevCounts = useMemo(() => {
-    const counts: Record<Severity, { total: number; fresh: number; resolved: number }> = {
-      critical: { total: 0, fresh: 0, resolved: 0 },
-      high: { total: 0, fresh: 0, resolved: 0 },
-      medium: { total: 0, fresh: 0, resolved: 0 },
-      low: { total: 0, fresh: 0, resolved: 0 },
-      info: { total: 0, fresh: 0, resolved: 0 },
-    };
-    for (const f of active) {
-      const sev = normalizeSeverity(f.severity);
-      counts[sev].total += 1;
-      if (f.status === 'new') counts[sev].fresh += 1;
-    }
-    for (const f of resolved) counts[normalizeSeverity(f.severity)].resolved += 1;
-    return counts;
-  }, [active, resolved]);
+  /* Exact finding and job metrics are aggregated by the server, never from a capped table page. */
+  const sevCounts = useMemo(
+    () =>
+      summary?.finding_metrics?.by_severity ?? {
+        critical: { total: 0, fresh: 0, resolved: 0 },
+        high: { total: 0, fresh: 0, resolved: 0 },
+        medium: { total: 0, fresh: 0, resolved: 0 },
+        low: { total: 0, fresh: 0, resolved: 0 },
+        info: { total: 0, fresh: 0, resolved: 0 },
+      },
+    [summary],
+  );
 
   const donutData = useMemo(
     () =>
@@ -124,49 +103,22 @@ export function HomeDashboard() {
   );
 
   const riskBySite = useMemo(() => {
-    const map = new Map<string, { critical: number; high: number; total: number }>();
-    for (const f of active) {
-      const cur = map.get(f.site_id) ?? { critical: 0, high: 0, total: 0 };
-      const sev = normalizeSeverity(f.severity);
-      if (sev === 'critical') cur.critical += 1;
-      if (sev === 'high') cur.high += 1;
-      cur.total += 1;
-      map.set(f.site_id, cur);
-    }
     const name = (id: string) => sites.find((s) => s.id === id)?.name ?? id.slice(0, 8);
-    return [...map.entries()]
-      .map(([siteId, v]) => ({ site: name(siteId), ...v }))
-      .sort((a, b) => b.critical * 3 + b.high - (a.critical * 3 + a.high))
-      .slice(0, 5);
-  }, [active, sites]);
+    return (summary?.finding_metrics?.risk_by_site ?? []).map((value) => ({
+      site: name(value.site_id),
+      ...value,
+    }));
+  }, [sites, summary]);
 
-  const riskyAssets = useMemo(() => {
-    const map = new Map<string, { critical: number; high: number; total: number }>();
-    for (const f of active) {
-      if (!f.asset_id) continue;
-      const cur = map.get(f.asset_id) ?? { critical: 0, high: 0, total: 0 };
-      const sev = normalizeSeverity(f.severity);
-      if (sev === 'critical') cur.critical += 1;
-      if (sev === 'high') cur.high += 1;
-      cur.total += 1;
-      map.set(f.asset_id, cur);
-    }
-    return [...map.entries()]
-      .map(([assetId, v]) => ({ assetId, ...v }))
-      .sort((a, b) => b.critical * 3 + b.high - (a.critical * 3 + a.high))
-      .slice(0, 5);
-  }, [active]);
-
-  const failedSchedules = schedules.filter((s) => s.last_error);
-  const recentScans = [...schedules]
-    .filter((s) => s.last_run_at)
-    .sort((a, b) => (b.last_run_at ?? '').localeCompare(a.last_run_at ?? ''))
-    .slice(0, 4);
+  const riskyAssets = summary?.finding_metrics?.risky_assets ?? [];
+  const failedScans = summary?.operational_metrics?.failed_scans ?? 0;
+  const recentScans = summary?.operational_metrics?.recent_jobs ?? [];
+  const recentFailedScans = summary?.operational_metrics?.recent_failed_jobs ?? [];
   const offlineAppliances = probes.filter(
     (p) => !['connected', 'online', 'enrolled', 'active'].includes(p.status.toLowerCase()),
   );
-  const totalAssets = assetTotal;
-  const attentionAssets = riskyAssets.filter((a) => a.critical > 0 || a.high > 0).length;
+  const totalAssets = summary?.operational_metrics?.asset_total ?? 0;
+  const attentionAssets = summary?.finding_metrics?.attention_assets ?? 0;
   const coveragePct = summary
     ? summary.unassessed.approved_scopes > 0
       ? Math.min(
@@ -308,9 +260,9 @@ export function HomeDashboard() {
         <StatTile
           loading={loading}
           label="Failed scans"
-          value={failedSchedules.length}
+          value={failedScans}
           icon={AlertOctagon}
-          tone={failedSchedules.length > 0 ? 'bad' : 'ok'}
+          tone={failedScans > 0 ? 'bad' : 'ok'}
           onClick={() => go('scans', { tab: 'failed' })}
         />
       </div>
@@ -355,7 +307,7 @@ export function HomeDashboard() {
                 className="fill-[var(--text)]"
                 style={{ fontSize: 22, fontWeight: 700 }}
               >
-                {active.length}
+                {summary?.finding_metrics?.active_total ?? 0}
               </text>
               <text
                 x="50%"
@@ -431,7 +383,7 @@ export function HomeDashboard() {
                 <button
                   key={t.id}
                   type="button"
-                  onClick={() => go('findings', { q: t.title })}
+                  onClick={() => go('findings', { finding: t.id })}
                   className="rounded-lg border border-transparent px-2 py-1.5 text-left transition-colors hover:border-border hover:bg-surface-2"
                 >
                   <span className="flex items-center gap-2">
@@ -461,12 +413,10 @@ export function HomeDashboard() {
             ) : (
               riskyAssets.map((a) => (
                 <div
-                  key={a.assetId}
+                  key={a.asset_id}
                   className="flex items-center justify-between gap-2 px-2 py-1.5"
                 >
-                  <span className="truncate font-mono text-xs text-text">
-                    {a.assetId.slice(0, 16)}
-                  </span>
+                  <span className="truncate font-mono text-xs text-text">{a.name}</span>
                   <span className="flex shrink-0 items-center gap-1.5 text-[11px]">
                     {a.critical > 0 && <Badge tone="critical">{a.critical} Critical</Badge>}
                     {a.high > 0 && <Badge tone="high">{a.high} High</Badge>}
@@ -522,12 +472,14 @@ export function HomeDashboard() {
               recentScans.map((s) => (
                 <div key={s.id} className="flex items-center justify-between gap-2 px-2 py-1.5">
                   <span className="min-w-0">
-                    <span className="block truncate text-[13px] text-text">{s.name}</span>
+                    <span className="block truncate text-[13px] text-text">
+                      {humanize(s.mode)} · {s.targets.join(', ') || 'No target'}
+                    </span>
                     <span className="block text-[11px] text-muted">
-                      {formatRelative(s.last_run_at)}
+                      {formatRelative(s.finished_at ?? s.created_at)}
                     </span>
                   </span>
-                  <StatusBadge status={s.last_error ? 'failed' : 'completed'} />
+                  <StatusBadge status={s.status} />
                 </div>
               ))
             )}
@@ -543,17 +495,19 @@ export function HomeDashboard() {
           <CardBody className="flex flex-col gap-1 pt-0">
             {loading ? (
               <CardSkeleton lines={2} />
-            ) : failedSchedules.length === 0 ? (
+            ) : failedScans === 0 ? (
               <p className="py-3 text-center text-xs text-ok">No failed scans. All clear.</p>
             ) : (
-              failedSchedules.slice(0, 3).map((s) => (
+              recentFailedScans.map((s) => (
                 <div key={s.id} className="px-2 py-1.5">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="truncate text-[13px] text-text">{s.name}</span>
+                    <span className="truncate text-[13px] text-text">
+                      {humanize(s.mode)} · {s.targets.join(', ') || 'No target'}
+                    </span>
                     <StatusBadge status="failed" />
                   </div>
-                  <p className="mt-0.5 truncate text-[11px] text-bad" title={s.last_error ?? ''}>
-                    {s.last_error}
+                  <p className="mt-0.5 truncate text-[11px] text-bad" title={s.error_message ?? ''}>
+                    {s.error_message ?? 'The scan failed without a recorded error message.'}
                   </p>
                 </div>
               ))

@@ -63,6 +63,22 @@ const provider = {
   updated_at: '2026-07-13T00:00:00Z',
 };
 
+const site = {
+  id: 'site-1',
+  organization_id: 'org-1',
+  name: 'Main Office',
+  code: 'MAIN',
+  description: null,
+  address: null,
+  timezone: 'UTC',
+  business_owner: null,
+  technical_owner: null,
+  owner_user_id: null,
+  tags: [],
+  created_at: '2026-07-13T00:00:00Z',
+  updated_at: '2026-07-13T00:00:00Z',
+};
+
 beforeEach(() => {
   localStorage.setItem('vulna.token', 'token');
   vi.stubGlobal(
@@ -87,6 +103,18 @@ beforeEach(() => {
       }
       if (url.endsWith('/api/v1/users')) {
         return jsonResponse({ items: [admin], total: 1, limit: 50, offset: 0 });
+      }
+      if (url.endsWith('/api/v1/sites')) {
+        return jsonResponse({ items: [site], total: 1, limit: 50, offset: 0 });
+      }
+      if (url.endsWith('/api/v1/identity/providers/provider-1/group-mappings')) {
+        if (init?.method === 'PUT') {
+          const values = JSON.parse(String(init.body)) as Array<Record<string, unknown>>;
+          return jsonResponse(values.map((value, index) => ({ id: `mapping-${index}`, ...value })));
+        }
+        return jsonResponse([
+          { id: 'mapping-1', external_group: 'admins', role: 'administrator', site_ids: [] },
+        ]);
       }
       if (url.endsWith('/validate') && init?.method === 'POST') {
         return jsonResponse({ ...provider, validated_at: '2026-07-13T01:00:00Z' });
@@ -141,4 +169,39 @@ it('shows test-before-enable readiness and protects a strong-MFA administrator',
     ),
   );
   expect(await screen.findByText('Protected')).toBeInTheDocument();
+});
+
+it('edits site-scoped mappings and can remove them', async () => {
+  render(
+    <AuthProvider>
+      <IdentityProvidersPage />
+    </AuthProvider>,
+  );
+  await screen.findByRole('heading', { name: 'Company OIDC' });
+  fireEvent.click(screen.getByRole('button', { name: 'Group mappings' }));
+  await screen.findByText(/admins/);
+
+  fireEvent.click(screen.getByRole('button', { name: 'Edit admins' }));
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Main Office' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Update mapping' }));
+
+  await waitFor(() =>
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/group-mappings'),
+      expect.objectContaining({
+        method: 'PUT',
+        body: JSON.stringify([
+          { external_group: 'admins', role: 'administrator', site_ids: ['site-1'] },
+        ]),
+      }),
+    ),
+  );
+
+  fireEvent.click(await screen.findByRole('button', { name: 'Remove admins' }));
+  await waitFor(() =>
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/group-mappings'),
+      expect.objectContaining({ method: 'PUT', body: JSON.stringify([]) }),
+    ),
+  );
 });

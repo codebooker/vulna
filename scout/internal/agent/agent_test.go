@@ -36,7 +36,9 @@ type fakeOrch struct {
 
 func (f *fakeOrch) FetchPolicy(context.Context) ([]byte, error) { return f.policy, nil }
 
-func (f *fakeOrch) UploadResults(_ context.Context, _ string, raw []byte, _, _ string) error {
+func (f *fakeOrch) UploadResults(
+	_ context.Context, _ string, raw []byte, _, _ string, _ ...bool,
+) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.uploadErr != nil {
@@ -353,5 +355,20 @@ func TestFinalizeReportsFailedWhenNothingRan(t *testing.T) {
 	_ = a.Finalize(ctx, running, res)
 	if !contains(f.statuses(), "failed") {
 		t.Errorf("a scan that ran nothing must report failed, got %v", f.statuses())
+	}
+}
+
+func TestJobDeadlineUsesEarliestSignedOrDurationLimit(t *testing.T) {
+	started := time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC)
+	job := &policy.Job{
+		ExpiresAt: started.Add(4 * time.Hour).Format(time.RFC3339),
+		Limits:    policy.Limits{MaxDurationSeconds: 30},
+	}
+	if got, want := jobDeadline(job, started), started.Add(30*time.Second); !got.Equal(want) {
+		t.Fatalf("deadline = %s, want duration cap %s", got, want)
+	}
+	job.Limits.MaxDurationSeconds = 6 * 60 * 60
+	if got, want := jobDeadline(job, started), started.Add(4*time.Hour); !got.Equal(want) {
+		t.Fatalf("deadline = %s, want signed expiry %s", got, want)
 	}
 }

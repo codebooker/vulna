@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/codebooker/vulna/scout/internal/discovery"
 	"github.com/codebooker/vulna/scout/internal/policy"
@@ -116,6 +117,70 @@ func TestRunFailsWithMissingBinary(t *testing.T) {
 	}
 	if out != nil {
 		t.Errorf("expected no output on failure, got %d bytes", len(out))
+	}
+}
+
+func TestRunFailsWhenTestsslExitsWithoutResults(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "testssl.sh")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 2\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	w := &Worker{Binary: path, Port: 443}
+	job := &policy.Job{JobID: "j1", Targets: []string{"10.20.0.5"}}
+	if out, err := w.Run(context.Background(), job); err == nil {
+		t.Fatalf("failed testssl execution was reported clean: %s", out)
+	}
+}
+
+func TestRunFailsWhenTestsslWritesMalformedJSON(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "testssl.sh")
+	script := "#!/bin/sh\n" +
+		"while [ \"$1\" != \"--jsonfile\" ]; do shift; done\n" +
+		"printf 'not-json\\n' > \"$2\"\n"
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	w := &Worker{Binary: path, Port: 443}
+	job := &policy.Job{JobID: "j1", Targets: []string{"10.20.0.5"}}
+	if out, err := w.Run(context.Background(), job); err == nil {
+		t.Fatalf("malformed testssl output was reported clean: %s", out)
+	}
+}
+
+func TestRunRetainsValidPartialJSONWhenTestsslExitsNonzero(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "testssl.sh")
+	script := "#!/bin/sh\n" +
+		"while [ \"$1\" != \"--jsonfile\" ]; do shift; done\n" +
+		"printf '[{\"id\":\"partial\"}]\\n' > \"$2\"\n" +
+		"exit 2\n"
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	w := &Worker{Binary: path, Port: 443}
+	job := &policy.Job{JobID: "j1", Targets: []string{"10.20.0.5"}}
+	out, err := w.Run(context.Background(), job)
+	if err == nil {
+		t.Fatal("nonzero testssl execution was reported clean")
+	}
+	var records []map[string]string
+	if json.Unmarshal(out, &records) != nil || len(records) != 1 || records[0]["id"] != "partial" {
+		t.Fatalf("valid partial evidence was lost: %s", out)
+	}
+}
+
+func TestRunFailsOnPerEndpointTimeout(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "testssl.sh")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nsleep 5\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	w := &Worker{Binary: path, Port: 443, Timeout: 20 * time.Millisecond}
+	job := &policy.Job{JobID: "j1", Targets: []string{"10.20.0.5"}}
+	if _, err := w.Run(context.Background(), job); err == nil {
+		t.Fatal("timed-out testssl execution was reported clean")
 	}
 }
 

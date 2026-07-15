@@ -5,7 +5,6 @@ import { useAuth } from '../auth/useAuth';
 import { useToast } from '../lib/toast';
 import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
-import { Code } from '../components/ui/misc';
 import { InlineError } from '../components/ui/states';
 import type { DemoStatus, HelpTopic } from '../types/help';
 
@@ -87,12 +86,17 @@ export function HelpPage() {
               className="flex items-start gap-2.5 rounded-lg px-2 py-1.5 hover:bg-surface-2"
             >
               <BookOpen size={14} aria-hidden className="mt-0.5 shrink-0 text-accent" />
-              <span className="min-w-0">
+              <a
+                className="min-w-0 flex-1 rounded-sm focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
+                href={`https://github.com/codebooker/vulna/blob/main/${t.doc.replace(/^\/+/, '')}`}
+                target="_blank"
+                rel="noreferrer"
+              >
                 <span className="block text-[13px] font-medium text-text">{t.title}</span>
                 <span className="block text-xs text-muted">
-                  {t.summary} <Code>{t.doc}</Code>
+                  {t.summary} <span className="text-accent">Open guide ↗</span>
                 </span>
-              </span>
+              </a>
             </li>
           ))}
         </ul>

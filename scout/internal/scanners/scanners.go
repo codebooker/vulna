@@ -144,6 +144,11 @@ func (w *Workflow) RunWithProgress(
 			res.Cancelled = true
 			return res, ctx.Err()
 		}
+		if len(raw) > 0 {
+			res.Outputs = append(res.Outputs, executor.StageOutput{
+				Stage: scanner.Stage(), Scanner: scanner.Name(), Raw: raw,
+			})
+		}
 		if err != nil {
 			// The scanner ran but failed — a real error, surfaced (not a silent
 			// success). Other stages still run (continue), but the job is failed.
@@ -160,7 +165,7 @@ func (w *Workflow) RunWithProgress(
 			endpoints = append(endpoints, discovery.ParseEndpoints(raw)...)
 		}
 		res.Outputs = append(res.Outputs, executor.StageOutput{
-			Stage: scanner.Stage(), Scanner: scanner.Name(), Raw: raw,
+			Stage: scanner.Stage(), Scanner: scanner.Name(), Complete: true,
 		})
 		res.StagesRun++
 		reportWorkflowProgress(report, job, res, started, stageName, plugin)
@@ -214,6 +219,7 @@ func (w *Workflow) RunStreaming(
 	completed := 0
 	ran := make([]bool, len(runnable))
 	failed := make([]bool, len(runnable))
+	deliveryFailed := make([]bool, len(runnable))
 
 	emit := func(stage, plugin string) {
 		reportStreamingProgress(
@@ -258,6 +264,7 @@ func (w *Workflow) RunStreaming(
 				if sink == nil {
 					res.Outputs = append(res.Outputs, out)
 				} else if serr := sink(out); serr != nil {
+					deliveryFailed[si] = true
 					res.Outputs = append(res.Outputs, out)
 				}
 			}
@@ -284,7 +291,7 @@ func (w *Workflow) RunStreaming(
 				)
 			} else {
 				var raw []byte
-				if raw, err = st.scanner.Run(ctx, &stageJob); err == nil {
+				if raw, err = st.scanner.Run(ctx, &stageJob); len(raw) > 0 {
 					deliver(raw)
 				}
 			}
@@ -323,6 +330,16 @@ func (w *Workflow) RunStreaming(
 			res.StagesFailed++
 		case ran[si]:
 			res.StagesRun++
+			completion := executor.StageOutput{
+				Stage:    runnable[si].scanner.Stage(),
+				Scanner:  runnable[si].scanner.Name(),
+				Complete: true,
+			}
+			if sink == nil || deliveryFailed[si] {
+				res.Outputs = append(res.Outputs, completion)
+			} else if err := sink(completion); err != nil {
+				res.Outputs = append(res.Outputs, completion)
+			}
 		}
 	}
 	return res, nil

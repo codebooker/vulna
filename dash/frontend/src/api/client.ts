@@ -153,12 +153,58 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
 /** Error carrying the HTTP status so callers can react (e.g. 401 -> logout). */
 export class ApiError extends Error {
   readonly status: number;
+  readonly code: string | null;
+  readonly detail: unknown;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, code: string | null = null, detail?: unknown) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.code = code;
+    this.detail = detail;
   }
+}
+
+type StepUpHandler = () => Promise<void>;
+
+let stepUpHandler: StepUpHandler | null = null;
+let pendingStepUp: Promise<void> | null = null;
+
+/** Register the interactive recent-authentication prompt owned by AuthProvider. */
+export function setStepUpHandler(handler: StepUpHandler | null): void {
+  stepUpHandler = handler;
+}
+
+function performStepUp(): Promise<void> {
+  if (!stepUpHandler) return Promise.reject(new Error('Recent authentication is required.'));
+  if (!pendingStepUp) {
+    pendingStepUp = stepUpHandler().finally(() => {
+      pendingStepUp = null;
+    });
+  }
+  return pendingStepUp;
+}
+
+function errorMessage(detail: unknown, fallback: string): { message: string; code: string | null } {
+  if (typeof detail === 'string') return { message: detail, code: null };
+  if (detail && typeof detail === 'object' && !Array.isArray(detail)) {
+    const value = detail as { message?: unknown; code?: unknown };
+    return {
+      message: typeof value.message === 'string' ? value.message : fallback,
+      code: typeof value.code === 'string' ? value.code : null,
+    };
+  }
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((entry) =>
+        entry && typeof entry === 'object' && typeof (entry as { msg?: unknown }).msg === 'string'
+          ? (entry as { msg: string }).msg
+          : null,
+      )
+      .filter((value): value is string => value !== null);
+    if (messages.length > 0) return { message: messages.join('; '), code: null };
+  }
+  return { message: fallback, code: null };
 }
 
 interface RequestOptions {
@@ -170,7 +216,11 @@ interface RequestOptions {
   headers?: Record<string, string>;
 }
 
-async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+async function request<T>(
+  path: string,
+  options: RequestOptions = {},
+  retryAfterStepUp = true,
+): Promise<T> {
   const { method = 'GET', token, body, rawBody, contentType, headers: extraHeaders } = options;
   if (body !== undefined && rawBody !== undefined) {
     throw new Error('API requests cannot include both JSON and raw bodies.');
@@ -193,22 +243,39 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   });
 
   if (!response.ok) {
-    let detail = response.statusText;
+    let rawDetail: unknown = response.statusText;
     try {
-      const data = (await response.json()) as { detail?: string };
-      if (typeof data.detail === 'string') {
-        detail = data.detail;
-      }
+      const data = (await response.json()) as { detail?: unknown };
+      rawDetail = data.detail ?? response.statusText;
     } catch {
       // Non-JSON error body; fall back to the status text.
     }
-    throw new ApiError(response.status, detail);
+    const parsed = errorMessage(rawDetail, response.statusText);
+    if (response.status === 403 && parsed.code === 'step_up_required' && retryAfterStepUp) {
+      await performStepUp();
+      return request<T>(path, options, false);
+    }
+    throw new ApiError(response.status, parsed.message, parsed.code, rawDetail);
   }
 
   if (response.status === 204) {
     return undefined as T;
   }
   return (await response.json()) as T;
+}
+
+async function collectPages<T>(loadPage: (offset: number) => Promise<Page<T>>): Promise<Page<T>> {
+  const items: T[] = [];
+  let total = 0;
+  let offset = 0;
+  do {
+    const page = await loadPage(offset);
+    total = page.total;
+    items.push(...page.items);
+    if (page.items.length === 0) break;
+    offset += page.items.length;
+  } while (offset < total);
+  return { items, total, limit: items.length, offset: 0 };
 }
 
 export const api = {
@@ -287,6 +354,12 @@ export const api = {
       method: 'PATCH',
       token,
       body: payload,
+    });
+  },
+  deleteIdentityProvider(token: string, providerId: string): Promise<void> {
+    return request<void>(`/api/v1/identity/providers/${providerId}`, {
+      method: 'DELETE',
+      token,
     });
   },
   validateIdentityProvider(token: string, providerId: string): Promise<IdentityProvider> {
@@ -691,8 +764,22 @@ export const api = {
       body: { token: secret, password },
     });
   },
-  listSites(token: string): Promise<Page<Site>> {
-    return request<Page<Site>>('/api/v1/sites', { token });
+  listSites(token: string, limit?: number, offset = 0): Promise<Page<Site>> {
+    const query = limit === undefined ? '' : `?limit=${limit}&offset=${offset}`;
+    return request<Page<Site>>(`/api/v1/sites${query}`, { token });
+  },
+  async listAllSites(token: string): Promise<Page<Site>> {
+    const first = await api.listSites(token);
+    if (first.items.length >= first.total) return first;
+    const rest = await collectPages((relativeOffset) =>
+      api.listSites(token, 200, first.items.length + relativeOffset),
+    );
+    return {
+      items: [...first.items, ...rest.items],
+      total: first.total,
+      limit: first.total,
+      offset: 0,
+    };
   },
   createSite(token: string, payload: NewSite): Promise<Site> {
     return request<Site>('/api/v1/sites', { method: 'POST', token, body: payload });
@@ -718,13 +805,20 @@ export const api = {
     limit = 200,
     siteId?: string,
     filters: AssetFilters = {},
+    offset = 0,
   ): Promise<Page<Asset>> {
-    const params = new URLSearchParams({ limit: String(limit) });
+    const params = new URLSearchParams({
+      limit: String(Math.min(limit, 200)),
+      offset: String(offset),
+    });
     if (siteId) params.set('site_id', siteId);
     for (const [key, value] of Object.entries(filters)) {
       if (value !== undefined && value !== '') params.set(key, String(value));
     }
     return request<Page<Asset>>(`/api/v1/assets?${params.toString()}`, { token });
+  },
+  listAllAssets(token: string, siteId?: string, filters: AssetFilters = {}): Promise<Page<Asset>> {
+    return collectPages((offset) => api.listAssets(token, 200, siteId, filters, offset));
   },
   getAsset(token: string, assetId: string): Promise<AssetDetail> {
     return request<AssetDetail>(`/api/v1/assets/${encodeURIComponent(assetId)}`, { token });
@@ -839,6 +933,13 @@ export const api = {
     const query = siteId ? `?site_id=${encodeURIComponent(siteId)}` : '';
     return request<Page<NetworkScope>>(`/api/v1/scopes${query}`, { token });
   },
+  listAllScopes(token: string, siteId?: string): Promise<Page<NetworkScope>> {
+    return collectPages((offset) => {
+      const params = new URLSearchParams({ limit: '200', offset: String(offset) });
+      if (siteId) params.set('site_id', siteId);
+      return request<Page<NetworkScope>>(`/api/v1/scopes?${params.toString()}`, { token });
+    });
+  },
   createScope(token: string, payload: NewScope): Promise<NetworkScope> {
     return request<NetworkScope>('/api/v1/scopes', { method: 'POST', token, body: payload });
   },
@@ -929,8 +1030,11 @@ export const api = {
       token,
     });
   },
-  listReports(token: string, limit = 50): Promise<Page<Report>> {
-    return request<Page<Report>>(`/api/v1/reports?limit=${limit}`, { token });
+  listReports(token: string, limit = 50, offset = 0): Promise<Page<Report>> {
+    return request<Page<Report>>(`/api/v1/reports?limit=${limit}&offset=${offset}`, { token });
+  },
+  listAllReports(token: string): Promise<Page<Report>> {
+    return collectPages((offset) => api.listReports(token, 200, offset));
   },
   createReports(
     token: string,
@@ -1277,22 +1381,27 @@ export const api = {
     probeId: string,
     targets: string[],
     networkId?: string,
+    presetKey?: string,
   ): Promise<JobSummary> {
     return request<JobSummary>('/api/v1/jobs', {
       method: 'POST',
       token,
       body: {
         ...(networkId ? { network_id: networkId } : {}),
+        ...(presetKey ? { preset_key: presetKey } : {}),
         probe_id: probeId,
         targets,
         mode: 'vulnerability_assessment',
       },
     });
   },
-  listJobs(token: string, status?: string, limit = 100): Promise<Page<Job>> {
-    const params = new URLSearchParams({ limit: String(limit) });
+  listJobs(token: string, status?: string, limit = 100, offset = 0): Promise<Page<Job>> {
+    const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
     if (status) params.set('status', status);
     return request<Page<Job>>(`/api/v1/jobs?${params.toString()}`, { token });
+  },
+  listAllJobs(token: string, status?: string): Promise<Page<Job>> {
+    return collectPages((offset) => api.listJobs(token, status, 200, offset));
   },
   cancelJob(token: string, id: string): Promise<Job> {
     return request<Job>(`/api/v1/jobs/${id}/cancel`, { method: 'POST', token });
@@ -1366,6 +1475,36 @@ export const api = {
       method: 'POST',
       token,
       body,
+    });
+  },
+  updateChannel(
+    token: string,
+    id: string,
+    body: {
+      events?: string[];
+      policy?: string;
+      enabled?: boolean;
+      quiet_start_hour?: number | null;
+      quiet_end_hour?: number | null;
+    },
+  ): Promise<NotificationChannel> {
+    return request<NotificationChannel>(`/api/v1/notifications/channels/${id}`, {
+      method: 'PATCH',
+      token,
+      body,
+    });
+  },
+  rotateChannelSecret(token: string, id: string, secret: string): Promise<{ rotated: boolean }> {
+    return request<{ rotated: boolean }>(`/api/v1/notifications/channels/${id}/rotate-secret`, {
+      method: 'POST',
+      token,
+      body: { secret },
+    });
+  },
+  deleteChannel(token: string, id: string): Promise<{ deleted: boolean }> {
+    return request<{ deleted: boolean }>(`/api/v1/notifications/channels/${id}`, {
+      method: 'DELETE',
+      token,
     });
   },
   testChannel(token: string, id: string): Promise<unknown> {
@@ -1584,11 +1723,16 @@ export const api = {
     id: string,
     approvedCidrs: string[],
     deniedCidrs: string[] = [],
+    allowPublicAddresses = false,
   ): Promise<{ approved_cidrs: string[]; denied_cidrs: string[] }> {
     return request(`/api/v1/relays/${id}/scope`, {
       method: 'POST',
       token,
-      body: { approved_cidrs: approvedCidrs, denied_cidrs: deniedCidrs },
+      body: {
+        approved_cidrs: approvedCidrs,
+        denied_cidrs: deniedCidrs,
+        allow_public_addresses: allowPublicAddresses,
+      },
     });
   },
   killRelay(token: string, id: string): Promise<Relay> {
@@ -1596,6 +1740,9 @@ export const api = {
   },
   resumeRelay(token: string, id: string): Promise<Relay> {
     return request<Relay>(`/api/v1/relays/${id}/resume`, { method: 'POST', token });
+  },
+  revokeRelay(token: string, id: string): Promise<{ revoked: boolean }> {
+    return request<{ revoked: boolean }>(`/api/v1/relays/${id}`, { method: 'DELETE', token });
   },
 
   // --- Networking assistant (Phase 23) ---
@@ -1626,6 +1773,9 @@ export const api = {
     return request<FindingPage<Finding>>(`/api/v1/findings?limit=${capped}&offset=${offset}`, {
       token,
     });
+  },
+  listAllFindings(token: string): Promise<FindingPage<Finding>> {
+    return collectPages((offset) => api.listFindings(token, 200, offset));
   },
   async listFindingSnapshot(token: string): Promise<FindingPage<Finding> & { truncated: boolean }> {
     const items: Finding[] = [];

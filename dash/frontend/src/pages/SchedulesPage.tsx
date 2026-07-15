@@ -87,6 +87,9 @@ export function ScansPage() {
     user?.permissions !== undefined
       ? user.permissions.includes('jobs.manage')
       : user?.role === 'administrator' || user?.role === 'security_operator';
+  const canGenerateReports = user?.permissions
+    ? user.permissions.includes('reports.create')
+    : user?.role === 'administrator' || user?.role === 'security_operator';
 
   const load = useCallback(
     async (silent = false) => {
@@ -98,7 +101,7 @@ export function ScansPage() {
         const [scheds, nets, jobPage, probePage] = await Promise.all([
           api.listSchedules(token),
           api.listNetworks(token).catch(() => []),
-          api.listJobs(token, undefined, 200).catch(() => null),
+          api.listAllJobs(token).catch(() => null),
           api.listProbes(token).catch(() => null),
         ]);
         setSchedules(scheds);
@@ -202,6 +205,21 @@ export function ScansPage() {
     completed: completedJobs.length,
     failed: failedJobs.length,
   };
+
+  useEffect(() => {
+    const jobId = current.params.job;
+    if (!jobId) return;
+    const job = jobs.find((item) => item.id === jobId);
+    if (!job) return;
+    setTab(
+      ACTIVE_STATES.includes(job.status)
+        ? 'running'
+        : job.status === 'completed'
+          ? 'completed'
+          : 'failed',
+    );
+    if (FAILED_STATES.includes(job.status)) void showDiagnostics(job);
+  }, [current.params.job, jobs, showDiagnostics]);
 
   const jobColumns: ColumnDef<Job>[] = useMemo(
     () => [
@@ -328,7 +346,7 @@ export function ScansPage() {
                 Cancel
               </Button>
             </span>
-          ) : j.status === 'completed' ? (
+          ) : j.status === 'completed' && canGenerateReports ? (
             <span className="flex items-center justify-end" onClick={(e) => e.stopPropagation()}>
               <Button
                 size="sm"
@@ -358,6 +376,7 @@ export function ScansPage() {
     [
       probeName,
       isOperator,
+      canGenerateReports,
       busy,
       token,
       generateReport,
@@ -543,7 +562,11 @@ export function ScansPage() {
       ) : (
         <DataTable<Job>
           columns={jobColumns}
-          rows={jobRows[tab] ?? []}
+          rows={
+            current.params.job
+              ? (jobRows[tab] ?? []).filter((job) => job.id === current.params.job)
+              : (jobRows[tab] ?? [])
+          }
           rowKey={(j) => j.id}
           searchText={(j) =>
             `${j.requested_targets_json.join(' ')} ${probeName(j.probe_id)} ${j.status}`

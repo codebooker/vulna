@@ -26,6 +26,7 @@ from onelogin.saml2.idp_metadata_parser import (  # type: ignore[import-untyped]
 )
 from onelogin.saml2.settings import OneLogin_Saml2_Settings  # type: ignore[import-untyped]
 from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
@@ -49,8 +50,9 @@ from app.models.sso import (
 )
 from app.models.user import User
 from app.models.user_lifecycle import UserSiteAssignment
-from app.services import authorization, notifications
+from app.services import authorization, notifications, user_lifecycle
 from app.services.secret_crypto import SecretPurpose, decrypt_secret, encrypt_secret
+from app.services.sessions import revoke_user_sessions
 
 OIDC_PRESET_SCOPES: dict[str, list[str]] = {
     "generic": ["openid", "profile", "email", "groups"],
@@ -86,9 +88,9 @@ def normalize_return_path(value: str) -> str:
 
 
 def public_base_url(settings: Settings, request_base_url: str) -> str:
-    base = (
-        settings.sso_public_base_url or settings.public_base_url or request_base_url
-    ).rstrip("/")
+    base = (settings.sso_public_base_url or settings.public_base_url or request_base_url).rstrip(
+        "/"
+    )
     parts = urlsplit(base)
     if not parts.hostname or parts.scheme not in {"http", "https"}:
         raise SsoError("The SSO public base URL is invalid")
@@ -102,18 +104,29 @@ async def get_policy(session: AsyncSession, organization_id: uuid.UUID) -> SsoPo
         select(SsoPolicy).where(SsoPolicy.organization_id == organization_id)
     )
     if policy is None:
-        policy = SsoPolicy(
+        candidate = SsoPolicy(
             organization_id=organization_id,
             mode=SsoPolicyMode.DISABLED,
         )
-        session.add(policy)
-        await session.flush()
+        try:
+            async with session.begin_nested():
+                session.add(candidate)
+                await session.flush()
+            policy = candidate
+        except IntegrityError:
+            # Two unauthenticated login pages can request the public provider
+            # catalogue simultaneously on a fresh organization. The unique
+            # organization constraint decides the winner; the loser recovers
+            # inside a savepoint instead of poisoning its request transaction.
+            policy = await session.scalar(
+                select(SsoPolicy).where(SsoPolicy.organization_id == organization_id)
+            )
+            if policy is None:
+                raise
     return policy
 
 
-async def active_break_glass_users(
-    session: AsyncSession, organization_id: uuid.UUID
-) -> list[User]:
+async def active_break_glass_users(session: AsyncSession, organization_id: uuid.UUID) -> list[User]:
     """Return active local administrators that have a usable strong factor."""
     candidates = list(
         (
@@ -198,9 +211,7 @@ async def local_login_permitted(session: AsyncSession, user: User) -> bool:
     return any(item.id == user.id for item in active)
 
 
-async def ensure_break_glass_eligibility_can_be_removed(
-    session: AsyncSession, user: User
-) -> None:
+async def ensure_break_glass_eligibility_can_be_removed(session: AsyncSession, user: User) -> None:
     """Reject changes that would strand an enforced organization without recovery."""
     if not user.is_break_glass:
         return
@@ -306,9 +317,7 @@ def new_protocol_state(
             encrypt_secret(secret, SecretPurpose.OIDC_FLOW_SECRET, nonce) if nonce else None
         ),
         encrypted_pkce_verifier=(
-            encrypt_secret(secret, SecretPurpose.OIDC_FLOW_SECRET, verifier)
-            if verifier
-            else None
+            encrypt_secret(secret, SecretPurpose.OIDC_FLOW_SECRET, verifier) if verifier else None
         ),
         return_path=normalize_return_path(return_path),
         initiated_by_user_id=initiated_by_user_id,
@@ -327,9 +336,11 @@ def oidc_authorization_url(
     verifier: str,
 ) -> str:
     endpoint = str(metadata["authorization_endpoint"])
-    challenge = base64.urlsafe_b64encode(
-        hashlib.sha256(verifier.encode("ascii")).digest()
-    ).rstrip(b"=").decode("ascii")
+    challenge = (
+        base64.urlsafe_b64encode(hashlib.sha256(verifier.encode("ascii")).digest())
+        .rstrip(b"=")
+        .decode("ascii")
+    )
     client = AsyncOAuth2Client(
         client_id=provider.client_id,
         redirect_uri=redirect_uri,
@@ -483,9 +494,11 @@ def normalize_x509_certificate(value: str) -> str:
     stripped = _strip_pem_certificate(value)
     if not stripped:
         raise SsoError("SAML signing certificate is empty")
-    wrapped = "-----BEGIN CERTIFICATE-----\n" + "\n".join(
-        stripped[index : index + 64] for index in range(0, len(stripped), 64)
-    ) + "\n-----END CERTIFICATE-----\n"
+    wrapped = (
+        "-----BEGIN CERTIFICATE-----\n"
+        + "\n".join(stripped[index : index + 64] for index in range(0, len(stripped), 64))
+        + "\n-----END CERTIFICATE-----\n"
+    )
     try:
         certificate = x509.load_pem_x509_certificate(wrapped.encode("ascii"))
     except (ValueError, UnicodeEncodeError) as exc:
@@ -496,9 +509,7 @@ def normalize_x509_certificate(value: str) -> str:
 def _generate_sp_keypair(provider: IdentityProvider, settings: Settings) -> None:
     private_key = rsa.generate_private_key(public_exponent=65537, key_size=3072)
     now = utcnow()
-    subject = x509.Name(
-        [x509.NameAttribute(NameOID.COMMON_NAME, f"Vulna SAML SP {provider.id}")]
-    )
+    subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, f"Vulna SAML SP {provider.id}")])
     certificate = (
         x509.CertificateBuilder()
         .subject_name(subject)
@@ -581,16 +592,10 @@ def saml_settings(
     encrypted_idp_certificate = provider.encrypted_idp_certificate
     encrypted_sp_certificate = provider.encrypted_sp_certificate
     encrypted_sp_private_key = provider.encrypted_sp_private_key
-    if not (
-        encrypted_idp_certificate
-        and encrypted_sp_certificate
-        and encrypted_sp_private_key
-    ):
+    if not (encrypted_idp_certificate and encrypted_sp_certificate and encrypted_sp_private_key):
         raise SsoError("SAML provider key material is incomplete")
     master = settings.require_secret_key()
-    idp_cert = decrypt_secret(
-        master, SecretPurpose.SAML_IDP_CERTIFICATE, encrypted_idp_certificate
-    )
+    idp_cert = decrypt_secret(master, SecretPurpose.SAML_IDP_CERTIFICATE, encrypted_idp_certificate)
     signing_certs = [_strip_pem_certificate(idp_cert)]
     if provider.encrypted_next_idp_certificate:
         signing_certs.append(
@@ -722,26 +727,112 @@ def _claim_groups(claims: dict[str, Any]) -> list[str]:
     return []
 
 
-async def _provider_maps_roles(session: AsyncSession, provider: IdentityProvider) -> bool:
-    """Whether this provider derives roles from IdP group membership."""
-    return (
-        await session.scalar(
-            select(IdentityGroupMapping.id)
-            .where(
-                IdentityGroupMapping.identity_provider_id == provider.id,
-                IdentityGroupMapping.organization_id == provider.organization_id,
-                IdentityGroupMapping.role.is_not(None),
-            )
-            .limit(1)
-        )
-    ) is not None
-
-
 def _safe_jit_default_role(provider: IdentityProvider) -> UserRole:
     """Fail closed for providers created before default-role validation existed."""
     if provider.default_role == UserRole.VIEWER:
         return provider.default_role
     return UserRole.VIEWER
+
+
+async def _apply_jit_access(
+    session: AsyncSession,
+    user: User,
+    *,
+    role: UserRole,
+    site_ids: set[uuid.UUID],
+    reason: str,
+    all_sites_when_empty: bool = True,
+) -> None:
+    """Apply one complete, fail-closed JIT authorization snapshot.
+
+    Role and site changes share the normal user-management invariants and revoke
+    every older session once. An empty site set normally means organization-wide
+    access; administrative reconciliation can instead choose no site access.
+    Stale assignments are never retained from a previous group assertion.
+    """
+    if user.authentication_source != AuthenticationSource.JIT:
+        return
+    role_changed = role != user.role
+    if role_changed and user.role == UserRole.ADMINISTRATOR and role != UserRole.ADMINISTRATOR:
+        if (
+            user.account_status == AccountStatus.ACTIVE
+            and user.is_active
+            and await user_lifecycle.active_admin_count(
+                session, user.organization_id, exclude_user_id=user.id
+            )
+            == 0
+        ):
+            raise SsoError("The last active administrator cannot lose that role")
+        await ensure_break_glass_eligibility_can_be_removed(session, user)
+
+    existing_sites = set(
+        (
+            await session.execute(
+                select(UserSiteAssignment.site_id).where(UserSiteAssignment.user_id == user.id)
+            )
+        ).scalars()
+    )
+    desired_mode = (
+        SiteAccessMode.ALL if not site_ids and all_sites_when_empty else SiteAccessMode.ASSIGNED
+    )
+    sites_changed = user.site_access_mode != desired_mode or existing_sites != site_ids
+    if role_changed:
+        user.role = role
+    if sites_changed:
+        await session.execute(
+            delete(UserSiteAssignment).where(UserSiteAssignment.user_id == user.id)
+        )
+        user.site_access_mode = desired_mode
+        if site_ids:
+            session.add_all(
+                [
+                    UserSiteAssignment(
+                        organization_id=user.organization_id,
+                        user_id=user.id,
+                        site_id=site_id,
+                        assigned_by_user_id=None,
+                    )
+                    for site_id in sorted(site_ids, key=str)
+                ]
+            )
+    if role_changed or sites_changed:
+        await session.flush()
+        await authorization.sync_user_compatibility_grants(session, user)
+        user.auth_version += 1
+        await revoke_user_sessions(session, user.id, reason=reason)
+
+
+async def reconcile_provider_jit_users(session: AsyncSession, provider: IdentityProvider) -> int:
+    """Reset linked JIT users to the safe baseline after mapping replacement.
+
+    Group claims are deliberately not persisted. The provider is disabled until
+    it is re-tested, and each user's next signed login reapplies the new mapping.
+    """
+    users = list(
+        (
+            await session.execute(
+                select(User)
+                .join(ExternalIdentityLink, ExternalIdentityLink.user_id == User.id)
+                .where(
+                    ExternalIdentityLink.identity_provider_id == provider.id,
+                    ExternalIdentityLink.organization_id == provider.organization_id,
+                    User.organization_id == provider.organization_id,
+                    User.authentication_source == AuthenticationSource.JIT,
+                )
+                .distinct()
+            )
+        ).scalars()
+    )
+    for user in users:
+        await _apply_jit_access(
+            session,
+            user,
+            role=_safe_jit_default_role(provider),
+            site_ids=set(),
+            reason="identity-provider group mappings changed",
+            all_sites_when_empty=False,
+        )
+    return len(users)
 
 
 async def resolve_sso_user(
@@ -816,37 +907,18 @@ async def resolve_sso_user(
     mapped_roles = {mapping.role for mapping in mappings if mapping.role is not None}
     if len(mapped_roles) > 1:
         raise SsoError("External groups map to conflicting roles")
+    desired_role = mapped_roles.pop() if mapped_roles else _safe_jit_default_role(provider)
+    site_ids = {uuid.UUID(value) for mapping in mappings for value in (mapping.site_ids_json or [])}
     if user.authentication_source == AuthenticationSource.JIT:
-        if mapped_roles:
-            user.role = mapped_roles.pop()
-        elif await _provider_maps_roles(session, provider):
-            # The provider derives roles from IdP groups, but this identity now
-            # matches no role-granting group. Fall back to the configured default
-            # so removal from an IdP group actually downgrades the Vulna role
-            # instead of silently retaining a previously granted one.
-            user.role = _safe_jit_default_role(provider)
-    site_ids = {
-        uuid.UUID(value)
-        for mapping in mappings
-        for value in (mapping.site_ids_json or [])
-    }
-    if site_ids and user.authentication_source == AuthenticationSource.JIT:
-        user.site_access_mode = SiteAccessMode.ASSIGNED
-        await session.execute(
-            delete(UserSiteAssignment).where(UserSiteAssignment.user_id == user.id)
+        await _apply_jit_access(
+            session,
+            user,
+            role=desired_role,
+            site_ids=site_ids,
+            reason="identity-provider group access changed",
         )
-        session.add_all(
-            [
-                UserSiteAssignment(
-                    organization_id=user.organization_id,
-                    user_id=user.id,
-                    site_id=site_id,
-                    assigned_by_user_id=None,
-                )
-                for site_id in sorted(site_ids, key=str)
-            ]
-        )
-    if user.authentication_source == AuthenticationSource.JIT:
+        # New users already start at the desired baseline and therefore do not
+        # enter the change branch above; materialize their compatibility grant.
         await authorization.sync_user_compatibility_grants(session, user)
     now = utcnow()
     user.last_login_at = now

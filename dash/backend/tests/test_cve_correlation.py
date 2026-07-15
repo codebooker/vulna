@@ -133,9 +133,7 @@ async def test_correlate_skips_low_confidence_product_only(db_session: AsyncSess
 
 
 async def test_correlate_skips_rejected_cve(db_session: AsyncSession) -> None:
-    db_session.add(
-        CveRecord(cve_id="CVE-0000-0000", cpe_matches_json=[RANGE_MATCH], rejected=True)
-    )
+    db_session.add(CveRecord(cve_id="CVE-0000-0000", cpe_matches_json=[RANGE_MATCH], rejected=True))
     db_session.add(CveProductIndex(product="http_server", cve_id="CVE-0000-0000"))
     await db_session.flush()
     hosts = [ParsedHost(ip="10.0.0.1", services=[_service("http_server", "2.4.49")])]
@@ -200,7 +198,9 @@ def test_match_confidence_exact_service_cpe_is_high() -> None:
     # The service's own CPE (nmap's 2.2 format) matching the product -> high.
     assert (
         match_confidence(
-            matches, product="http_server", version="2.4.49",
+            matches,
+            product="http_server",
+            version="2.4.49",
             service_cpe="cpe:/a:apache:http_server:2.4.49",
         )
         is MatchConfidence.HIGH
@@ -208,15 +208,30 @@ def test_match_confidence_exact_service_cpe_is_high() -> None:
     # The 2.3 CPE form is accepted too.
     assert (
         match_confidence(
-            matches, product="http_server", version="2.4.49",
+            matches,
+            product="http_server",
+            version="2.4.49",
             service_cpe="cpe:2.3:a:apache:http_server:2.4.49:*:*:*:*:*:*:*",
         )
         is MatchConfidence.HIGH
     )
     # Without a service CPE the same match stays medium.
     assert (
-        match_confidence(matches, product="http_server", version="2.4.49")
-        is MatchConfidence.MEDIUM
+        match_confidence(matches, product="http_server", version="2.4.49") is MatchConfidence.MEDIUM
+    )
+
+
+def test_match_confidence_rejects_same_product_from_another_vendor() -> None:
+    from app.intelligence.matching import match_confidence
+
+    assert (
+        match_confidence(
+            [RANGE_MATCH],
+            product="http_server",
+            version="2.4.49",
+            service_cpe="cpe:/a:not_apache:http_server:2.4.49",
+        )
+        is None
     )
 
 

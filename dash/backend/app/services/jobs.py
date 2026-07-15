@@ -199,7 +199,13 @@ def _target_within_approved(target: str, approved: list[str]) -> bool:
     return False
 
 
-def _validate_targets(targets: list[str], approved: list[str], *, allow_public: bool) -> list[str]:
+def _validate_targets(
+    targets: list[str],
+    approved: list[str],
+    *,
+    denied: list[str] | None = None,
+    allow_public: bool,
+) -> list[str]:
     if not targets:
         raise JobValidationError("At least one target is required")
     normalized: list[str] = []
@@ -212,6 +218,13 @@ def _validate_targets(targets: list[str], approved: list[str], *, allow_public: 
             raise JobValidationError(f"Target {target} is a public address")
         if not _target_within_approved(target, approved):
             raise JobValidationError(f"Target {target} is outside the approved scope")
+        for denied_cidr in denied or []:
+            try:
+                denied_net = normalize_cidr(denied_cidr)
+            except ScopeValidationError:
+                continue
+            if net.version == denied_net.version and net.overlaps(denied_net):
+                raise JobValidationError(f"Target {target} overlaps denied scope {denied_cidr}")
         normalized.append(str(net))
     return normalized
 
@@ -310,10 +323,17 @@ async def create_scan_job(
         raise JobValidationError("The probe has no approved scopes; approve a scope first")
 
     if network_id is not None:
-        approved = await _validate_network_job(session, probe, network_id)
+        network_approved = await _validate_network_job(session, probe, network_id)
+        policy_approved = set(approved)
+        approved = [cidr for cidr in network_approved if cidr in policy_approved]
+        if not approved:
+            raise JobValidationError("The selected Scout is not permitted to use this network")
 
     normalized_targets = _validate_targets(
-        targets, approved, allow_public=bool(policy["allow_public_addresses"])
+        targets,
+        approved,
+        denied=list(policy.get("denied_cidrs", [])),
+        allow_public=bool(policy["allow_public_addresses"]),
     )
     _enforce_host_limit(normalized_targets, policy["limits"])
 

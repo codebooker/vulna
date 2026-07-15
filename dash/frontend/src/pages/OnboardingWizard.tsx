@@ -42,6 +42,9 @@ export function OnboardingWizard({ onFinished }: { onFinished: () => void }) {
   const [state, setState] = useState<OnboardingState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [preset, setPreset] = useState(
+    () => window.sessionStorage.getItem('vulna.onboarding.preset') ?? 'standard',
+  );
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -178,12 +181,21 @@ export function OnboardingWizard({ onFinished }: { onFinished: () => void }) {
           />
         )}
         {step === 'preset' && (
-          <PresetStep token={token} onNext={() => void advance({ step: 'preset' })} />
+          <PresetStep
+            token={token}
+            selected={preset}
+            onNext={(value) => {
+              setPreset(value);
+              window.sessionStorage.setItem('vulna.onboarding.preset', value);
+              void advance({ step: 'preset' });
+            }}
+          />
         )}
         {step === 'launch' && (
           <LaunchStep
             token={token}
             scopeId={state.scope_id}
+            preset={preset}
             onLaunched={(jobId) => void advance({ step: 'launch', first_job_id: jobId })}
           />
         )}
@@ -513,12 +525,15 @@ function SiteStep({
 
 function ScoutStep({ token, onNext }: { token: string; onNext: () => void }) {
   const [status, setStatus] = useState<string>('checking');
-  useEffect(() => {
+  const check = useCallback(() => {
+    setStatus('checking');
     void api
       .componentHealth(token)
       .then((h) => setStatus(h.local_scout))
       .catch(() => setStatus('unknown'));
   }, [token]);
+  useEffect(() => check(), [check]);
+  const connected = status === 'connected' || status === 'ok';
   return (
     <div className="flex flex-col items-start gap-4">
       <p className={detail}>
@@ -526,13 +541,24 @@ function ScoutStep({ token, onNext }: { token: string; onNext: () => void }) {
         client certificate and only runs signed jobs within approved scopes.
       </p>
       <div className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-[13px]">
-        <StatusDot ok={status === 'connected'} />
+        <StatusDot ok={connected} />
         <span className="text-text">Local Scout</span>
-        <Badge tone={status === 'connected' ? 'ok' : 'neutral'}>{status}</Badge>
+        <Badge tone={connected ? 'ok' : 'neutral'}>{status}</Badge>
       </div>
-      <Button variant="primary" onClick={onNext}>
-        Continue
-      </Button>
+      {!connected && (
+        <p className={detail}>
+          Install and approve a Scout, then wait for it to connect. Setup cannot launch a scan
+          through an offline appliance.
+        </p>
+      )}
+      <div className="flex gap-2">
+        <Button variant="outline" onClick={check}>
+          Check again
+        </Button>
+        <Button variant="primary" disabled={!connected} onClick={onNext}>
+          Continue
+        </Button>
+      </div>
     </div>
   );
 }
@@ -688,8 +714,17 @@ function ScopeStep({
   );
 }
 
-function PresetStep({ token, onNext }: { token: string; onNext: () => void }) {
+function PresetStep({
+  token,
+  selected,
+  onNext,
+}: {
+  token: string;
+  selected: string;
+  onNext: (preset: string) => void;
+}) {
   const [presets, setPresets] = useState<ScanPreset[]>([]);
+  const [selection, setSelection] = useState(selected);
   useEffect(() => {
     void api.scanPresets(token).then((r) => setPresets(r.presets));
   }, [token]);
@@ -698,7 +733,18 @@ function PresetStep({ token, onNext }: { token: string; onNext: () => void }) {
       <p className={detail}>Choose what kind of check to run. The safe default is recommended.</p>
       <div className="grid w-full grid-cols-1 gap-2.5 sm:grid-cols-2">
         {presets.map((p) => (
-          <div key={p.key} className="rounded-lg border border-border p-3.5">
+          <button
+            key={p.key}
+            type="button"
+            aria-pressed={selection === p.key}
+            onClick={() => setSelection(p.key)}
+            className={cn(
+              'rounded-lg border p-3.5 text-left transition-colors',
+              selection === p.key
+                ? 'border-accent bg-[var(--accent-tint)]'
+                : 'border-border hover:bg-surface-2',
+            )}
+          >
             <p className="text-[13px] font-semibold text-text">{p.name}</p>
             <p className={cn(detail, 'mt-0.5')}>{p.description}</p>
             <ul className="mt-2 flex flex-wrap gap-1">
@@ -711,11 +757,11 @@ function PresetStep({ token, onNext }: { token: string; onNext: () => void }) {
             <p className="mt-2 text-xs text-faint">
               Resource use: {p.resource_class} · Duration: {p.duration_class}
             </p>
-          </div>
+          </button>
         ))}
       </div>
-      <Button variant="primary" onClick={onNext}>
-        Use Standard Security Check
+      <Button variant="primary" disabled={!selection} onClick={() => onNext(selection)}>
+        Use {presets.find((item) => item.key === selection)?.name ?? 'selected check'}
       </Button>
     </div>
   );
@@ -724,43 +770,62 @@ function PresetStep({ token, onNext }: { token: string; onNext: () => void }) {
 function LaunchStep({
   token,
   scopeId,
+  preset,
   onLaunched,
 }: {
   token: string;
   scopeId: string | null;
+  preset: string;
   onLaunched: (jobId: string) => void;
 }) {
   const [summary, setSummary] = useState<ScanSummary | null>(null);
-  const [cidr, setCidr] = useState<string | null>(null);
+  const [target, setTarget] = useState<{
+    cidr: string;
+    networkId: string;
+    probeId: string;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [launching, setLaunching] = useState(false);
 
   useEffect(() => {
     void (async () => {
       try {
-        const scopes = await api.listScopes(token);
-        const scope = scopes.items.find((s) => s.id === scopeId) ?? scopes.items[0];
-        if (!scope) return;
-        setCidr(scope.cidr);
-        setSummary(await api.scanSummary(token, 'standard', [scope.cidr]));
+        const [scopes, networks, probes] = await Promise.all([
+          api.listScopes(token),
+          api.listNetworks(token),
+          api.listProbes(token),
+        ]);
+        const scope = scopes.items.find((item) => item.id === scopeId);
+        if (!scope) throw new Error('The approved onboarding scope could not be found.');
+        const network = networks.find((item) => item.id === scope.network_id);
+        if (!network) throw new Error('The approved scope is not attached to a network.');
+        const binding = network.scouts.find((item) => item.is_primary);
+        const probe = probes.items.find(
+          (item) => item.id === binding?.probe_id && item.status === 'enrolled',
+        );
+        if (!probe) {
+          throw new Error('The selected network has no enrolled primary Scout.');
+        }
+        setTarget({ cidr: scope.cidr, networkId: network.id, probeId: probe.id });
+        setSummary(await api.scanSummary(token, preset, [scope.cidr]));
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Could not build the summary.');
       }
     })();
-  }, [token, scopeId]);
+  }, [token, scopeId, preset]);
 
   const launch = async () => {
-    if (!cidr) return;
+    if (!target) return;
     setLaunching(true);
     setError(null);
     try {
-      const probes = await api.listProbes(token);
-      const probe = probes.items.find((p) => p.status === 'enrolled') ?? probes.items[0];
-      if (!probe) {
-        setError('No enrolled Scout is available to run the assessment.');
-        return;
-      }
-      const job = await api.createJob(token, probe.id, [cidr]);
+      const job = await api.createJob(
+        token,
+        target.probeId,
+        [target.cidr],
+        target.networkId,
+        preset,
+      );
       onLaunched(job.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not launch the assessment.');

@@ -12,10 +12,14 @@ import (
 )
 
 // StageOutput is raw output produced by one workflow stage, to be uploaded.
+// Complete marks an explicit end-of-scanner record. Completion records carry no
+// scanner payload; the orchestrator uses them to finalize verification only
+// after every streamed batch for that scanner has been ingested.
 type StageOutput struct {
-	Stage   string
-	Scanner string
-	Raw     []byte
+	Stage    string
+	Scanner  string
+	Raw      []byte
+	Complete bool
 }
 
 // StageFailure is a structured diagnostic for an unavailable or failed stage.

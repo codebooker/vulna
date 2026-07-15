@@ -10,6 +10,7 @@ from typing import cast
 
 import pyotp
 from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.password import hash_password, verify_password
@@ -38,14 +39,23 @@ async def get_policy(session: AsyncSession, organization_id: uuid.UUID) -> MfaPo
         select(MfaPolicy).where(MfaPolicy.organization_id == organization_id)
     )
     if row is None:
-        row = MfaPolicy(
+        candidate = MfaPolicy(
             organization_id=organization_id,
             mode="optional",
             required_roles_json=[],
             grace_period_days=7,
         )
-        session.add(row)
-        await session.flush()
+        try:
+            async with session.begin_nested():
+                session.add(candidate)
+                await session.flush()
+            row = candidate
+        except IntegrityError:
+            row = await session.scalar(
+                select(MfaPolicy).where(MfaPolicy.organization_id == organization_id)
+            )
+            if row is None:
+                raise
     return row
 
 

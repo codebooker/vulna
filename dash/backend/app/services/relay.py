@@ -38,14 +38,14 @@ RELAY_ENABLED_FLAG = "relay_mode_enabled"
 
 
 # --------------------------------------------------------------------------- #
-# Feature flag: relays are available by default, like Scouts. Admins can still
-# turn the whole subsystem off as an org-wide kill switch, and each relay has its
-# own kill switch, but there is no opt-in step before a relay can be enrolled.
+# Feature flag: Relay is an advanced, explicit opt-in. Admins can turn the whole
+# subsystem off as an org-wide kill switch, and each relay also has its own kill
+# switch.
 # --------------------------------------------------------------------------- #
 
 
 def relay_enabled(org: Organization) -> bool:
-    return bool((org.settings_json or {}).get(RELAY_ENABLED_FLAG, True))
+    return bool((org.settings_json or {}).get(RELAY_ENABLED_FLAG, False))
 
 
 def set_relay_enabled(org: Organization, enabled: bool) -> bool:

@@ -85,12 +85,12 @@ def test_validate_egress_cidrs_rejects_public_by_default() -> None:
 # --- API: off by default, enrollment, kill switch, egress ------------------- #
 
 
-async def test_relay_mode_available_by_default(
+async def test_relay_mode_is_off_by_default(
     client: AsyncClient, admin_headers: dict[str, str]
 ) -> None:
     s = await client.get("/api/v1/relays/settings", headers=admin_headers)
-    assert s.status_code == 200 and s.json()["enabled"] is True
-    # A relay is available like a Scout: enrolling needs only a site, no opt-in.
+    assert s.status_code == 200 and s.json()["enabled"] is False
+    # Enrollment remains unavailable until an administrator explicitly opts in.
     site = (
         await client.post(
             "/api/v1/sites",
@@ -103,7 +103,7 @@ async def test_relay_mode_available_by_default(
         json={"name": "site-b", "site_id": site["id"]},
         headers=admin_headers,
     )
-    assert cmd.status_code == 200
+    assert cmd.status_code == 409
 
 
 async def test_enable_requires_admin(
@@ -159,7 +159,11 @@ async def test_enroll_scope_and_egress_and_killswitch(
     # Approve an egress scope and bring the tunnel up via a heartbeat.
     scope = await client.post(
         f"/api/v1/relays/{relay_id}/scope",
-        json={"approved_cidrs": ["10.0.0.0/8"]},
+        json={
+            "approved_cidrs": ["10.0.0.0/8"],
+            "denied_cidrs": ["10.9.0.0/16"],
+            "allow_public_addresses": False,
+        },
         headers=admin_headers,
     )
     assert scope.status_code == 200
@@ -171,6 +175,72 @@ async def test_enroll_scope_and_egress_and_killswitch(
         )
     )
     assert binding_count == 1  # central Scout is dispatched through this relay network
+    primary = await db_session.scalar(
+        select(NetworkScout.is_primary).where(
+            NetworkScout.probe_id == uuid.UUID(central["probe_id"])
+        )
+    )
+    assert primary is True
+    serialized = next(
+        item
+        for item in (await client.get("/api/v1/relays", headers=admin_headers)).json()["relays"]
+        if item["id"] == relay_id
+    )
+    assert serialized["denied_cidrs"] == ["10.9.0.0/16"]
+    assert serialized["allow_public_addresses"] is False
+    central_policy = await client.get(
+        f"/api/v1/probes/{central['probe_id']}/policy",
+        headers=probe_cert_headers(central["fingerprint"]),
+    )
+    assert central_policy.status_code == 200
+    assert central_policy.json()["denied_cidrs"] == ["10.9.0.0/16"]
+    network_id = await db_session.scalar(select(NetworkScope.network_id))
+    denied_job = await client.post(
+        "/api/v1/jobs",
+        json={
+            "probe_id": central["probe_id"],
+            "network_id": str(network_id),
+            "targets": ["10.9.1.1"],
+            "mode": "vulnerability_assessment",
+        },
+        headers=admin_headers,
+    )
+    assert denied_job.status_code == 422
+    assert "denied scope" in denied_job.json()["detail"].lower()
+
+    # A Scout enrolled at the relay site must not receive the Relay-managed
+    # range, even though the site's default network binds it. Otherwise an API
+    # caller could explicitly select that Scout and bypass Relay egress policy.
+    enrollment = await client.post(
+        "/api/v1/probes/enrollment-tokens",
+        json={"site_id": serialized["site_id"], "probe_name": "branch-scout"},
+        headers=admin_headers,
+    )
+    branch = await client.post(
+        "/api/v1/probes/enroll",
+        json={"token": enrollment.json()["token"], "csr_pem": generate_csr_pem()},
+    )
+    branch_body = branch.json()
+    await client.post(
+        f"/api/v1/probes/{branch_body['probe_id']}/approve", headers=admin_headers
+    )
+    branch_policy = await client.get(
+        f"/api/v1/probes/{branch_body['probe_id']}/policy",
+        headers=probe_cert_headers(branch_body["certificate_fingerprint"]),
+    )
+    assert "10.0.0.0/8" not in branch_policy.json()["approved_cidrs"]
+    bypass = await client.post(
+        "/api/v1/jobs",
+        json={
+            "probe_id": branch_body["probe_id"],
+            "network_id": str(network_id),
+            "targets": ["10.1.2.3"],
+            "mode": "vulnerability_assessment",
+        },
+        headers=admin_headers,
+    )
+    assert bypass.status_code == 422
+    assert "no approved scopes" in bypass.json()["detail"].lower()
     fp = next(
         r["certificate_fingerprint"]
         for r in (await client.get("/api/v1/relays", headers=admin_headers)).json()["relays"]
@@ -230,6 +300,10 @@ async def test_enroll_scope_and_egress_and_killswitch(
     # Resume clears the kill switch.
     resumed = await client.post(f"/api/v1/relays/{relay_id}/resume", headers=admin_headers)
     assert resumed.json()["status"] == "enrolled"
+
+    revoked = await client.delete(f"/api/v1/relays/{relay_id}", headers=admin_headers)
+    assert revoked.status_code == 200 and revoked.json()["revoked"] is True
+    assert await db_session.scalar(select(func.count()).select_from(NetworkScope)) == 0
 
 
 async def test_disabling_relay_mode_fails_closed(

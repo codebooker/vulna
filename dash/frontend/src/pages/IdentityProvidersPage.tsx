@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { KeyRound, Plus, ShieldCheck, UsersRound } from 'lucide-react';
+import { KeyRound, Pencil, Plus, ShieldCheck, Trash2, UsersRound } from 'lucide-react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/useAuth';
 import { PageHeader, SectionHeader } from '../components/app/page-header';
@@ -10,6 +10,7 @@ import { Field, Input, Select, Textarea } from '../components/ui/input';
 import { CardSkeleton, EmptyState, InlineError } from '../components/ui/states';
 import { useToast } from '../lib/toast';
 import type { Role, UserSummary } from '../types/auth';
+import type { Site } from '../types/inventory';
 import type {
   GroupMapping,
   IdentityProtocol,
@@ -41,30 +42,36 @@ export function IdentityProvidersPage() {
   const [providers, setProviders] = useState<IdentityProvider[]>([]);
   const [policy, setPolicy] = useState<SsoPolicy | null>(null);
   const [users, setUsers] = useState<UserSummary[]>([]);
+  const [sites, setSites] = useState<Site[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [editingProvider, setEditingProvider] = useState<IdentityProvider | null>(null);
   const [metadataProvider, setMetadataProvider] = useState<string | null>(null);
   const [metadataXml, setMetadataXml] = useState('');
   const [mappingProvider, setMappingProvider] = useState<string | null>(null);
   const [mappings, setMappings] = useState<GroupMapping[]>([]);
   const [externalGroup, setExternalGroup] = useState('');
-  const [mappingRole, setMappingRole] = useState<Role>('viewer');
+  const [mappingRole, setMappingRole] = useState<Role | ''>('viewer');
+  const [mappingSiteIds, setMappingSiteIds] = useState<string[]>([]);
+  const [editingMappingId, setEditingMappingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!token) return;
     setLoading(true);
     setError(null);
     try {
-      const [providerRows, policyValue, userPage] = await Promise.all([
+      const [providerRows, policyValue, userPage, sitePage] = await Promise.all([
         api.listIdentityProviders(token),
         api.ssoPolicy(token),
         api.listUsers(token),
+        api.listAllSites(token),
       ]);
       setProviders(providerRows);
       setPolicy(policyValue);
       setUsers(userPage.items);
+      setSites(sitePage.items);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Identity settings could not be loaded.');
     } finally {
@@ -124,6 +131,10 @@ export function IdentityProvidersPage() {
     if (!token) return;
     setMappingProvider(providerId);
     setError(null);
+    setEditingMappingId(null);
+    setExternalGroup('');
+    setMappingRole('viewer');
+    setMappingSiteIds([]);
     try {
       setMappings(await api.identityGroupMappings(token, providerId));
     } catch (err) {
@@ -131,24 +142,76 @@ export function IdentityProvidersPage() {
     }
   };
 
-  const addMapping = async () => {
+  const saveMapping = async () => {
     if (!token || !mappingProvider || !externalGroup.trim()) return;
-    const next = [
-      ...mappings.map(({ external_group, role, site_ids }) => ({
-        external_group,
-        role,
-        site_ids,
-      })),
-      { external_group: externalGroup.trim(), role: mappingRole, site_ids: [] },
-    ];
+    const value = {
+      external_group: externalGroup.trim(),
+      role: mappingRole || null,
+      site_ids: mappingSiteIds,
+    };
+    const next = editingMappingId
+      ? mappings.map((mapping) =>
+          mapping.id === editingMappingId
+            ? value
+            : {
+                external_group: mapping.external_group,
+                role: mapping.role,
+                site_ids: mapping.site_ids,
+              },
+        )
+      : [
+          ...mappings.map(({ external_group, role, site_ids }) => ({
+            external_group,
+            role,
+            site_ids,
+          })),
+          value,
+        ];
     setBusyId(mappingProvider);
     try {
       setMappings(await api.replaceIdentityGroupMappings(token, mappingProvider, next));
       setExternalGroup('');
+      setMappingRole('viewer');
+      setMappingSiteIds([]);
+      setEditingMappingId(null);
       toast('success', 'Group mappings updated. Re-test the provider before enabling it.');
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Group mapping could not be saved.');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const editMapping = (mapping: GroupMapping) => {
+    setEditingMappingId(mapping.id);
+    setExternalGroup(mapping.external_group);
+    setMappingRole(mapping.role ?? '');
+    setMappingSiteIds(mapping.site_ids);
+  };
+
+  const removeMapping = async (mappingId: string) => {
+    if (!token || !mappingProvider) return;
+    const next = mappings
+      .filter((mapping) => mapping.id !== mappingId)
+      .map(({ external_group, role, site_ids }) => ({
+        external_group,
+        role,
+        site_ids,
+      }));
+    setBusyId(mappingProvider);
+    try {
+      setMappings(await api.replaceIdentityGroupMappings(token, mappingProvider, next));
+      if (editingMappingId === mappingId) {
+        setEditingMappingId(null);
+        setExternalGroup('');
+        setMappingRole('viewer');
+        setMappingSiteIds([]);
+      }
+      toast('success', 'Group mapping removed. Re-test the provider before enabling it.');
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Group mapping could not be removed.');
     } finally {
       setBusyId(null);
     }
@@ -187,6 +250,21 @@ export function IdentityProvidersPage() {
     }
   };
 
+  const deleteProvider = async (provider: IdentityProvider) => {
+    if (!token || !window.confirm(`Delete identity provider “${provider.name}”?`)) return;
+    setBusyId(provider.id);
+    setError(null);
+    try {
+      await api.deleteIdentityProvider(token, provider.id);
+      toast('success', 'Identity provider deleted.');
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Identity provider could not be deleted.');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   return (
     <div aria-label="Identity and SSO">
       <PageHeader
@@ -206,6 +284,16 @@ export function IdentityProvidersPage() {
           onCancel={() => setShowCreate(false)}
           onCreated={() => {
             setShowCreate(false);
+            void load();
+          }}
+        />
+      )}
+      {editingProvider && (
+        <EditProviderCard
+          provider={editingProvider}
+          onCancel={() => setEditingProvider(null)}
+          onSaved={() => {
+            setEditingProvider(null);
             void load();
           }}
         />
@@ -301,6 +389,9 @@ export function IdentityProvidersPage() {
                   <Button size="sm" variant="ghost" onClick={() => void openMappings(provider.id)}>
                     Group mappings
                   </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setEditingProvider(provider)}>
+                    <Pencil size={12} aria-hidden /> Edit
+                  </Button>
                   <Button
                     size="sm"
                     variant={provider.enabled ? 'destructive' : 'primary'}
@@ -309,6 +400,16 @@ export function IdentityProvidersPage() {
                     onClick={() => void run(provider, 'enabled')}
                   >
                     {provider.enabled ? 'Disable' : 'Enable'}
+                  </Button>
+                  <Button
+                    size="icon-sm"
+                    variant="ghost"
+                    aria-label={`Delete ${provider.name}`}
+                    disabled={provider.enabled}
+                    loading={busyId === provider.id}
+                    onClick={() => void deleteProvider(provider)}
+                  >
+                    <Trash2 size={13} aria-hidden />
                   </Button>
                 </div>
               </CardBody>
@@ -361,10 +462,33 @@ export function IdentityProvidersPage() {
                 <Badge>No mappings</Badge>
               ) : (
                 mappings.map((mapping) => (
-                  <Badge key={mapping.id} tone="accent">
-                    {mapping.external_group} →{' '}
-                    {mapping.role ? roleLabel(mapping.role) : 'sites only'}
-                  </Badge>
+                  <div
+                    key={mapping.id}
+                    className="flex items-center gap-1 rounded-lg border border-border bg-surface-2 p-1"
+                  >
+                    <Badge tone="accent">
+                      {mapping.external_group} →{' '}
+                      {mapping.role ? roleLabel(mapping.role) : 'sites only'}
+                      {mapping.site_ids.length > 0 && ` · ${mapping.site_ids.length} site(s)`}
+                    </Badge>
+                    <Button
+                      size="icon-sm"
+                      variant="ghost"
+                      aria-label={`Edit ${mapping.external_group}`}
+                      onClick={() => editMapping(mapping)}
+                    >
+                      <Pencil size={13} />
+                    </Button>
+                    <Button
+                      size="icon-sm"
+                      variant="destructive"
+                      aria-label={`Remove ${mapping.external_group}`}
+                      loading={busyId === mappingProvider}
+                      onClick={() => void removeMapping(mapping.id)}
+                    >
+                      <Trash2 size={13} />
+                    </Button>
+                  </div>
                 ))
               )}
             </div>
@@ -380,8 +504,9 @@ export function IdentityProvidersPage() {
                 <Select
                   id="mapping-role"
                   value={mappingRole}
-                  onChange={(event) => setMappingRole(event.target.value as Role)}
+                  onChange={(event) => setMappingRole(event.target.value as Role | '')}
                 >
+                  <option value="">No role change (sites only)</option>
                   {ROLES.map((role) => (
                     <option key={role} value={role}>
                       {roleLabel(role)}
@@ -393,11 +518,52 @@ export function IdentityProvidersPage() {
                 variant="primary"
                 disabled={!externalGroup.trim()}
                 loading={busyId === mappingProvider}
-                onClick={() => void addMapping()}
+                onClick={() => void saveMapping()}
               >
-                Add mapping
+                {editingMappingId ? 'Update mapping' : 'Add mapping'}
               </Button>
             </div>
+            <div className="mt-3 rounded-lg border border-border p-3">
+              <p className="mb-2 text-xs font-semibold text-text">Site access</p>
+              <p className="mb-2 text-xs text-muted">
+                No selected sites grants all-site access. Select sites to restrict this group.
+              </p>
+              <div className="flex flex-wrap gap-3">
+                {sites.map((site) => (
+                  <label key={site.id} className="flex items-center gap-2 text-xs text-text">
+                    <input
+                      type="checkbox"
+                      checked={mappingSiteIds.includes(site.id)}
+                      onChange={() =>
+                        setMappingSiteIds((current) =>
+                          current.includes(site.id)
+                            ? current.filter((value) => value !== site.id)
+                            : [...current, site.id],
+                        )
+                      }
+                    />
+                    {site.name}
+                  </label>
+                ))}
+                {sites.length === 0 && (
+                  <span className="text-xs text-muted">No sites available.</span>
+                )}
+              </div>
+            </div>
+            {editingMappingId && (
+              <Button
+                className="mt-3"
+                variant="ghost"
+                onClick={() => {
+                  setEditingMappingId(null);
+                  setExternalGroup('');
+                  setMappingRole('viewer');
+                  setMappingSiteIds([]);
+                }}
+              >
+                Cancel edit
+              </Button>
+            )}
             <Button className="mt-3" variant="ghost" onClick={() => setMappingProvider(null)}>
               Done
             </Button>
@@ -419,6 +585,145 @@ export function IdentityProvidersPage() {
         />
       </div>
     </div>
+  );
+}
+
+function EditProviderCard({
+  provider,
+  onCancel,
+  onSaved,
+}: {
+  provider: IdentityProvider;
+  onCancel: () => void;
+  onSaved: () => void;
+}) {
+  const { token } = useAuth();
+  const { toast } = useToast();
+  const [name, setName] = useState(provider.name);
+  const [issuer, setIssuer] = useState(provider.issuer ?? '');
+  const [clientId, setClientId] = useState(provider.client_id ?? '');
+  const [clientSecret, setClientSecret] = useState('');
+  const [jit, setJit] = useState(provider.jit_provisioning);
+  const [allowPrivate, setAllowPrivate] = useState(provider.allow_private_network);
+  const [encryptedAssertions, setEncryptedAssertions] = useState(
+    provider.want_assertions_encrypted,
+  );
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const save = async () => {
+    if (!token) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.updateIdentityProvider(token, provider.id, {
+        name: name.trim(),
+        jit_provisioning: jit,
+        allow_private_network: allowPrivate,
+        want_assertions_encrypted: encryptedAssertions,
+        ...(provider.protocol === 'oidc'
+          ? {
+              issuer,
+              client_id: clientId,
+              ...(clientSecret ? { client_secret: clientSecret } : {}),
+            }
+          : {}),
+      });
+      toast('success', 'Identity provider updated. Validate and test it again before enabling.');
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Identity provider could not be updated.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card className="mb-4 border-accent/30">
+      <CardHeader
+        title={`Edit ${provider.name}`}
+        description="Configuration changes invalidate the prior validation and sign-in test. Leave the secret blank to keep it unchanged."
+      />
+      <CardBody className="flex flex-col gap-3">
+        {error && <InlineError message={error} />}
+        <Field label="Display name" htmlFor="edit-idp-name">
+          <Input
+            id="edit-idp-name"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+          />
+        </Field>
+        {provider.protocol === 'oidc' && (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Exact issuer URL" htmlFor="edit-idp-issuer">
+              <Input
+                id="edit-idp-issuer"
+                value={issuer}
+                onChange={(event) => setIssuer(event.target.value)}
+              />
+            </Field>
+            <Field label="Client ID" htmlFor="edit-idp-client">
+              <Input
+                id="edit-idp-client"
+                value={clientId}
+                onChange={(event) => setClientId(event.target.value)}
+              />
+            </Field>
+            <Field label="New client secret (optional)" htmlFor="edit-idp-secret">
+              <Input
+                id="edit-idp-secret"
+                type="password"
+                autoComplete="new-password"
+                value={clientSecret}
+                onChange={(event) => setClientSecret(event.target.value)}
+              />
+            </Field>
+          </div>
+        )}
+        <div className="flex flex-wrap gap-4 text-xs text-muted">
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={jit}
+              onChange={(event) => setJit(event.target.checked)}
+            />
+            Just-in-time provisioning
+          </label>
+          {provider.protocol === 'oidc' ? (
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={allowPrivate}
+                onChange={(event) => setAllowPrivate(event.target.checked)}
+              />
+              Allow trusted private-network IdP
+            </label>
+          ) : (
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={encryptedAssertions}
+                onChange={(event) => setEncryptedAssertions(event.target.checked)}
+              />
+              Require encrypted assertions
+            </label>
+          )}
+        </div>
+        <div className="flex gap-2">
+          <Button
+            variant="primary"
+            loading={busy}
+            disabled={!name.trim()}
+            onClick={() => void save()}
+          >
+            Save provider
+          </Button>
+          <Button variant="ghost" onClick={onCancel}>
+            Cancel
+          </Button>
+        </div>
+      </CardBody>
+    </Card>
   );
 }
 

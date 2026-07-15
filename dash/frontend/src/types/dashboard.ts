@@ -17,6 +17,41 @@ export interface DashboardSummary {
     informational: number;
     top: TopFinding[];
   };
+  finding_metrics: {
+    active_total: number;
+    by_severity: Record<
+      'critical' | 'high' | 'medium' | 'low' | 'info',
+      { total: number; fresh: number; resolved: number }
+    >;
+    attention_assets: number;
+    risky_assets: {
+      asset_id: string;
+      name: string;
+      critical: number;
+      high: number;
+      total: number;
+    }[];
+    risk_by_site: {
+      site_id: string;
+      critical: number;
+      high: number;
+      total: number;
+    }[];
+  };
+  operational_metrics: {
+    asset_total: number;
+    failed_scans: number;
+    recent_jobs: {
+      id: string;
+      mode: string;
+      status: string;
+      targets: string[];
+      created_at: string;
+      finished_at: string | null;
+      error_message: string | null;
+    }[];
+    recent_failed_jobs: DashboardSummary['operational_metrics']['recent_jobs'];
+  };
   changed_recently: {
     window_days: number;
     total: number;

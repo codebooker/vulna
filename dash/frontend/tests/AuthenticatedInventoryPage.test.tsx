@@ -131,3 +131,84 @@ it('shows only secret metadata and clears the one-way secret after creation', as
   expect(await screen.findByText('Scout encryption key enrolled')).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Enable' })).toBeEnabled();
 });
+
+it('queues authenticated inventory through an opted-in Scout at the asset site', async () => {
+  const baseFetch = vi.mocked(fetch);
+  let jobBody: Record<string, unknown> | null = null;
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/api/v1/auth/me')) {
+        return jsonResponse({
+          id: 'admin-1',
+          email: 'admin@example.com',
+          full_name: 'Admin',
+          role: 'administrator',
+          organization_id: 'org-1',
+          is_active: true,
+          permissions: ['credentials.read', 'jobs.create'],
+        });
+      }
+      if (url.includes('/api/v1/assets?')) {
+        return jsonResponse({
+          items: [{ id: 'asset-1', canonical_name: 'server-1', site_id: 'site-1' }],
+          total: 1,
+          limit: 200,
+          offset: 0,
+        });
+      }
+      if (url.endsWith('/api/v1/assets/asset-1')) {
+        return jsonResponse({
+          id: 'asset-1',
+          canonical_name: 'server-1',
+          site_id: 'site-1',
+          identifiers: [{ identifier_type: 'ip_address', identifier_value: '10.0.0.7' }],
+          services: [],
+        });
+      }
+      if (url.endsWith('/api/v1/probes')) {
+        return jsonResponse({
+          items: [
+            {
+              id: 'probe-1',
+              name: 'Scout one',
+              status: 'enrolled',
+              site_id: 'site-1',
+              credentialed_scans_enabled: true,
+              has_encryption_key: true,
+            },
+          ],
+          total: 1,
+          limit: 50,
+          offset: 0,
+        });
+      }
+      if (url.endsWith('/api/v1/jobs/authenticated')) {
+        jobBody = JSON.parse(String(init?.body));
+        return jsonResponse({ id: 'job-12345678', status: 'queued', mode: 'vulnerability_assessment' });
+      }
+      return baseFetch(input, init);
+    }),
+  );
+
+  render(
+    <AuthProvider>
+      <AuthenticatedInventoryPage />
+    </AuthProvider>,
+  );
+
+  fireEvent.click(await screen.findByRole('tab', { name: 'Run inventory' }));
+  fireEvent.change(screen.getByLabelText('Asset'), { target: { value: 'asset-1' } });
+  await waitFor(() => expect(screen.getByLabelText('Scout')).toHaveValue('probe-1'));
+  fireEvent.click(screen.getByRole('button', { name: 'Run inventory' }));
+
+  await waitFor(() =>
+    expect(jobBody).toMatchObject({
+      asset_id: 'asset-1',
+      probe_id: 'probe-1',
+      targets: ['10.0.0.7'],
+      authenticated_protocols: ['ssh'],
+    }),
+  );
+});

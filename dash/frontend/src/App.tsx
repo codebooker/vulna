@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api } from './api/client';
 import { useAuth } from './auth/useAuth';
 import { Sidebar, type NavSectionDef } from './components/layout/sidebar';
@@ -9,6 +9,7 @@ import { AccountSetupScreen } from './pages/AccountSetupPage';
 import { LoginScreen } from './pages/LoginPage';
 import type { Experience } from './types/experience';
 import type { OnboardingState } from './types/onboarding';
+import type { CurrentUser } from './types/auth';
 
 /** Legacy hash ids continue to work and land on the equivalent redesigned view. */
 const ALIASES: Record<string, { id: string; params?: RouteParams }> = {
@@ -20,8 +21,13 @@ const ALIASES: Record<string, { id: string; params?: RouteParams }> = {
   backups: { id: 'settings', params: { section: 'backups' } },
   maintenance: { id: 'settings', params: { section: 'maintenance' } },
   privacy: { id: 'settings', params: { section: 'privacy' } },
-  help: { id: 'settings', params: { section: 'help' } },
 };
+
+function routeAllowed(item: (typeof ALL_ROUTES)[number], user: CurrentUser): boolean {
+  if (item.roles && !item.roles.includes(user.role)) return false;
+  if (user.permissions) return !item.permission || user.permissions.includes(item.permission);
+  return !item.roles || item.roles.includes(user.role);
+}
 
 function resolveRoute(hash: string): { id: string; params: RouteParams } {
   const { id, params } = parseHash(hash);
@@ -89,8 +95,6 @@ export function App() {
     setMobileNavOpen(false);
   }, []);
 
-  const navValue = useMemo(() => ({ current: route, go }), [route, go]);
-
   const toggleCollapsed = useCallback(() => {
     setCollapsed((c) => {
       try {
@@ -123,17 +127,17 @@ export function App() {
   }
 
   const incomplete = onboarding !== null && onboarding.completed_at === null;
+  const requested = ALL_ROUTES.find((item) => item.id === route.id) ?? ALL_ROUTES[0];
+  const active = routeAllowed(requested, user)
+    ? requested
+    : (ALL_ROUTES.find((item) => routeAllowed(item, user)) ?? ALL_ROUTES[0]);
+  const effectiveRoute = active.id === route.id ? route : { id: active.id, params: {} };
+  const navValue = { current: effectiveRoute, go };
   const section =
-    ROUTE_CATALOGUE.find((item) => item.items.some((routeItem) => routeItem.id === route.id)) ??
+    ROUTE_CATALOGUE.find((item) => item.items.some((routeItem) => routeItem.id === active.id)) ??
     ROUTE_CATALOGUE[0];
-  const active = ALL_ROUTES.find((item) => item.id === route.id) ?? ALL_ROUTES[0];
   const ActivePage = active.Component;
-  const routeAllows = (item: (typeof ALL_ROUTES)[number]) => {
-    if (user.permissions) {
-      return !item.permission || user.permissions.includes(item.permission);
-    }
-    return !item.roles || item.roles.includes(user.role);
-  };
+  const routeAllows = (item: (typeof ALL_ROUTES)[number]) => routeAllowed(item, user);
   const isSmallBusiness = experience?.experience_profile === 'small_business';
   const regularSections: NavSectionDef[] = ROUTE_CATALOGUE.map((catalogueSection) => ({
     id: catalogueSection.id,

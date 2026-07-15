@@ -8,6 +8,7 @@ orchestrator cannot direct a probe outside its approved scope.
 
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
 from sqlalchemy import select
@@ -17,6 +18,7 @@ from app.core.config import Settings
 from app.models.network import Network, NetworkScout
 from app.models.network_scope import NetworkScope
 from app.models.probe import Probe
+from app.models.relay import Relay
 
 # Modes and plugins permitted for non-intrusive assessment: Nmap discovery,
 # Nuclei vulnerability checks, and testssl.sh TLS analysis.
@@ -66,7 +68,30 @@ async def build_policy_document(
 ) -> dict[str, Any]:
     """Build the unsigned local-policy payload for a probe."""
     scopes = await _probe_scopes(session, probe)
+    managed_relay_ids: set[str] = set()
+    ordinary_scopes: list[NetworkScope] = []
+    for scope in scopes:
+        prefix = "Managed by relay "
+        if scope.notes and scope.notes.startswith(prefix):
+            managed_relay_ids.add(scope.notes.removeprefix(prefix).strip())
+            if probe.name != settings.relay_scanner_probe_name:
+                continue
+        ordinary_scopes.append(scope)
+    scopes = ordinary_scopes
     approved = [s.cidr for s in scopes]
+    denied: list[str] = []
+    if managed_relay_ids and probe.name == settings.relay_scanner_probe_name:
+        relay_ids = []
+        for value in managed_relay_ids:
+            try:
+                relay_ids.append(uuid.UUID(value))
+            except ValueError:
+                continue
+        if relay_ids:
+            relays = (
+                await session.execute(select(Relay).where(Relay.id.in_(relay_ids)))
+            ).scalars()
+            denied = sorted({cidr for relay in relays for cidr in relay.denied_cidrs_json})
     allow_public = any(s.allow_public_addresses for s in scopes)
     # The policy version tracks the latest scope change for the probe's site.
     policy_version = max((s.policy_version for s in scopes), default=0)
@@ -107,7 +132,7 @@ async def build_policy_document(
         "probe_id": str(probe.id),
         "site_id": str(probe.site_id),
         "approved_cidrs": approved,
-        "denied_cidrs": [],
+        "denied_cidrs": denied,
         "allow_public_addresses": allow_public,
         "allowed_modes": allowed_modes,
         "allowed_plugins": allowed_plugins,

@@ -10,6 +10,7 @@ recording the confidence on the finding.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -28,17 +29,27 @@ class Cpe:
 
 
 def parse_cpe(criteria: str) -> Cpe | None:
-    """Parse a ``cpe:2.3:a:vendor:product:version:...`` string."""
-    if not isinstance(criteria, str) or not criteria.startswith("cpe:2.3:"):
+    """Parse the CPE 2.3 form used by NVD or the CPE 2.2 form Nmap emits."""
+    if not isinstance(criteria, str):
         return None
-    fields = criteria.split(":")
-    if len(fields) < 6:
+    if criteria.startswith("cpe:2.3:"):
+        fields = criteria.split(":")
+        if len(fields) < 6:
+            return None
+        part, vendor, product, version = fields[2:6]
+    elif criteria.startswith("cpe:/"):
+        fields = re.split(r"(?<!\\):", criteria.removeprefix("cpe:/"))
+        if len(fields) < 3:
+            return None
+        part, vendor, product = fields[:3]
+        version = fields[3] if len(fields) > 3 else "*"
+    else:
         return None
     return Cpe(
-        part=fields[2],
-        vendor=fields[3].lower(),
-        product=fields[4].lower(),
-        version=fields[5].lower(),
+        part=part,
+        vendor=vendor.lower(),
+        product=product.lower(),
+        version=version.lower(),
     )
 
 
@@ -50,16 +61,10 @@ def cpe_product(cpe: str | None) -> str | None:
     "Apache httpd") is not the CPE product ("http_server") CVEs are indexed under."""
     if not isinstance(cpe, str):
         return None
-    if cpe.startswith("cpe:2.3:"):
-        parsed = parse_cpe(cpe)
-        return parsed.product if parsed else None
-    if cpe.startswith("cpe:/"):
-        fields = cpe.split(":")
-        # ["cpe", "/a", vendor, product, version?, ...]
-        if len(fields) >= 4 and fields[1] in ("/a", "/o"):
-            product = fields[3].lower()
-            return product or None
-    return None
+    parsed = parse_cpe(cpe)
+    if parsed is None or parsed.part not in ("a", "o"):
+        return None
+    return parsed.product or None
 
 
 def products_from_cpe_matches(cpe_matches: list[dict[str, Any]]) -> set[str]:
@@ -164,7 +169,7 @@ def match_confidence(
     product_l = product.lower()
     # Accept both the 2.3 and the older 2.2 CPE nmap emits, so an exact service
     # CPE (the strongest signal) can raise confidence regardless of format.
-    service_cpe_product = cpe_product(service_cpe)
+    service_identity = parse_cpe(service_cpe) if service_cpe else None
     best: MatchConfidence | None = None
     rank = {MatchConfidence.LOW: 1, MatchConfidence.MEDIUM: 2, MatchConfidence.HIGH: 3}
 
@@ -175,6 +180,19 @@ def match_confidence(
         if cpe is None or cpe.part not in ("a", "o"):
             continue
         if cpe.product != product_l:
+            continue
+
+        # Product names are not globally unique. When discovery supplied a CPE,
+        # require its part and vendor to match too; otherwise a same-product CVE
+        # from another vendor can be reported as an exact high-confidence match.
+        if service_identity is not None and (
+            service_identity.part != cpe.part
+            or (
+                service_identity.vendor not in ("*", "-", "")
+                and cpe.vendor not in ("*", "-", "")
+                and service_identity.vendor != cpe.vendor
+            )
+        ):
             continue
 
         confidence: MatchConfidence | None = None
@@ -198,8 +216,10 @@ def match_confidence(
             # An exact CPE recorded on the service itself raises confidence.
             if (
                 confidence is MatchConfidence.MEDIUM
-                and service_cpe_product is not None
-                and service_cpe_product == cpe.product
+                and service_identity is not None
+                and service_identity.part == cpe.part
+                and service_identity.vendor == cpe.vendor
+                and service_identity.product == cpe.product
             ):
                 confidence = MatchConfidence.HIGH
         if confidence is None and not specific_version and not has_range:

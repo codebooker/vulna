@@ -43,7 +43,10 @@ function experience(profile: ExperienceProfile, pentest: boolean) {
   };
 }
 
-function installFetchMock(profile: ExperienceProfile) {
+function installFetchMock(
+  profile: ExperienceProfile,
+  user: { role?: string; permissions?: string[] } = {},
+) {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL) => {
@@ -53,9 +56,10 @@ function installFetchMock(profile: ExperienceProfile) {
           id: 'u1',
           email: 'admin@example.com',
           full_name: 'Admin',
-          role: 'administrator',
+          role: user.role ?? 'administrator',
           organization_id: 'o1',
           is_active: true,
+          ...(user.permissions ? { permissions: user.permissions } : {}),
         });
       }
       if (url.endsWith('/api/v1/onboarding/state')) {
@@ -138,5 +142,18 @@ describe('experience-aware route catalogue', () => {
     await waitFor(() =>
       expect(screen.queryByRole('button', { name: 'Pentest' })).not.toBeInTheDocument(),
     );
+  });
+
+  it('does not render a directly addressed route without its permission', async () => {
+    installFetchMock('enterprise', { role: 'viewer', permissions: ['assets.read'] });
+    window.location.hash = '#identity';
+    render(
+      <AuthProvider>
+        <App />
+      </AuthProvider>,
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Overview' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Identity & SSO' })).not.toBeInTheDocument();
   });
 });

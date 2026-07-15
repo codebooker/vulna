@@ -7,6 +7,7 @@ export interface Relay {
   tunnel_address: string | null;
   approved_cidrs: string[];
   denied_cidrs: string[];
+  allow_public_addresses: boolean;
   certificate_fingerprint: string | null;
   last_seen_at: string | null;
   enrolled_at: string | null;

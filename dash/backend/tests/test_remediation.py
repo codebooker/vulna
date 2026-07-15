@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 
 from app.models.enums import UserRole
+from app.models.finding import Finding
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.conftest import UserFactory, auth_headers, probe_cert_headers
 from tests.test_findings import NMAP_XML, NUCLEI_JSONL
@@ -127,11 +130,123 @@ async def test_verification_rescan_resolves_fixed_finding(
     )
     assert up.status_code == 201, up.text
 
+    # A streamed batch is not the whole scanner result and must not resolve an
+    # issue merely because this particular batch did not contain it.
+    pending = await client.get(f"/api/v1/findings/{fid}", headers=admin_headers)
+    assert pending.json()["status"] == "ready_for_verification"
+
+    complete = await client.post(
+        f"/api/v1/probes/{probe['probe_id']}/jobs/{verify_job}/results"
+        "?stage=vulnerability&scanner=nuclei&complete=true",
+        headers={**headers, "Idempotency-Key": "verify-nuclei-complete"},
+    )
+    assert complete.status_code == 201, complete.text
+
     finding = await client.get(f"/api/v1/findings/{fid}", headers=admin_headers)
     body = finding.json()
     assert body["status"] == "resolved"
     assert body["resolved_at"] is not None
     assert body["last_verified_at"] is not None
+
+
+async def test_clean_verification_completion_resolves_without_a_result_payload(
+    client: AsyncClient, admin_headers: dict[str, str], enroll_probe: EnrollFactory
+) -> None:
+    probe, fid = await _finding(client, admin_headers, enroll_probe)
+    await client.patch(
+        f"/api/v1/findings/{fid}",
+        json={"status": "ready_for_verification"},
+        headers=admin_headers,
+    )
+    rescan = await client.post(f"/api/v1/findings/{fid}/rescan", headers=admin_headers)
+    verify_job = rescan.json()["id"]
+    headers = probe_cert_headers(probe["fingerprint"])
+
+    complete = await client.post(
+        f"/api/v1/probes/{probe['probe_id']}/jobs/{verify_job}/results"
+        "?stage=vulnerability&scanner=nuclei&complete=true",
+        headers={**headers, "Idempotency-Key": "clean-nuclei-complete"},
+    )
+
+    assert complete.status_code == 201, complete.text
+    finding = await client.get(f"/api/v1/findings/{fid}", headers=admin_headers)
+    assert finding.json()["status"] == "resolved"
+
+
+async def test_concurrent_scan_observation_prevents_false_verification_resolution(
+    client: AsyncClient, admin_headers: dict[str, str], enroll_probe: EnrollFactory
+) -> None:
+    probe, fid = await _finding(client, admin_headers, enroll_probe)
+    await client.patch(
+        f"/api/v1/findings/{fid}",
+        json={"status": "ready_for_verification"},
+        headers=admin_headers,
+    )
+    verify_job = (
+        await client.post(f"/api/v1/findings/{fid}/rescan", headers=admin_headers)
+    ).json()["id"]
+    probe_headers = probe_cert_headers(probe["fingerprint"])
+
+    # The verification scan sees the issue, then another scan sees it too and
+    # becomes the Finding's most recent scan_job_id before completion arrives.
+    observed = await client.post(
+        f"/api/v1/probes/{probe['probe_id']}/jobs/{verify_job}/results?scanner=nuclei",
+        content=NUCLEI_JSONL,
+        headers={**probe_headers, "Content-Type": "application/json"},
+    )
+    assert observed.status_code == 201, observed.text
+    concurrent_job = await client.post(
+        "/api/v1/jobs",
+        json={"probe_id": probe["probe_id"], "targets": ["10.20.0.0/24"]},
+        headers=admin_headers,
+    )
+    concurrent_observation = await client.post(
+        f"/api/v1/probes/{probe['probe_id']}/jobs/{concurrent_job.json()['id']}"
+        "/results?scanner=nuclei",
+        content=NUCLEI_JSONL,
+        headers={**probe_headers, "Content-Type": "application/json"},
+    )
+    assert concurrent_observation.status_code == 201, concurrent_observation.text
+
+    complete = await client.post(
+        f"/api/v1/probes/{probe['probe_id']}/jobs/{verify_job}/results"
+        "?stage=vulnerability&scanner=nuclei&complete=true",
+        headers={**probe_headers, "Idempotency-Key": "concurrent-nuclei-complete"},
+    )
+
+    assert complete.status_code == 201, complete.text
+    finding = await client.get(f"/api/v1/findings/{fid}", headers=admin_headers)
+    assert finding.json()["status"] == "ready_for_verification"
+
+
+async def test_discovery_completion_verifies_correlation_findings(
+    client: AsyncClient,
+    admin_headers: dict[str, str],
+    enroll_probe: EnrollFactory,
+    db_session: AsyncSession,
+) -> None:
+    probe, fid = await _finding(client, admin_headers, enroll_probe)
+    stored = await db_session.get(Finding, uuid.UUID(fid))
+    assert stored is not None
+    stored.scanner_name = "cve-correlation"
+    await db_session.commit()
+    await client.patch(
+        f"/api/v1/findings/{fid}",
+        json={"status": "ready_for_verification"},
+        headers=admin_headers,
+    )
+    rescan = await client.post(f"/api/v1/findings/{fid}/rescan", headers=admin_headers)
+    headers = probe_cert_headers(probe["fingerprint"])
+
+    complete = await client.post(
+        f"/api/v1/probes/{probe['probe_id']}/jobs/{rescan.json()['id']}/results"
+        "?stage=discovery&scanner=nmap&complete=true",
+        headers={**headers, "Idempotency-Key": "clean-nmap-complete"},
+    )
+
+    assert complete.status_code == 201, complete.text
+    finding = await client.get(f"/api/v1/findings/{fid}", headers=admin_headers)
+    assert finding.json()["status"] == "resolved"
 
 
 async def test_reintroduced_finding_reopens(

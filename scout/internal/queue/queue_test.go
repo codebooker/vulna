@@ -3,7 +3,10 @@ package queue
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 )
 
 func item(job, stage, scanner, raw string) Item {
@@ -101,5 +104,70 @@ func TestKeyIsStableAndContentAddressed(t *testing.T) {
 	}
 	if a == c {
 		t.Fatal("key should differ for different content")
+	}
+}
+
+func TestCompletionDrainsAfterEarlierResultBatches(t *testing.T) {
+	q, _ := Open(t.TempDir(), 0)
+	complete := item("j1", "vuln", "nuclei", "")
+	complete.Complete = true
+	complete.CreatedAtUnixNano = 20
+	result := item("j1", "vuln", "nuclei", "finding")
+	result.CreatedAtUnixNano = 10
+	// Enqueue in the opposite order to prove persisted timestamps, not content
+	// hashes or directory enumeration, define delivery order.
+	_ = q.Enqueue(complete)
+	_ = q.Enqueue(result)
+	var order []bool
+	_, err := q.Drain(context.Background(), func(_ context.Context, it Item) error {
+		order = append(order, it.Complete)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(order) != 2 || order[0] || !order[1] {
+		t.Fatalf("completion was not delivered last: %v", order)
+	}
+}
+
+func TestEnqueueOrderRemainsMonotonicAcrossRestartAndClockRollback(t *testing.T) {
+	dir := t.TempDir()
+	q, _ := Open(dir, 0)
+	future := time.Now().Add(24 * time.Hour).UnixNano()
+	first := item("j1", "vuln", "nuclei", "finding")
+	first.CreatedAtUnixNano = future
+	if err := q.Enqueue(first); err != nil {
+		t.Fatal(err)
+	}
+
+	q, err := Open(dir, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	completion := item("j1", "vuln", "nuclei", "")
+	completion.Complete = true
+	if err := q.Enqueue(completion); err != nil {
+		t.Fatal(err)
+	}
+	items, err := q.Pending()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 2 || items[0].Complete || !items[1].Complete {
+		t.Fatalf("restart reordered completion before its result: %+v", items)
+	}
+	if items[1].CreatedAtUnixNano <= items[0].CreatedAtUnixNano {
+		t.Fatalf("timestamps are not strictly monotonic: %+v", items)
+	}
+}
+
+func TestOpenRejectsCorruptEntryInsteadOfSkippingToCompletion(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "broken.json"), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Open(dir, 0); err == nil {
+		t.Fatal("corrupt queued evidence was silently skipped")
 	}
 }

@@ -25,7 +25,9 @@ type Orchestrator interface {
 	FetchPolicy(ctx context.Context) ([]byte, error)
 	PollJob(ctx context.Context) ([]byte, bool, error)
 	ReportJobStatus(ctx context.Context, jobID string, report api.JobStatusReport) error
-	UploadResults(ctx context.Context, jobID string, raw []byte, stage, scanner string) error
+	UploadResults(
+		ctx context.Context, jobID string, raw []byte, stage, scanner string, complete ...bool,
+	) error
 }
 
 // Agent processes jobs for a single probe.
@@ -62,7 +64,7 @@ func (a *Agent) SetCredentialPrivateKey(key []byte) {
 
 // uploadItem uploads one queued result batch.
 func (a *Agent) uploadItem(ctx context.Context, it queue.Item) error {
-	return a.client.UploadResults(ctx, it.JobID, it.Raw, it.Stage, it.Scanner)
+	return a.client.UploadResults(ctx, it.JobID, it.Raw, it.Stage, it.Scanner, it.Complete)
 }
 
 // DrainQueue flushes any durably-queued results, returning how many uploaded.
@@ -183,7 +185,7 @@ func (a *Agent) PollAndStart(ctx context.Context) (*RunningJob, error) {
 	if err := a.client.ReportJobStatus(ctx, job.JobID, api.JobStatusReport{Status: "accepted"}); err != nil {
 		return nil, err
 	}
-	jobCtx, cancel := context.WithCancel(ctx)
+	jobCtx, cancel := context.WithDeadline(ctx, jobDeadline(job, time.Now().UTC()))
 	done := make(chan executor.Result, 1)
 	_ = a.client.ReportJobStatus(ctx, job.JobID, api.JobStatusReport{Status: "running"})
 	go func() {
@@ -192,6 +194,24 @@ func (a *Agent) PollAndStart(ctx context.Context) (*RunningJob, error) {
 		done <- res
 	}()
 	return &RunningJob{JobID: job.JobID, cancel: cancel, done: done}, nil
+}
+
+// jobDeadline is the hard authorization boundary for a running job. The signed
+// expiry always wins, while max_duration_seconds also caps the complete workflow
+// from the moment execution begins (rather than resetting for every stage/chunk).
+func jobDeadline(job *policy.Job, started time.Time) time.Time {
+	expiresAt, err := time.Parse(time.RFC3339, job.ExpiresAt)
+	if err != nil {
+		return started
+	}
+	deadline := expiresAt
+	if seconds := job.Limits.MaxDurationSeconds; seconds > 0 {
+		limit := started.Add(time.Duration(seconds) * time.Second)
+		if limit.Before(deadline) {
+			deadline = limit
+		}
+	}
+	return deadline
 }
 
 func (a *Agent) runWithProgress(ctx context.Context, job *policy.Job) (executor.Result, error) {
@@ -216,6 +236,7 @@ func (a *Agent) runWithProgress(ctx context.Context, job *policy.Job) (executor.
 		return streamer.RunStreaming(ctx, job, reportProgress, func(out executor.StageOutput) error {
 			return a.queue.Enqueue(queue.Item{
 				JobID: job.JobID, Stage: out.Stage, Scanner: out.Scanner, Raw: out.Raw,
+				Complete: out.Complete,
 			})
 		})
 	}
@@ -234,12 +255,13 @@ func (a *Agent) runWithProgress(ctx context.Context, job *policy.Job) (executor.
 func (a *Agent) Finalize(ctx context.Context, running *RunningJob, res executor.Result) error {
 	if !res.Cancelled {
 		for _, out := range res.Outputs {
-			if len(out.Raw) == 0 {
+			if len(out.Raw) == 0 && !out.Complete {
 				continue
 			}
 			if a.queue != nil {
 				if err := a.queue.Enqueue(queue.Item{
 					JobID: running.JobID, Stage: out.Stage, Scanner: out.Scanner, Raw: out.Raw,
+					Complete: out.Complete,
 				}); err != nil {
 					return a.client.ReportJobStatus(ctx, running.JobID, api.JobStatusReport{
 						Status:       "failed",
@@ -250,7 +272,7 @@ func (a *Agent) Finalize(ctx context.Context, running *RunningJob, res executor.
 				continue
 			}
 			if err := a.client.UploadResults(
-				ctx, running.JobID, out.Raw, out.Stage, out.Scanner,
+				ctx, running.JobID, out.Raw, out.Stage, out.Scanner, out.Complete,
 			); err != nil {
 				return a.client.ReportJobStatus(ctx, running.JobID, api.JobStatusReport{
 					Status:       "failed",

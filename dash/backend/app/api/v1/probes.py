@@ -81,7 +81,7 @@ from app.services.notifications import EventType, NotificationEvent
 from app.services.notify import emit_event
 from app.services.nuclei_parser import parse_nuclei_jsonl
 from app.services.policy import build_policy_document
-from app.services.remediation import apply_verification
+from app.services.remediation import finalize_scanner_verification
 from app.services.remote_scout import build_install_commands
 from app.services.scan_observability import (
     apply_progress,
@@ -1012,6 +1012,7 @@ async def upload_job_results(
     settings: Annotated[Settings, Depends(get_settings)],
     stage: Annotated[str, Query(max_length=64)] = "discovery",
     scanner: Annotated[str, Query(max_length=64)] = "nmap",
+    complete: Annotated[bool, Query()] = False,
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key", max_length=64)] = None,
 ) -> ResultIngestSummary:
     """Ingest a probe's raw scanner output for a job.
@@ -1033,6 +1034,22 @@ async def upload_job_results(
     if job is None or job.probe_id != probe.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
 
+    if complete:
+        expected_stage = any(
+            value.get("stage") == stage and value.get("plugin") == scanner
+            for value in (job.workflow_json or [])
+        )
+        if not expected_stage:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Scanner completion does not match the signed job workflow",
+            )
+        if not idempotency_key:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Scanner completion requires an Idempotency-Key",
+            )
+
     if idempotency_key:
         already = await session.scalar(
             select(ProbeResultUpload.id).where(
@@ -1043,6 +1060,12 @@ async def upload_job_results(
         if already is not None:
             response.status_code = status.HTTP_200_OK
             return ResultIngestSummary(duplicate=True)
+
+    now = datetime.now(UTC)
+    if complete:
+        await finalize_scanner_verification(session, job=job, scanner=scanner, now=now)
+        session.add(ProbeResultUpload(scan_job_id=job.id, idempotency_key=idempotency_key))
+        return ResultIngestSummary()
 
     # Bound the payload size before reading it.
     content_length = request.headers.get("content-length")
@@ -1060,7 +1083,6 @@ async def upload_job_results(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Result upload too large"
         )
 
-    now = datetime.now(UTC)
     try:
         if scanner == "nmap":
             nmap_summary = await ingest_nmap_result(
@@ -1097,9 +1119,6 @@ async def upload_job_results(
             else:
                 parsed = parse_zap_json(body)
             fsummary = await ingest_findings(session, job=job, parsed=parsed, now=now)
-            await apply_verification(
-                session, job=job, scanner=scanner, seen_keys=fsummary.seen_keys, now=now
-            )
             result = ResultIngestSummary(
                 findings_seen=fsummary.findings_seen,
                 findings_created=fsummary.findings_created,

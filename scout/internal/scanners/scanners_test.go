@@ -63,9 +63,11 @@ func TestWorkflowCollectsOutputsInOrder(t *testing.T) {
 	if res.StagesRun != 2 || res.StagesTotal != 2 {
 		t.Errorf("unexpected stage counts: %+v", res)
 	}
-	if len(res.Outputs) != 2 ||
+	if len(res.Outputs) != 4 ||
 		res.Outputs[0].Scanner != "nmap" || string(res.Outputs[0].Raw) != "xml" ||
-		res.Outputs[1].Scanner != "nuclei" || string(res.Outputs[1].Raw) != "jsonl" {
+		!res.Outputs[1].Complete ||
+		res.Outputs[2].Scanner != "nuclei" || string(res.Outputs[2].Raw) != "jsonl" ||
+		!res.Outputs[3].Complete {
 		t.Errorf("outputs not collected in order: %+v", res.Outputs)
 	}
 }
@@ -97,7 +99,8 @@ func TestWorkflowContinuesOnStageError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a failed stage must not fail the workflow: %v", err)
 	}
-	if res.StagesRun != 1 || len(res.Outputs) != 1 || res.Outputs[0].Scanner != "nuclei" {
+	if res.StagesRun != 1 || len(res.Outputs) != 2 ||
+		res.Outputs[0].Scanner != "nuclei" || !res.Outputs[1].Complete {
 		t.Errorf("expected only nuclei output: %+v", res)
 	}
 }
@@ -214,8 +217,8 @@ func TestRunStreamingEmitsPerChunk(t *testing.T) {
 	if len(seen[0]) == 0 || len(seen[1]) == 0 || seen[0][0] == seen[1][0] {
 		t.Errorf("chunks were not distinct sub-ranges: %v", seen)
 	}
-	if len(sunk) != 2 {
-		t.Errorf("expected 2 streamed outputs, got %d", len(sunk))
+	if len(sunk) != 3 || !sunk[2].Complete {
+		t.Errorf("expected 2 streamed outputs followed by completion, got %+v", sunk)
 	}
 	if len(res.Outputs) != 0 {
 		t.Errorf("streamed output must not also be carried in the Result: %+v", res.Outputs)
@@ -230,14 +233,22 @@ func TestRunStreamingCarriesOutputWhenSinkRejects(t *testing.T) {
 	job := jobWith("nmap")
 	job.Targets = []string{"10.0.0.0/24"} // single chunk
 
-	res, err := wf.RunStreaming(context.Background(), job, nil, func(executor.StageOutput) error {
-		return errors.New("queue full")
+	var attempted []executor.StageOutput
+	res, err := wf.RunStreaming(context.Background(), job, nil, func(out executor.StageOutput) error {
+		attempted = append(attempted, out)
+		if len(out.Raw) > 0 {
+			return errors.New("queue full")
+		}
+		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(res.Outputs) != 1 {
-		t.Errorf("a rejected batch must be carried in the Result: %+v", res.Outputs)
+	if len(res.Outputs) != 2 || !res.Outputs[1].Complete {
+		t.Errorf("a rejected batch and completion must be carried in the Result: %+v", res.Outputs)
+	}
+	if len(attempted) != 1 || attempted[0].Complete {
+		t.Errorf("completion must not bypass a rejected result batch: %+v", attempted)
 	}
 	if res.StagesRun != 1 {
 		t.Errorf("stage should still count as run: %+v", res)
@@ -299,8 +310,8 @@ func TestRunStreamingUsesStreamerForPerHostDelivery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(sunk) != 3 {
-		t.Errorf("expected 3 per-host emissions, got %d: %v", len(sunk), sunk)
+	if len(sunk) != 4 || sunk[3] != nil {
+		t.Errorf("expected 3 per-host emissions and completion, got %d: %v", len(sunk), sunk)
 	}
 	if len(res.Outputs) != 0 {
 		t.Errorf("streamed output must not also be carried in the Result: %+v", res.Outputs)
@@ -321,7 +332,20 @@ func TestRunStreamingStreamerFallsBackWithoutSink(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(res.Outputs) != 1 || res.StagesRun != 1 {
+	if len(res.Outputs) != 2 || !res.Outputs[1].Complete || res.StagesRun != 1 {
 		t.Errorf("expected the whole output collected via Run fallback: %+v", res)
+	}
+}
+
+func TestWorkflowPreservesPartialOutputWhenScannerFails(t *testing.T) {
+	wf := NewWorkflow(stubScanner{
+		stage: "tls", name: "testssl", raw: []byte("partial"), err: errors.New("one host failed"),
+	})
+	res, err := wf.Run(context.Background(), jobWith("testssl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StagesFailed != 1 || len(res.Outputs) != 1 || string(res.Outputs[0].Raw) != "partial" {
+		t.Fatalf("partial evidence should be retained with the failure: %+v", res)
 	}
 }
