@@ -189,6 +189,7 @@ export interface NetworkScope {
   id: string;
   organization_id: string;
   site_id: string;
+  network_id: string;
   probe_id: string | null;
   name: string;
   cidr: string;

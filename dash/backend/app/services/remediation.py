@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.change_event import ChangeEvent
@@ -84,6 +84,71 @@ async def apply_verification(
             )
             resolved += 1
     return resolved
+
+
+async def finalize_scanner_verification(
+    session: AsyncSession,
+    *,
+    job: ScanJob,
+    scanner: str,
+    now: datetime,
+) -> int:
+    """Finalize one successfully completed scanner across all streamed batches.
+
+    Result uploads update every observed finding's ``scan_job_id``. Waiting for an
+    explicit completion record lets us collect the union of those observations
+    before resolving anything, including the valid zero-findings case. Discovery
+    produces two derived finding namespaces which must be verified with nmap.
+    """
+    namespaces = {
+        "nmap": ("cve-correlation", "nmap-nse"),
+        "nuclei": ("nuclei",),
+        "testssl": ("testssl",),
+        "zap": ("zap",),
+    }.get(scanner, ())
+    resolved = 0
+    for namespace in namespaces:
+        observed = [Finding.scan_job_id == job.id]
+        if job.started_at is not None:
+            # A concurrent scan can legitimately overwrite Finding.scan_job_id
+            # after this verification scanner observed the same canonical
+            # finding. last_seen_at is monotonic evidence that the issue still
+            # exists, so resolving it in that race would be unsafe.
+            observed.append(Finding.last_seen_at >= job.started_at)
+        seen_keys = set(
+            (
+                await session.execute(
+                    select(Finding.canonical_finding_key).where(
+                        Finding.organization_id == job.organization_id,
+                        Finding.id.in_(
+                            [
+                                uuid.UUID(str(raw))
+                                for raw in (job.verifies_finding_ids_json or [])
+                                if _is_uuid(raw)
+                            ]
+                        ),
+                        Finding.scanner_name == namespace,
+                        or_(*observed),
+                    )
+                )
+            ).scalars()
+        )
+        resolved += await apply_verification(
+            session,
+            job=job,
+            scanner=namespace,
+            seen_keys=seen_keys,
+            now=now,
+        )
+    return resolved
+
+
+def _is_uuid(value: object) -> bool:
+    try:
+        uuid.UUID(str(value))
+    except ValueError:
+        return False
+    return True
 
 
 async def create_risk_acceptance(

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select
+from sqlalchemy import String, cast, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import CurrentUser
@@ -98,6 +98,11 @@ async def global_search(
             .where(
                 ScanJob.organization_id == org,
                 site_scope_clause(current_user, ScanJob.site_id, permission_key="jobs.read"),
+                or_(
+                    cast(ScanJob.id, String).ilike(like),
+                    cast(ScanJob.mode, String).ilike(like),
+                    cast(ScanJob.status, String).ilike(like),
+                ),
             )
             .order_by(ScanJob.created_at.desc())
             .limit(limit)
@@ -111,13 +116,16 @@ async def global_search(
                 optional_site_scope_clause(
                     current_user, Report.site_id, permission_key="reports.read"
                 ),
+                or_(
+                    cast(Report.id, String).ilike(like),
+                    cast(Report.report_type, String).ilike(like),
+                ),
             )
             .order_by(Report.created_at.desc())
             .limit(limit)
         )
     ).scalars().all()
 
-    needle = q.strip().lower()
     return {
         "assets": [
             {"id": str(a.id), "label": a.canonical_name, "kind": "asset"} for a in assets
@@ -129,11 +137,9 @@ async def global_search(
         "scans": [
             {"id": str(j.id), "label": f"{j.mode.value} · {j.status.value}", "kind": "scan"}
             for j in scans
-            if needle in j.mode.value.lower() or needle in j.status.value.lower()
         ],
         "reports": [
             {"id": str(r.id), "label": f"{r.report_type.value} report", "kind": "report"}
             for r in reports
-            if needle in r.report_type.value.lower()
         ],
     }

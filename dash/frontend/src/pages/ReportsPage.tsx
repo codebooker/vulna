@@ -13,6 +13,7 @@ import type { LucideIcon } from 'lucide-react';
 import { ApiError, api } from '../api/client';
 import { useAuth } from '../auth/useAuth';
 import { useToast } from '../lib/toast';
+import { useNav } from '../lib/nav';
 import { formatBytes, formatWhenFull } from '../lib/utils';
 import { StatusBadge } from '../components/app/badges';
 import { DataTable, type ColumnDef } from '../components/app/data-table';
@@ -29,6 +30,8 @@ import type { AssetGroup, AssetTag } from '../types/inventory';
 const TYPE_LABELS: Record<string, string> = {
   executive_pdf: 'Executive summary (PDF)',
   technical_pdf: 'Technical report (PDF)',
+  pentest_pdf: 'Pentest report (PDF)',
+  full_spectrum_pdf: 'Full-spectrum assessment (PDF)',
   findings_csv: 'Findings (CSV)',
   assets_csv: 'Assets (CSV)',
   services_csv: 'Services (CSV)',
@@ -73,20 +76,24 @@ const TEMPLATES: { icon: LucideIcon; title: string; description: string }[] = [
 ];
 
 export function ReportsPage() {
-  const { token, logout } = useAuth();
+  const { token, user, logout } = useAuth();
+  const { current } = useNav();
   const { toast } = useToast();
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState<string | null>(null);
   const [genOpen, setGenOpen] = useState(false);
+  const canGenerate = user?.permissions
+    ? user.permissions.includes('reports.create')
+    : user?.role === 'administrator' || user?.role === 'security_operator';
 
   const load = useCallback(async () => {
     if (!token) return;
     setLoading(true);
     setError(null);
     try {
-      const page = await api.listReports(token);
+      const page = await api.listAllReports(token);
       setReports(page.items);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
@@ -207,9 +214,11 @@ export function ReportsPage() {
         title="Reports"
         description="Exports produced from completed scans — PDF for people, CSV and JSON for tooling."
         actions={
-          <Button variant="primary" onClick={() => setGenOpen(true)}>
-            <Plus size={14} aria-hidden /> Generate report
-          </Button>
+          canGenerate && (
+            <Button variant="primary" onClick={() => setGenOpen(true)}>
+              <Plus size={14} aria-hidden /> Generate report
+            </Button>
+          )
         }
       />
 
@@ -231,9 +240,13 @@ export function ReportsPage() {
       <SectionHeader title="Generated reports" />
       <DataTable<Report>
         columns={columns}
-        rows={reports}
+        rows={
+          current.params.report
+            ? reports.filter((report) => report.id === current.params.report)
+            : reports
+        }
         rowKey={(r) => r.id}
-        searchText={(r) => `${TYPE_LABELS[r.report_type] ?? r.report_type} ${r.format}`}
+        searchText={(r) => `${r.id} ${TYPE_LABELS[r.report_type] ?? r.report_type} ${r.format}`}
         searchPlaceholder="Search reports…"
         loading={loading}
         error={error}
@@ -245,14 +258,16 @@ export function ReportsPage() {
         defaultSort={{ id: 'generated', dir: 'desc' }}
       />
 
-      <GenerateReportModal
-        open={genOpen}
-        onClose={() => setGenOpen(false)}
-        onGenerated={() => {
-          setGenOpen(false);
-          void load();
-        }}
-      />
+      {canGenerate && (
+        <GenerateReportModal
+          open={genOpen}
+          onClose={() => setGenOpen(false)}
+          onGenerated={() => {
+            setGenOpen(false);
+            void load();
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -281,7 +296,7 @@ function GenerateReportModal({
   useEffect(() => {
     if (!open || !token) return;
     void Promise.all([
-      api.listJobs(token, 'completed', 100),
+      api.listAllJobs(token, 'completed'),
       api.listAssetTags(token).catch(() => null),
       api.listAssetGroups(token).catch(() => null),
     ])

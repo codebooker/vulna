@@ -6,6 +6,7 @@ import {
   Crosshair,
   FileText,
   HardDrive,
+  HelpCircle,
   History,
   LayoutDashboard,
   ListChecks,
@@ -55,6 +56,7 @@ import { TaskOperationsPage } from '../pages/TaskOperationsPage';
 import { AuthenticatedInventoryPage } from '../pages/AuthenticatedInventoryPage';
 import { SlaTicketingPage } from '../pages/SlaTicketingPage';
 import { PassiveInventoryPage } from '../pages/PassiveInventoryPage';
+import { HelpPage } from '../pages/HelpPage';
 import type { Role } from '../types/auth';
 
 export interface RouteDef {
@@ -310,6 +312,13 @@ export const ROUTE_CATALOGUE: RouteSection[] = [
         icon: Rocket,
         Component: GettingStartedPage,
         permission: 'onboarding.read',
+      },
+      {
+        id: 'help',
+        visibilityKey: 'help',
+        label: 'Help',
+        icon: HelpCircle,
+        Component: HelpPage,
       },
     ],
   },

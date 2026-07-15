@@ -16,6 +16,7 @@ class NetworkScopeRead(BaseModel):
     id: uuid.UUID
     organization_id: uuid.UUID
     site_id: uuid.UUID
+    network_id: uuid.UUID
     probe_id: uuid.UUID | None
     name: str
     cidr: str

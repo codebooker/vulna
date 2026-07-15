@@ -23,9 +23,12 @@ import (
 // only from the job, stage, scanner, and payload, so a Scout that re-uploads the
 // same batch after a lost acknowledgement produces the same key and the server
 // treats the retry as a no-op — no duplicate observations on resume.
-func ResultKey(jobID, stage, scanner string, raw []byte) string {
+func ResultKey(jobID, stage, scanner string, raw []byte, complete ...bool) string {
 	h := sha256.New()
 	h.Write([]byte(jobID + "\x00" + stage + "\x00" + scanner + "\x00"))
+	if len(complete) > 0 && complete[0] {
+		h.Write([]byte("complete\x00"))
+	}
 	h.Write(raw)
 	return hex.EncodeToString(h.Sum(nil))
 }
@@ -256,7 +259,7 @@ func (c *Client) ReportJobStatus(ctx context.Context, jobID string, report JobSt
 
 // UploadResults uploads raw scanner output (e.g. Nmap XML) for a job.
 func (c *Client) UploadResults(
-	ctx context.Context, jobID string, raw []byte, stage, scanner string,
+	ctx context.Context, jobID string, raw []byte, stage, scanner string, complete ...bool,
 ) error {
 	if stage == "" {
 		stage = "discovery"
@@ -268,6 +271,10 @@ func (c *Client) UploadResults(
 		"%s/api/v1/probes/%s/jobs/%s/results?stage=%s&scanner=%s",
 		c.serverURL, c.probeID, jobID, stage, scanner,
 	)
+	isComplete := len(complete) > 0 && complete[0]
+	if isComplete {
+		url += "&complete=true"
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(raw))
 	if err != nil {
 		return err
@@ -277,7 +284,7 @@ func (c *Client) UploadResults(
 		contentType = "application/xml"
 	}
 	req.Header.Set("Content-Type", contentType)
-	req.Header.Set("Idempotency-Key", ResultKey(jobID, stage, scanner, raw))
+	req.Header.Set("Idempotency-Key", ResultKey(jobID, stage, scanner, raw, isComplete))
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return fmt.Errorf("upload results: %w", err)

@@ -71,9 +71,9 @@ export function AssetsPage() {
     setError(null);
     try {
       const [a, s, f, t, g, u, d] = await Promise.all([
-        api.listAssets(token),
-        api.listSites(token),
-        api.listFindingSnapshot(token).catch(() => null),
+        api.listAllAssets(token),
+        api.listAllSites(token),
+        api.listAllFindings(token).catch(() => null),
         api.listAssetTags(token).catch(() => null),
         api.listAssetGroups(token).catch(() => null),
         canManage ? api.listUsers(token).catch(() => null) : Promise.resolve(null),

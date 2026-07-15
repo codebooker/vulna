@@ -33,8 +33,8 @@ export function FindingsPage() {
     setError(null);
     try {
       const [page, assets] = await Promise.all([
-        api.listFindingSnapshot(token),
-        api.listAssets(token).catch(() => null),
+        api.listAllFindings(token),
+        api.listAllAssets(token).catch(() => null),
       ]);
       setFindings(page.items);
       setFindingTotal(page.total);
@@ -63,8 +63,15 @@ export function FindingsPage() {
     if (match) {
       handledDeepLink.current = deepFindingId;
       openDetail(match);
+      return;
     }
-  }, [deepFindingId, findings]);
+    if (!token || loading) return;
+    handledDeepLink.current = deepFindingId;
+    void api
+      .getFinding(token, deepFindingId)
+      .then(openDetail)
+      .catch((err) => setError(err instanceof Error ? err.message : 'Finding not found.'));
+  }, [deepFindingId, findings, loading, token]);
 
   const columns: ColumnDef<Finding>[] = useMemo(
     () => [

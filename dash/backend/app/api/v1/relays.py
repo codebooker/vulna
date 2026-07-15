@@ -29,7 +29,7 @@ from app.auth.site_scope import get_accessible_site, optional_site_scope_clause
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
 from app.models.enums import ActorType, ProbeStatus, RelayStatus
-from app.models.network import NetworkScout
+from app.models.network import Network, NetworkScout
 from app.models.network_scope import NetworkScope
 from app.models.organization import Organization
 from app.models.probe import Probe
@@ -102,6 +102,7 @@ def _serialize(r: Relay) -> dict[str, Any]:
         "site_id": str(r.site_id) if r.site_id else None,
         "approved_cidrs": r.approved_cidrs_json,
         "denied_cidrs": r.denied_cidrs_json,
+        "allow_public_addresses": bool(r.metadata_json.get("allow_public_addresses", False)),
         "certificate_fingerprint": r.certificate_fingerprint,
         "last_seen_at": r.last_seen_at.isoformat() if r.last_seen_at else None,
         "enrolled_at": r.enrolled_at.isoformat() if r.enrolled_at else None,
@@ -466,6 +467,7 @@ async def set_scope(
     relay.metadata_json = {
         **relay.metadata_json,
         "managed_scope_ids": [str(scope.id) for scope in created_scopes],
+        "allow_public_addresses": payload.allow_public_addresses,
     }
     net.policy_version += 1
 
@@ -489,14 +491,21 @@ async def set_scope(
                 f"'{settings.relay_scanner_probe_name}' is available."
             ),
         )
-    binding = (
-        await session.execute(
+    bindings = list(
+        (
+            await session.execute(
             select(NetworkScout).where(
                 NetworkScout.network_id == net.id,
-                NetworkScout.probe_id == scanner.id,
             )
         )
-    ).scalar_one_or_none()
+        ).scalars()
+    )
+    binding = next((item for item in bindings if item.probe_id == scanner.id), None)
+    # Relay-backed ranges must always dispatch through the central scanner. A
+    # pre-existing primary Scout would otherwise win the normal network routing
+    # path and attempt the scan directly, bypassing the relay tunnel.
+    for item in bindings:
+        item.is_primary = item.probe_id == scanner.id
     if binding is None:
         session.add(NetworkScout(network_id=net.id, probe_id=scanner.id, is_primary=True))
     record_audit(
@@ -592,6 +601,32 @@ async def revoke(
     )
     relay.status = RelayStatus.REVOKED
     relay.tunnel_up = False
+    managed_ids = [
+        uuid.UUID(value)
+        for value in relay.metadata_json.get("managed_scope_ids", [])
+        if isinstance(value, str)
+    ]
+    if managed_ids:
+        scopes = list(
+            (
+                await session.execute(
+                    select(NetworkScope).where(NetworkScope.id.in_(managed_ids))
+                )
+            ).scalars()
+        )
+        network_ids = {scope.network_id for scope in scopes}
+        await session.execute(delete(NetworkScope).where(NetworkScope.id.in_(managed_ids)))
+        for network_id in network_ids:
+            network = await session.get(Network, network_id)
+            if network is not None:
+                network.policy_version += 1
+    relay.approved_cidrs_json = []
+    relay.denied_cidrs_json = []
+    relay.metadata_json = {
+        **relay.metadata_json,
+        "managed_scope_ids": [],
+        "allow_public_addresses": False,
+    }
     record_audit(
         session, action="relay.revoked", actor=admin,
         organization_id=admin.organization_id, target_type="relay", target_id=relay.id,

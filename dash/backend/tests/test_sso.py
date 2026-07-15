@@ -17,6 +17,7 @@ from app.models.enums import (
     AccountStatus,
     AuthenticationSource,
     IdentityProviderProtocol,
+    SiteAccessMode,
     SsoPolicyMode,
     UserRole,
 )
@@ -31,6 +32,7 @@ from app.models.sso import (
     SsoProtocolState,
 )
 from app.models.user import User
+from app.models.user_lifecycle import UserSiteAssignment
 from app.services import sso
 from app.services.secret_crypto import (
     SecretDecryptionError,
@@ -115,9 +117,7 @@ def _certificate() -> str:
 
 
 def _idp_metadata(certificate: str) -> str:
-    stripped = "".join(
-        line for line in certificate.splitlines() if "CERTIFICATE" not in line
-    )
+    stripped = "".join(line for line in certificate.splitlines() if "CERTIFICATE" not in line)
     return f"""<?xml version="1.0"?>
 <md:EntityDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata"
  xmlns:ds="http://www.w3.org/2000/09/xmldsig#" entityID="https://idp.example/entity">
@@ -406,27 +406,21 @@ async def test_saml_metadata_is_strict_encrypted_and_supports_certificate_rollov
     )
     assert rotated.status_code == 200
     await db_session.refresh(provider)
-    config = sso.saml_settings(
-        get_settings(), provider, base_url="https://vulna.example"
-    )
+    config = sso.saml_settings(get_settings(), provider, base_url="https://vulna.example")
     assert config["strict"] is True
     assert config["security"]["authnRequestsSigned"] is True
     assert config["security"]["wantAssertionsSigned"] is True
     assert config["security"]["wantAssertionsEncrypted"] is True
     assert len(config["idp"]["x509certMulti"]["signing"]) == 2
     assert next_cert not in json.dumps(provider.__dict__, default=str)
-    metadata = sso.sp_metadata(
-        get_settings(), provider, base_url="https://vulna.example"
-    )
+    metadata = sso.sp_metadata(get_settings(), provider, base_url="https://vulna.example")
     assert "AssertionConsumerService" in metadata
 
 
 async def test_saml_replay_identifiers_are_single_use(
     db_session: AsyncSession, organization: Organization
 ) -> None:
-    provider = await _provider(
-        db_session, organization, protocol=IdentityProviderProtocol.SAML
-    )
+    provider = await _provider(db_session, organization, protocol=IdentityProviderProtocol.SAML)
     await sso.record_saml_identifiers(db_session, provider, ["message-1", "assertion-1"])
     await db_session.flush()
     with pytest.raises(sso.SsoError):
@@ -455,18 +449,16 @@ async def test_jit_requires_verified_email_and_creates_stable_link(
     assert second.id == first.id
     assert first.authentication_source == AuthenticationSource.JIT
     assert first.hashed_password is None
-    assert (
-        await db_session.scalar(select(func.count()).select_from(ExternalIdentityLink))
-        == 1
-    )
+    assert await db_session.scalar(select(func.count()).select_from(ExternalIdentityLink)) == 1
 
 
 async def test_jit_role_downgrades_when_idp_group_is_removed(
-    db_session: AsyncSession, organization: Organization
+    db_session: AsyncSession, organization: Organization, make_user: UserFactory
 ) -> None:
     """A JIT user promoted via an IdP group is downgraded to the provider default
     once the identity no longer matches any role-granting group."""
     provider = await _provider(db_session, organization)  # default_role=VIEWER
+    await make_user(UserRole.ADMINISTRATOR)
     db_session.add(
         IdentityGroupMapping(
             organization_id=organization.id,
@@ -485,6 +477,95 @@ async def test_jit_role_downgrades_when_idp_group_is_removed(
     demoted = await sso.resolve_sso_user(db_session, provider, {**base, "groups": []})
     assert demoted.id == promoted.id
     assert demoted.role == UserRole.VIEWER
+
+
+async def test_jit_group_change_cannot_demote_the_last_active_administrator(
+    db_session: AsyncSession, organization: Organization
+) -> None:
+    provider = await _provider(db_session, organization)
+    db_session.add(
+        IdentityGroupMapping(
+            organization_id=organization.id,
+            identity_provider_id=provider.id,
+            external_group="admins",
+            role=UserRole.ADMINISTRATOR,
+        )
+    )
+    await db_session.commit()
+    claims = {
+        "sub": "only-admin",
+        "email": "only-admin@example.com",
+        "email_verified": True,
+        "groups": ["admins"],
+    }
+    user = await sso.resolve_sso_user(db_session, provider, claims)
+    assert user.role == UserRole.ADMINISTRATOR
+
+    with pytest.raises(sso.SsoError, match="last active administrator"):
+        await sso.resolve_sso_user(db_session, provider, {**claims, "groups": []})
+    assert user.role == UserRole.ADMINISTRATOR
+
+
+async def test_mapping_replacement_resets_linked_jit_role_and_site_access(
+    client: AsyncClient,
+    admin_headers: dict[str, str],
+    db_session: AsyncSession,
+    organization: Organization,
+) -> None:
+    provider = await _provider(db_session, organization)
+    site = (
+        await client.post(
+            "/api/v1/sites",
+            headers=admin_headers,
+            json={"name": "Mapped", "code": "MAP"},
+        )
+    ).json()
+    db_session.add(
+        IdentityGroupMapping(
+            organization_id=organization.id,
+            identity_provider_id=provider.id,
+            external_group="operators",
+            role=UserRole.SECURITY_OPERATOR,
+            site_ids_json=[site["id"]],
+        )
+    )
+    await db_session.commit()
+    user = await sso.resolve_sso_user(
+        db_session,
+        provider,
+        {
+            "sub": "mapped-user",
+            "email": "mapped-user@example.com",
+            "email_verified": True,
+            "groups": ["operators"],
+        },
+    )
+    before_version = user.auth_version
+    assert user.role == UserRole.SECURITY_OPERATOR
+    assert user.site_access_mode == SiteAccessMode.ASSIGNED
+
+    replaced = await client.put(
+        f"/api/v1/identity/providers/{provider.id}/group-mappings",
+        headers=admin_headers,
+        json=[],
+    )
+
+    assert replaced.status_code == 200, replaced.text
+    await db_session.refresh(user)
+    assert user.role == UserRole.VIEWER
+    # Claims are unavailable during an administrative mapping replacement, so
+    # revoke all site access until the disabled provider is re-tested and the
+    # next signed login supplies the user's current groups.
+    assert user.site_access_mode == SiteAccessMode.ASSIGNED
+    assert user.auth_version == before_version + 1
+    assert (
+        await db_session.scalar(
+            select(func.count())
+            .select_from(UserSiteAssignment)
+            .where(UserSiteAssignment.user_id == user.id)
+        )
+        == 0
+    )
 
 
 async def test_jit_default_role_fails_closed_for_legacy_privileged_provider(
@@ -566,12 +647,8 @@ async def test_phase37_openapi_and_capability_status(
         "/api/v1/sso/saml/{provider_id}/metadata",
     ):
         assert path in schema["paths"]
-    capabilities = (
-        await client.get("/api/v1/system/capabilities", headers=admin_headers)
-    ).json()
-    item = next(
-        value for value in capabilities["capabilities"] if value["key"] == "enterprise_sso"
-    )
+    capabilities = (await client.get("/api/v1/system/capabilities", headers=admin_headers)).json()
+    item = next(value for value in capabilities["capabilities"] if value["key"] == "enterprise_sso")
     assert item["status"] == "available"
     assert item["production_ready"] is False
 
@@ -600,15 +677,11 @@ async def test_sso_state_cannot_be_reused(
     )
     db_session.add(state_row)
     await db_session.commit()
-    consumed = await sso.consume_protocol_state(
-        db_session, secret, IdentityProviderProtocol.OIDC
-    )
+    consumed = await sso.consume_protocol_state(db_session, secret, IdentityProviderProtocol.OIDC)
     assert consumed.id == state_row.id
     await db_session.commit()
     with pytest.raises(sso.SsoError):
-        await sso.consume_protocol_state(
-            db_session, secret, IdentityProviderProtocol.OIDC
-        )
+        await sso.consume_protocol_state(db_session, secret, IdentityProviderProtocol.OIDC)
 
 
 async def test_external_link_cannot_cross_organization(

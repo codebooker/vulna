@@ -79,8 +79,31 @@ async def build_summary(
     ).scalars().all()
 
     counts = {FIX_NOW: 0, PLAN: 0, WATCH: 0, INFORMATIONAL: 0}
+    severity_counts: dict[str, dict[str, int]] = {
+        severity: {"total": 0, "fresh": 0, "resolved": 0}
+        for severity in ("critical", "high", "medium", "low", "info")
+    }
+    risk_assets: dict[uuid.UUID, dict[str, int]] = {}
+    risk_sites: dict[uuid.UUID, dict[str, int]] = {}
     scored: list[tuple[str, str, Finding]] = []
     for f in unresolved:
+        severity = f.severity.value
+        severity_counts[severity]["total"] += 1
+        if f.status == FindingStatus.NEW:
+            severity_counts[severity]["fresh"] += 1
+        if f.asset_id is not None:
+            asset_risk = risk_assets.setdefault(
+                f.asset_id, {"critical": 0, "high": 0, "total": 0}
+            )
+            asset_risk["total"] += 1
+            if severity in {"critical", "high"}:
+                asset_risk[severity] += 1
+        site_risk = risk_sites.setdefault(
+            f.site_id, {"critical": 0, "high": 0, "total": 0}
+        )
+        site_risk["total"] += 1
+        if severity in {"critical", "high"}:
+            site_risk[severity] += 1
         if f.risk_score is not None:
             priority, rationale = priority_from_score(f.risk_score)
         else:
@@ -116,6 +139,32 @@ async def build_summary(
         }
         for priority, rationale, f in scored[:5]
     ]
+    resolved_by_severity = (
+        await session.execute(
+            select(Finding.severity, func.count())
+            .where(*finding_filters, Finding.status.in_(CLOSED_STATUSES))
+            .group_by(Finding.severity)
+        )
+    ).all()
+    for severity, count in resolved_by_severity:
+        severity_counts[severity.value]["resolved"] = int(count)
+
+    ranked_assets = sorted(
+        risk_assets.items(),
+        key=lambda item: (
+            item[1]["critical"] * 3 + item[1]["high"],
+            item[1]["total"],
+        ),
+        reverse=True,
+    )
+    asset_name_rows = (
+        await session.execute(
+            select(Asset.id, Asset.canonical_name).where(
+                Asset.id.in_([item[0] for item in ranked_assets[:5]])
+            )
+        )
+    ).all()
+    asset_names: dict[uuid.UUID, str] = {row[0]: row[1] for row in asset_name_rows}
 
     # --- What changed recently ---
     window_start = now - timedelta(days=CHANGE_WINDOW_DAYS)
@@ -158,6 +207,41 @@ async def build_summary(
         .select_from(ScanJob)
         .where(*scan_filters, ScanJob.status == JobStatus.COMPLETED)
     )
+    asset_total = await session.scalar(
+        select(func.count()).select_from(Asset).where(*asset_filters)
+    )
+    failed_scans = await session.scalar(
+        select(func.count())
+        .select_from(ScanJob)
+        .where(*scan_filters, ScanJob.status == JobStatus.FAILED)
+    )
+    recent_jobs = (
+        await session.execute(
+            select(ScanJob)
+            .where(*scan_filters)
+            .order_by(ScanJob.created_at.desc())
+            .limit(4)
+        )
+    ).scalars().all()
+    recent_failed_jobs = (
+        await session.execute(
+            select(ScanJob)
+            .where(*scan_filters, ScanJob.status == JobStatus.FAILED)
+            .order_by(ScanJob.created_at.desc())
+            .limit(3)
+        )
+    ).scalars().all()
+
+    def serialize_job(job: ScanJob) -> dict[str, Any]:
+        return {
+            "id": str(job.id),
+            "mode": job.mode.value,
+            "status": job.status.value,
+            "targets": job.requested_targets_json,
+            "created_at": job.created_at.isoformat(),
+            "finished_at": job.finished_at.isoformat() if job.finished_at else None,
+            "error_message": job.error_message,
+        }
 
     health: ComponentHealth = await component_health(session, settings, now)
 
@@ -177,6 +261,40 @@ async def build_summary(
             "feeds": health.feeds,
         },
         "needs_attention": {**counts, "top": top},
+        "finding_metrics": {
+            "active_total": len(unresolved),
+            "by_severity": severity_counts,
+            "attention_assets": sum(
+                1
+                for value in risk_assets.values()
+                if value["critical"] > 0 or value["high"] > 0
+            ),
+            "risky_assets": [
+                {
+                    "asset_id": str(asset_id),
+                    "name": asset_names.get(asset_id, str(asset_id)),
+                    **values,
+                }
+                for asset_id, values in ranked_assets[:5]
+            ],
+            "risk_by_site": [
+                {"site_id": str(site_id), **values}
+                for site_id, values in sorted(
+                    risk_sites.items(),
+                    key=lambda item: (
+                        item[1]["critical"] * 3 + item[1]["high"],
+                        item[1]["total"],
+                    ),
+                    reverse=True,
+                )[:5]
+            ],
+        },
+        "operational_metrics": {
+            "asset_total": int(asset_total or 0),
+            "failed_scans": int(failed_scans or 0),
+            "recent_jobs": [serialize_job(job) for job in recent_jobs],
+            "recent_failed_jobs": [serialize_job(job) for job in recent_failed_jobs],
+        },
         "changed_recently": {
             "window_days": CHANGE_WINDOW_DAYS,
             "total": len(changes),

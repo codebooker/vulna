@@ -231,10 +231,7 @@ async def update_provider(
     oidc_fields = {"issuer", "discovery_url", "client_id", "client_secret", "scopes"}
     if provider.protocol == IdentityProviderProtocol.SAML and set(values) & oidc_fields:
         raise _error("SAML providers are configured through metadata import")
-    if (
-        provider.protocol == IdentityProviderProtocol.OIDC
-        and "next_idp_certificate" in values
-    ):
+    if provider.protocol == IdentityProviderProtocol.OIDC and "next_idp_certificate" in values:
         raise _error("OIDC providers do not use SAML signing certificates")
     sensitive_change = bool(
         set(values)
@@ -272,9 +269,7 @@ async def update_provider(
         )
     if payload.next_idp_certificate is not None:
         try:
-            next_certificate = sso.normalize_x509_certificate(
-                payload.next_idp_certificate
-            )
+            next_certificate = sso.normalize_x509_certificate(payload.next_idp_certificate)
         except sso.SsoError as exc:
             raise _error(str(exc)) from exc
         provider.encrypted_next_idp_certificate = encrypt_secret(
@@ -415,10 +410,7 @@ async def set_provider_enabled(
     provider.enabled = payload.enabled
     if not payload.enabled:
         policy = await sso.get_policy(session, actor.organization_id)
-        if (
-            policy.mode == SsoPolicyMode.ENFORCED
-            and policy.identity_provider_id == provider.id
-        ):
+        if policy.mode == SsoPolicyMode.ENFORCED and policy.identity_provider_id == provider.id:
             raise _error("Disable SSO enforcement before disabling its provider", 409)
     _record(
         session,
@@ -530,9 +522,7 @@ async def replace_group_mappings(
         if owned != site_ids:
             raise _error("One or more sites do not belong to this organization")
     await session.execute(
-        delete(IdentityGroupMapping).where(
-            IdentityGroupMapping.identity_provider_id == provider.id
-        )
+        delete(IdentityGroupMapping).where(IdentityGroupMapping.identity_provider_id == provider.id)
     )
     rows = [
         IdentityGroupMapping(
@@ -547,6 +537,10 @@ async def replace_group_mappings(
     session.add_all(rows)
     provider.last_test_succeeded_at = None
     provider.enabled = False
+    try:
+        await sso.reconcile_provider_jit_users(session, provider)
+    except sso.SsoError as exc:
+        raise _error(str(exc), status.HTTP_409_CONFLICT) from exc
     await session.flush()
     _record(
         session,
@@ -851,9 +845,7 @@ async def start_test_login(
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> SsoStartResponse:
     actor = identity.user
-    provider = await _public_provider(
-        session, provider_id, allow_disabled_test_for=actor
-    )
+    provider = await _public_provider(session, provider_id, allow_disabled_test_for=actor)
     return await _start(
         session,
         settings,
@@ -891,10 +883,7 @@ async def _finish_login(
             or initiated.organization_id != provider.organization_id
             or initiated.role != UserRole.ADMINISTRATOR
             or not initiated.is_active
-            or (
-                existing_link is not None
-                and existing_link.user_id != initiated.id
-            )
+            or (existing_link is not None and existing_link.user_id != initiated.id)
             or (existing_link is None and email != initiated.email)
         ):
             raise sso.SsoError(
@@ -902,8 +891,7 @@ async def _finish_login(
             )
     user = await sso.resolve_sso_user(session, provider, claims)
     if state_row.purpose == "test" and (
-        state_row.initiated_by_user_id != user.id
-        or user.role != UserRole.ADMINISTRATOR
+        state_row.initiated_by_user_id != user.id or user.role != UserRole.ADMINISTRATOR
     ):
         raise sso.SsoError(
             "The administrator test must return the same active administrator account"
@@ -965,9 +953,7 @@ async def oidc_callback(
     provider_org_id = provider.organization_id
     provider_object_id = provider.id
     try:
-        state_row = await sso.consume_protocol_state(
-            session, state, IdentityProviderProtocol.OIDC
-        )
+        state_row = await sso.consume_protocol_state(session, state, IdentityProviderProtocol.OIDC)
         if state_row.identity_provider_id != provider.id:
             raise sso.SsoError("SSO state does not belong to this provider")
         await session.commit()  # state stays single-use across every later failure
@@ -1054,9 +1040,7 @@ async def saml_acs(
     try:
         values = {
             key: items[0]
-            for key, items in parse_qs(
-                body.decode("utf-8"), keep_blank_values=True
-            ).items()
+            for key, items in parse_qs(body.decode("utf-8"), keep_blank_values=True).items()
             if items
         }
     except UnicodeDecodeError as exc:

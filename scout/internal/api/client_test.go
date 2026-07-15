@@ -146,6 +146,22 @@ func TestUploadResults(t *testing.T) {
 	}
 }
 
+func TestUploadScannerCompletion(t *testing.T) {
+	var gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.RawQuery
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+	c := newClient(srv.URL, "p1", srv.Client())
+	if err := c.UploadResults(context.Background(), "j1", nil, "vuln", "nuclei", true); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(gotQuery, "complete=true") {
+		t.Fatalf("completion query flag missing: %q", gotQuery)
+	}
+}
+
 func TestReportJobStatus(t *testing.T) {
 	var got JobStatusReport
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

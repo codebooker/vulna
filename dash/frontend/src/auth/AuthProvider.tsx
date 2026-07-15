@@ -1,5 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { api } from '../api/client';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { api, setStepUpHandler } from '../api/client';
+import { Button } from '../components/ui/button';
+import { Field, Input } from '../components/ui/input';
+import { Modal } from '../components/ui/overlay';
+import { InlineError } from '../components/ui/states';
 import type { CurrentUser, MfaVerification, TokenResponse } from '../types/auth';
 import { AuthContext, type AuthContextValue, type PendingMfa } from './AuthContext';
 
@@ -22,13 +26,73 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [expiresAt, setExpiresAt] = useState<number | null>(null);
   const [initializing, setInitializing] = useState(true);
   const [pendingMfa, setPendingMfa] = useState<PendingMfa | null>(null);
+  const [stepUpOpen, setStepUpOpen] = useState(false);
+  const [stepUpPassword, setStepUpPassword] = useState('');
+  const [stepUpError, setStepUpError] = useState<string | null>(null);
+  const [stepUpBusy, setStepUpBusy] = useState(false);
+  const stepUpPromise = useRef<{
+    promise: Promise<void>;
+    resolve: () => void;
+    reject: (error: Error) => void;
+  } | null>(null);
 
   const clear = useCallback(() => {
+    stepUpPromise.current?.reject(new Error('Authentication session ended.'));
+    stepUpPromise.current = null;
     setToken(null);
     setUser(null);
     setExpiresAt(null);
     setPendingMfa(null);
+    setStepUpOpen(false);
+    setStepUpPassword('');
+    setStepUpError(null);
   }, []);
+
+  const requestStepUp = useCallback(() => {
+    if (stepUpPromise.current) return stepUpPromise.current.promise;
+    let resolve!: () => void;
+    let reject!: (error: Error) => void;
+    const promise = new Promise<void>((onResolve, onReject) => {
+      resolve = onResolve;
+      reject = onReject;
+    });
+    stepUpPromise.current = { promise, resolve, reject };
+    setStepUpPassword('');
+    setStepUpError(null);
+    setStepUpOpen(true);
+    return promise;
+  }, []);
+
+  useEffect(() => {
+    setStepUpHandler(requestStepUp);
+    return () => setStepUpHandler(null);
+  }, [requestStepUp]);
+
+  const cancelStepUp = useCallback(() => {
+    stepUpPromise.current?.reject(new Error('Recent authentication was cancelled.'));
+    stepUpPromise.current = null;
+    setStepUpOpen(false);
+    setStepUpPassword('');
+    setStepUpError(null);
+  }, []);
+
+  const submitStepUp = useCallback(async () => {
+    if (!token || !stepUpPassword) return;
+    setStepUpBusy(true);
+    setStepUpError(null);
+    try {
+      await api.reauthenticate(token, stepUpPassword);
+      const pending = stepUpPromise.current;
+      stepUpPromise.current = null;
+      setStepUpOpen(false);
+      setStepUpPassword('');
+      pending?.resolve();
+    } catch (error) {
+      setStepUpError(error instanceof Error ? error.message : 'Authentication failed.');
+    } finally {
+      setStepUpBusy(false);
+    }
+  }, [stepUpPassword, token]);
 
   const applyToken = useCallback((response: TokenResponse) => {
     setToken(response.access_token);
@@ -128,5 +192,70 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [user, token, initializing, login, pendingMfa, completeMfa, logout],
   );
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+      <Modal
+        open={stepUpOpen}
+        onClose={cancelStepUp}
+        title="Confirm your identity"
+        description="This security-sensitive action requires your password again."
+        footer={
+          user?.authentication_source === 'local' ? (
+            <>
+              <Button variant="ghost" onClick={cancelStepUp}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                loading={stepUpBusy}
+                disabled={!stepUpPassword}
+                onClick={() => void submitStepUp()}
+              >
+                Continue
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="ghost" onClick={cancelStepUp}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                onClick={() => {
+                  cancelStepUp();
+                  void logout();
+                }}
+              >
+                Sign out to reauthenticate
+              </Button>
+            </>
+          )
+        }
+      >
+        <div className="flex flex-col gap-3">
+          {user?.authentication_source === 'local' ? (
+            <Field label="Password" htmlFor="step-up-password">
+              <Input
+                id="step-up-password"
+                type="password"
+                autoComplete="current-password"
+                value={stepUpPassword}
+                onChange={(event) => setStepUpPassword(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') void submitStepUp();
+                }}
+              />
+            </Field>
+          ) : (
+            <p className="text-xs text-muted">
+              Accounts without a local password must sign out and authenticate with their identity
+              provider again.
+            </p>
+          )}
+          {stepUpError && <InlineError message={stepUpError} />}
+        </div>
+      </Modal>
+    </AuthContext.Provider>
+  );
 }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { KeyRound, Plus, RefreshCw, ShieldCheck, Trash2 } from 'lucide-react';
+import { KeyRound, PlayCircle, Plus, RefreshCw, ShieldCheck, Trash2 } from 'lucide-react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/useAuth';
 import { DataTable, type ColumnDef } from '../components/app/data-table';
@@ -47,6 +47,7 @@ export function AuthenticatedInventoryPage() {
     user?.permissions?.includes('scouts.manage') ?? user?.role === 'administrator';
   const canManageSoftware =
     user?.permissions?.includes('software.manage') ?? user?.role === 'administrator';
+  const canRun = user?.permissions?.includes('jobs.create') ?? user?.role === 'administrator';
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -59,7 +60,7 @@ export function AuthenticatedInventoryPage() {
           api.listCredentialAssignments(token),
           api.listSoftware(token),
           api.credentialUsage(token),
-          api.listAssets(token, 500),
+          api.listAllAssets(token),
           api.listProbes(token),
         ]);
       setCredentials(vault.items);
@@ -339,6 +340,7 @@ export function AuthenticatedInventoryPage() {
         value={tab}
         onChange={setTab}
         tabs={[
+          { id: 'run', label: 'Run inventory' },
           { id: 'vault', label: 'Vault', count: credentials.length },
           { id: 'assignments', label: 'Assignments', count: assignments.length },
           { id: 'scouts', label: 'Scout opt-in', count: probes.length },
@@ -346,6 +348,45 @@ export function AuthenticatedInventoryPage() {
           { id: 'usage', label: 'Usage', count: usage.length },
         ]}
       />
+
+      {tab === 'run' && (
+        <RunInventoryPanel
+          assets={assets}
+          probes={probes}
+          canRun={canRun}
+          busy={busy === 'run-inventory'}
+          onRun={async (assetId, probeId, protocols) => {
+            if (!token) return;
+            setBusy('run-inventory');
+            setError(null);
+            try {
+              const asset = await api.getAsset(token, assetId);
+              const target =
+                asset.identifiers.find((item) => item.identifier_type === 'ip_address')
+                  ?.identifier_value ??
+                asset.identifiers.find((item) =>
+                  ['fqdn', 'hostname'].includes(item.identifier_type),
+                )?.identifier_value;
+              if (!target) {
+                throw new Error(
+                  'This asset has no IP address or hostname that a Scout can target.',
+                );
+              }
+              const job = await api.createAuthenticatedJob(token, {
+                probe_id: probeId,
+                asset_id: assetId,
+                targets: [target],
+                authenticated_protocols: protocols,
+              });
+              toast('success', `Authenticated inventory job ${job.id.slice(0, 8)} queued.`);
+            } catch (err) {
+              setError(err instanceof Error ? err.message : 'Inventory job could not be created.');
+            } finally {
+              setBusy(null);
+            }
+          }}
+        />
+      )}
 
       {tab === 'vault' && (
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
@@ -511,6 +552,120 @@ export function AuthenticatedInventoryPage() {
         />
       )}
     </div>
+  );
+}
+
+function RunInventoryPanel({
+  assets,
+  probes,
+  canRun,
+  busy,
+  onRun,
+}: {
+  assets: Asset[];
+  probes: ProbeSummary[];
+  canRun: boolean;
+  busy: boolean;
+  onRun: (assetId: string, probeId: string, protocols: CredentialProtocol[]) => Promise<void>;
+}) {
+  const [assetId, setAssetId] = useState('');
+  const [probeId, setProbeId] = useState('');
+  const [protocols, setProtocols] = useState<CredentialProtocol[]>(['ssh']);
+  const asset = assets.find((item) => item.id === assetId);
+  const eligibleProbes = probes.filter(
+    (probe) =>
+      probe.site_id === asset?.site_id &&
+      probe.status === 'enrolled' &&
+      probe.credentialed_scans_enabled &&
+      probe.has_encryption_key,
+  );
+
+  useEffect(() => {
+    if (!eligibleProbes.some((probe) => probe.id === probeId)) {
+      setProbeId(eligibleProbes[0]?.id ?? '');
+    }
+  }, [eligibleProbes, probeId]);
+
+  return (
+    <Card className="max-w-2xl">
+      <CardHeader
+        title="Run authenticated inventory"
+        description="Select an asset and an opted-in Scout at the same site. Vulna resolves the narrowest matching credentials and queues a signed, encrypted collection job."
+      />
+      <CardBody className="flex flex-col gap-3">
+        <Field label="Asset" htmlFor="inventory-asset">
+          <Select
+            id="inventory-asset"
+            value={assetId}
+            onChange={(event) => {
+              setAssetId(event.target.value);
+              setProbeId('');
+            }}
+          >
+            <option value="">Select asset…</option>
+            {assets.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.canonical_name}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field
+          label="Scout"
+          htmlFor="inventory-probe"
+          hint={
+            assetId && eligibleProbes.length === 0
+              ? 'No enrolled Scout at this site is opted in for credentialed scanning.'
+              : 'Only enrolled, encryption-capable Scouts that explicitly opted in are listed.'
+          }
+        >
+          <Select
+            id="inventory-probe"
+            value={probeId}
+            disabled={!assetId || eligibleProbes.length === 0}
+            onChange={(event) => setProbeId(event.target.value)}
+          >
+            <option value="">Select Scout…</option>
+            {eligibleProbes.map((probe) => (
+              <option key={probe.id} value={probe.id}>
+                {probe.name}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <fieldset className="flex gap-4">
+          <legend className="mb-1 text-xs font-medium text-text">Protocols</legend>
+          {(['ssh', 'winrm'] as const).map((protocol) => (
+            <label key={protocol} className="flex items-center gap-1.5 text-xs text-muted">
+              <input
+                type="checkbox"
+                checked={protocols.includes(protocol)}
+                onChange={(event) =>
+                  setProtocols((current) =>
+                    event.target.checked
+                      ? [...new Set([...current, protocol])]
+                      : current.filter((value) => value !== protocol),
+                  )
+                }
+              />
+              {protocol.toUpperCase()}
+            </label>
+          ))}
+        </fieldset>
+        {!canRun && (
+          <p className="text-xs text-muted">Your role can view inventory but cannot create jobs.</p>
+        )}
+        <Button
+          variant="primary"
+          className="self-start"
+          loading={busy}
+          disabled={!canRun || !assetId || !probeId || protocols.length === 0}
+          onClick={() => void onRun(assetId, probeId, protocols)}
+        >
+          <PlayCircle size={14} aria-hidden /> Run inventory
+        </Button>
+      </CardBody>
+    </Card>
   );
 }
 

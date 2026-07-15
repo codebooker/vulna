@@ -7,17 +7,23 @@ from collections.abc import Awaitable, Callable
 
 import pytest
 from app.core.config import get_settings
+from app.models.enums import UserRole
 from app.models.probe import Probe
 from app.services.policy import build_policy_document
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tests.conftest import UserFactory, auth_headers
+
 EnrollFactory = Callable[..., Awaitable[dict[str, str]]]
 
 
 async def _approved_probe(
-    client: AsyncClient, admin_headers: dict[str, str], enroll_probe: EnrollFactory,
-    site_code: str, name: str,
+    client: AsyncClient,
+    admin_headers: dict[str, str],
+    enroll_probe: EnrollFactory,
+    site_code: str,
+    name: str,
 ) -> dict[str, str]:
     probe = await enroll_probe(site_code=site_code, probe_name=name)
     await client.post(f"/api/v1/probes/{probe['probe_id']}/approve", headers=admin_headers)
@@ -169,6 +175,34 @@ async def test_scout_can_scan_another_sites_network_over_sdwan(
     assert "10.9.0.0/16" in policy["approved_cidrs"]
 
 
+async def test_network_manager_without_scout_permission_cannot_bind_cross_site_probe(
+    client: AsyncClient,
+    admin_headers: dict[str, str],
+    enroll_probe: EnrollFactory,
+    make_user: UserFactory,
+) -> None:
+    destination = await _approved_probe(client, admin_headers, enroll_probe, "DST", "destination")
+    remote = await _approved_probe(client, admin_headers, enroll_probe, "REM", "remote")
+    created = await client.post(
+        "/api/v1/networks",
+        json={
+            "site_id": destination["site_id"],
+            "name": "Destination LAN",
+            "ranges": [{"cidr": "10.77.0.0/24"}],
+        },
+        headers=admin_headers,
+    )
+    operator = await make_user(UserRole.SECURITY_OPERATOR)
+
+    bound = await client.post(
+        f"/api/v1/networks/{created.json()['id']}/scouts",
+        json={"probe_id": remote["probe_id"], "is_primary": False},
+        headers=auth_headers(operator),
+    )
+
+    assert bound.status_code == 404
+
+
 async def test_scope_convenience_is_backed_by_a_default_network(
     client: AsyncClient,
     admin_headers: dict[str, str],
@@ -240,9 +274,13 @@ async def test_cross_site_job_attributed_to_network_site(
 
     houston_probe = await db_session.get(Probe, uuid.UUID(houston["probe_id"]))
     job = await create_scan_job(
-        db_session, houston_probe, get_settings(),
-        targets=["10.9.0.0/24"], mode=JobMode.VULNERABILITY_ASSESSMENT,
-        created_by=None, network_id=uuid.UUID(net["id"]),
+        db_session,
+        houston_probe,
+        get_settings(),
+        targets=["10.9.0.0/24"],
+        mode=JobMode.VULNERABILITY_ASSESSMENT,
+        created_by=None,
+        network_id=uuid.UUID(net["id"]),
     )
     reloaded = await db_session.get(ScanJob, job.id)
     assert str(reloaded.site_id) == salisbury["site_id"]  # not Houston
@@ -281,15 +319,23 @@ async def test_db_rejects_two_active_jobs_per_network(
     net_id = uuid.UUID(net["id"])
 
     await create_scan_job(
-        db_session, probe_obj, get_settings(),
-        targets=["10.50.0.0/24"], mode=JobMode.VULNERABILITY_ASSESSMENT,
-        created_by=None, network_id=net_id,
+        db_session,
+        probe_obj,
+        get_settings(),
+        targets=["10.50.0.0/24"],
+        mode=JobMode.VULNERABILITY_ASSESSMENT,
+        created_by=None,
+        network_id=net_id,
     )
     with pytest.raises(JobValidationError, match="already under test"):
         await create_scan_job(
-            db_session, probe_obj, get_settings(),
-            targets=["10.50.0.0/24"], mode=JobMode.VULNERABILITY_ASSESSMENT,
-            created_by=None, network_id=net_id,
+            db_session,
+            probe_obj,
+            get_settings(),
+            targets=["10.50.0.0/24"],
+            mode=JobMode.VULNERABILITY_ASSESSMENT,
+            created_by=None,
+            network_id=net_id,
         )
     # The savepoint kept the surrounding transaction usable after the rejection:
     # a normal query still works (an IntegrityError would have poisoned it).
@@ -297,7 +343,9 @@ async def test_db_rejects_two_active_jobs_per_network(
 
 
 async def test_networks_require_admin(
-    client: AsyncClient, viewer_headers: dict[str, str], admin_headers: dict[str, str],
+    client: AsyncClient,
+    viewer_headers: dict[str, str],
+    admin_headers: dict[str, str],
     enroll_probe: EnrollFactory,
 ) -> None:
     probe = await enroll_probe(site_code="V", probe_name="v")

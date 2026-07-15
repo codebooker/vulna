@@ -94,7 +94,7 @@ func VerifyJob(raw []byte, pub ed25519.PublicKey, p *Policy, now time.Time) (*Jo
 	if err != nil {
 		return nil, fmt.Errorf("invalid expires_at %q: %w", job.ExpiresAt, err)
 	}
-	if now.After(expiresAt) {
+	if !now.Before(expiresAt) {
 		return nil, ErrExpired
 	}
 	if now.Before(notBefore) {

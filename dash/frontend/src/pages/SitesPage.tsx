@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Building2, LayoutGrid, Plus, Rows3 } from 'lucide-react';
 import { ApiError, api } from '../api/client';
 import { useAuth } from '../auth/useAuth';
 import { useToast } from '../lib/toast';
+import { useNav } from '../lib/nav';
 import { formatWhenFull } from '../lib/utils';
 import { DataTable, type ColumnDef } from '../components/app/data-table';
 import { PageHeader } from '../components/app/page-header';
@@ -21,6 +22,7 @@ import type { UserSummary } from '../types/auth';
  *  in a modal instead of a permanent inline form. */
 export function SitesPage() {
   const { token, user, logout } = useAuth();
+  const { current } = useNav();
   const [sites, setSites] = useState<Site[]>([]);
   const [scopes, setScopes] = useState<NetworkScope[]>([]);
   const [users, setUsers] = useState<UserSummary[]>([]);
@@ -38,8 +40,8 @@ export function SitesPage() {
     setError(null);
     try {
       const [page, scopePage, userPage] = await Promise.all([
-        api.listSites(token),
-        api.listScopes(token).catch(() => null),
+        api.listAllSites(token),
+        api.listAllScopes(token).catch(() => null),
         isAdmin ? api.listUsers(token).catch(() => null) : Promise.resolve(null),
       ]);
       setSites(page.items);
@@ -65,6 +67,17 @@ export function SitesPage() {
   useEffect(() => {
     void loadSites();
   }, [loadSites]);
+
+  const handledSiteLink = useRef<string | null>(null);
+  useEffect(() => {
+    const siteId = current.params.site;
+    if (!siteId || handledSiteLink.current === siteId) return;
+    const match = sites.find((site) => site.id === siteId);
+    if (match) {
+      handledSiteLink.current = siteId;
+      setSelected(match);
+    }
+  }, [current.params.site, sites]);
 
   const scopeCount = useCallback(
     (siteId: string) => scopes.filter((s) => s.site_id === siteId).length,

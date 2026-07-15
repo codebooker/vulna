@@ -13,6 +13,14 @@ const KIND_META: Record<string, { icon: typeof Search; route: string }> = {
   report: { icon: FileText, route: 'reports' },
 };
 
+const KIND_PARAM: Record<string, string> = {
+  finding: 'finding',
+  asset: 'asset',
+  site: 'site',
+  scan: 'job',
+  report: 'report',
+};
+
 /** Global search across assets, findings, scans, sites, and reports. */
 export function GlobalSearch() {
   const { token } = useAuth();
@@ -63,7 +71,8 @@ export function GlobalSearch() {
     const meta = KIND_META[hit.kind];
     setOpen(false);
     setQ('');
-    go(meta?.route ?? 'overview', { q: hit.label });
+    const param = KIND_PARAM[hit.kind];
+    go(meta?.route ?? 'overview', param ? { [param]: hit.id } : undefined);
   };
 
   return (
