@@ -12,12 +12,11 @@ Documentation is part of the product. Start here.
   English.
 - **[Demo mode](demo.md)** — explore the interface with sample data, no scanning.
 
-## Two paths
+## Choose a topology
 
-- **Simple path** — one host, the guided installer, a local Scout, safe presets.
-  Everything in the quick start.
-- **Advanced path** — distributed Scouts, reverse proxies, constrained/offline
-  sites, and custom presets. Each guide below has advanced notes where relevant.
+Every topology starts with the central appliance. It hosts the dashboard, API,
+database, scheduler, workers, reports, and a scope-gated local Scout. Add an edge
+endpoint only when the appliance cannot directly reach a network.
 
 ## Deployment models
 
@@ -34,7 +33,8 @@ Everything on one machine, including a co-located, scope-gated Scout.
         └──────────────────────────────┘
 ```
 
-Use when: a homelab or a single site. See [installation](installation/README.md).
+Use when: a homelab, one office, or any network directly reachable from the
+appliance. See [installation](installation/README.md).
 
 ### Distributed Scouts
 
@@ -53,37 +53,41 @@ Use when: multiple locations or network segments a single box cannot reach. See
 
 ### Relay (optional, advanced)
 
-A thin relay for constrained sites where a full Scout cannot run. Opt-in and
-advanced; the smart Scout stays the default.
+A scanner-free WireGuard endpoint for a constrained site. The appliance's local
+Scout runs the scanners and reaches only the Relay's approved ranges through the
+tunnel. Relay mode is organization-wide opt-in and the smart Scout remains the
+recommended default.
 
 ```
-   VulnaDash ──── Relay ──── constrained site
+   appliance local Scout ── central egress ── WireGuard ── Relay ── site LAN
 ```
 
-Use when: a site can only run a minimal footprint. Optional; see the roadmap's
-VulnaRelay notes.
+Use when: a site can run Linux and WireGuard routing but should not host scanner
+engines. See [VulnaRelay](relay.md) and the [deployment guide](deployment.md).
 
 ## Task guides
 
 | I want to… | Guide |
 |---|---|
 | Install on one host | [installation](installation/README.md) |
-| Add a remote Scout | [deployment](deployment.md) |
-| Choose a scan preset | [terminology](terminology.md) |
+| Add a remote Scout or Relay | [endpoint deployment](deployment.md) · [Relay security model](relay.md) |
+| Approve networks and choose a scan preset | [quick start](quickstart.md) · [terminology](terminology.md) |
+| Track assets, tags, groups, and ownership | [asset context](asset-context.md) |
 | Understand a finding | [understanding findings](understanding-findings.md) |
-| Fix and verify a finding | [understanding findings](understanding-findings.md) |
+| Prioritize, fix, and verify findings | [explainable risk](explainable-risk.md) · [understanding findings](understanding-findings.md) |
+| Generate PDF, CSV, or JSON reports | [reporting](reporting.md) |
 | Update and roll back | [updates](updates.md) |
 | Back up and restore | [backups](backups.md) |
 | Change the URL or certificate | [networking](networking.md) |
 | Keep it healthy / clean up | [maintenance](maintenance.md) |
-| Get notified | [notifications](notifications.md) |
+| Configure email or signed-webhook notifications | [notifications](notifications.md) |
 | Invite, suspend, or assign users | [user lifecycle](user-lifecycle.md) |
 | Review or revoke signed-in devices | [sessions](sessions.md) |
 | Set up MFA, passkeys, or recovery codes | [multi-factor authentication](mfa.md) |
 | Configure OIDC, SAML, JIT, or break-glass access | [single sign-on](sso.md) |
 | Provision users and groups from a directory | [SCIM provisioning](scim.md) |
 | Create scoped roles, service accounts, or API tokens | [authorization](authorization.md) |
-| Collect authenticated software inventory | [authenticated inventory](authenticated-inventory.md) |
+| Run read-only SSH or WinRM software inventory | [authenticated inventory](authenticated-inventory.md) |
 | Set remediation SLAs or synchronize tickets | [SLA and ticketing](sla-ticketing.md) |
 | Import passive inventory, reconcile assets, or build scheduled reports | [inventory intelligence](passive-inventory.md) |
 | Inspect scheduler/worker tasks and dead letters | [durable tasks](background-tasks.md) |
@@ -91,6 +95,17 @@ VulnaRelay notes.
 | Diagnose a problem | [diagnostics](diagnostics.md) · [troubleshooting](troubleshooting.md) |
 | Choose a dashboard experience | [experience profiles](experience-profiles.md) |
 | Expose Vulna beyond my LAN | [exposure checklist](administration/exposure-checklist.md) |
+
+## Product areas
+
+- **Operations:** overview, assets, findings, scans, sites, and activity.
+- **Management:** remediation, reports, appliances, authenticated and passive
+  inventory, SLAs and ticketing, networks, presets, and controlled pentests.
+- **Administration:** users, SSO, SCIM, roles and service accounts, sessions,
+  MFA, CVE feeds, integrations, system health, durable tasks, and settings.
+
+Navigation is permission-aware. A user sees only the areas allowed by their
+roles, grants, and site assignments.
 
 ## Reference
 

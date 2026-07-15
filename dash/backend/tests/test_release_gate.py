@@ -100,16 +100,30 @@ def test_support_matrix_is_well_formed() -> None:
         "single_host_resource_tiers",
         "browsers",
         "compatibility",
+        "endpoint_support",
         "scanners",
         "release_channels",
     ):
         assert key in matrix, f"support matrix missing '{key}'"
     assert set(matrix["architectures"]) == {"amd64", "arm64"}
+    assert matrix["endpoint_support"]["native_windows_service"] is False
+    assert matrix["endpoint_support"]["native_macos_service"] is False
     assert {c["channel"] for c in matrix["release_channels"]} == {"stable", "maintenance"}
 
 
 def test_capability_matrix_does_not_claim_production_readiness() -> None:
     text = (REPO_ROOT / "docs" / "capabilities.md").read_text().lower()
-    assert "production-ready remains false" in text
+    assert "pre-1.0 software" in text
+    for capability in (
+        "remote vulnascout",
+        "vulnarelay",
+        "authenticated software inventory",
+        "passive inventory connectors",
+        "reports and exports",
+        "oidc and saml sso",
+        "scim 2.0 provisioning",
+        "backup, restore, update, and rollback",
+    ):
+        assert capability in text
     for phase in range(34, 45):
-        assert f"phase {phase}" in text
+        assert f"phase {phase}" not in text

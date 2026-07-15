@@ -15,8 +15,8 @@ import type { Relay } from '../types/relay';
 import type { Site } from '../types/inventory';
 
 /** VulnaRelay: scanner-free WireGuard endpoints that tunnel a thin site through
- *  the central scanner. Available like a Scout; each relay has its own kill
- *  switch. Adding one is done from the "Add relay" drawer (Appliances header). */
+ *  the central scanner. Organization opt-in and per-Relay kill switches remain
+ *  explicit. Adding one is done from the "Add relay" drawer (Appliances header). */
 export function RelayPage({ refreshKey }: { refreshKey?: number }) {
   const { token, user } = useAuth();
   const { toast } = useToast();

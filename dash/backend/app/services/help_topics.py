@@ -1,4 +1,4 @@
-"""Contextual help catalogue (Phase 30).
+"""Contextual help catalogue.
 
 A single registry that maps a help *topic key* to a short explanation and a link
 into the documentation. Errors, setup steps, findings, maintenance warnings, and
@@ -37,9 +37,15 @@ HELP_TOPICS: dict[str, HelpTopic] = {
     ),
     "add-scout": HelpTopic(
         "add-scout",
-        "Add a remote Scout",
-        "Deploy a Scout at another site or network segment.",
+        "Add a remote Scout or Relay",
+        "Choose and deploy an endpoint at another site or network segment.",
         "docs/deployment.md",
+    ),
+    "relay": HelpTopic(
+        "relay",
+        "VulnaRelay",
+        "Understand, install, scope, stop, and revoke a scanner-free Relay.",
+        "docs/relay.md",
     ),
     "choose-preset": HelpTopic(
         "choose-preset",
@@ -58,6 +64,24 @@ HELP_TOPICS: dict[str, HelpTopic] = {
         "Fixing and verifying a finding",
         "Assign, remediate, and re-check a finding.",
         "docs/understanding-findings.md",
+    ),
+    "reporting": HelpTopic(
+        "reporting",
+        "Reports and exports",
+        "Generate permission-scoped PDF, CSV, and JSON artifacts.",
+        "docs/reporting.md",
+    ),
+    "authenticated-inventory": HelpTopic(
+        "authenticated-inventory",
+        "Authenticated inventory",
+        "Run read-only SSH or WinRM software collection through an opted-in Scout.",
+        "docs/authenticated-inventory.md",
+    ),
+    "inventory-intelligence": HelpTopic(
+        "inventory-intelligence",
+        "Inventory intelligence",
+        "Import, reconcile, analyze, and report on passive inventory sources.",
+        "docs/passive-inventory.md",
     ),
     "updates": HelpTopic(
         "updates",
@@ -100,6 +124,12 @@ HELP_TOPICS: dict[str, HelpTopic] = {
         "SCIM provisioning",
         "Provision directory users and map groups to roles and sites.",
         "docs/scim.md",
+    ),
+    "authorization": HelpTopic(
+        "authorization",
+        "Roles, service accounts, and API tokens",
+        "Configure permission-scoped human and automation access.",
+        "docs/authorization.md",
     ),
     "diagnostics": HelpTopic(
         "diagnostics",

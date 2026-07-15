@@ -1,6 +1,6 @@
 # Passive inventory, reconciliation, analytics, and report builder
 
-Phase 44 adds a read-only connector boundary around external inventory sources.
+Vulna provides a read-only connector boundary around external inventory sources.
 The core is provider-neutral: each adapter can test a connection and collect
 bounded observations, but the contract has no create, update, or delete operation
 against a source system. Provider adapters are shipped as smaller stacked changes.
@@ -415,5 +415,5 @@ exports project identifiers, bounds, and `has_secret`. Their client secrets,
 service-account JSON, private keys, assertions, and access tokens are excluded. It
 also excludes export passwords, analytics cache entries, task payloads, and leases.
 Restoring a usable CSV source or secret requires a verified encrypted backup.
-Downgrade removes Phase 44 history and cannot reconstruct source links, so verify a
+Downgrade can remove inventory history and cannot reconstruct source links, so verify a
 backup first.

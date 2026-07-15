@@ -65,10 +65,10 @@ organization.
 When a user belongs to multiple mapped groups, the highest existing compatibility
 role wins and site ids form a union; any explicitly all-site group wins for site
 scope. With no mapped group, a SCIM user falls back to Viewer with no assigned
-sites. Phase 39 materializes these results as additive scoped grants. Generic
-asset-group targets can now reference Phase 40 groups after organization and site
-scope validation. They remain mapping metadata and never substitute for an asset
-permission or grant.
+sites. Vulna materializes the result as additive scoped grants and revokes older
+sessions when effective access changes. Generic asset-group targets can reference
+materialized asset groups after organization and site-scope validation. They
+remain mapping metadata and never substitute for an asset permission or grant.
 
 ## Operations and recovery
 

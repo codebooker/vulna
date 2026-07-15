@@ -13,7 +13,7 @@ directly. See also [`threat-model.md`](threat-model.md) and
 - [ ] RBAC enforced on every mutating endpoint; role checks are explicit and tested (`app/auth/dependencies.py`, `tests/test_rbac.py`).
 - [ ] Organization scoping on every resource read/write (cross-org access returns 404).
 - [ ] Account status and authentication version are checked on every authenticated
-  request; status/password/role/site changes immediately invalidate Phase 34 access.
+  request; status/password/role/site changes immediately invalidate existing access.
 - [ ] Access tokens are 15-minute, session-bound, and held in browser memory;
   refresh tokens are purpose-bound hashes in rotating families and an observed
   reuse revokes the whole session (`app/services/sessions.py`, `tests/test_sessions.py`).

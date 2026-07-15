@@ -7,7 +7,8 @@ expiring — without editing environment files. Everything is **outbound-only**.
 
 ## Channels
 
-Configure channels under **Notifications** (admin). Two types:
+Configure channels under **Administration → Integrations**. Users need the
+notification-management permission to create or change a channel. Two types:
 
 - **Email (SMTP)** — host, port, `from`, recipients, and (optionally) a username;
   the SMTP password is stored encrypted.
@@ -18,6 +19,11 @@ Credentials are stored encrypted and are **never returned** by the API (reads sh
 only whether a secret is set). Rotate a secret with
 `POST /api/v1/notifications/channels/{id}/rotate-secret`.
 
+Use **Manage** to change subscriptions, delivery policy, or enabled state. Secret
+rotation accepts a new SMTP password or webhook signing secret without exposing
+the old value. Deleting a channel removes the configuration while preserving
+auditable delivery history.
+
 Use **Send test** (`POST .../{id}/test`) to verify a channel; the test goes through
 the same validation and transport as real delivery, and is audited.
 
@@ -25,7 +31,8 @@ the same validation and transport as real delivery, and is audited.
 
 Scout offline · scan completed · scan failed · new critical/high finding · KEV
 match · verification succeeded/failed · backup stale · feed stale · certificate
-expiring · storage pressure · update available.
+expiring · storage pressure · update available · security alert · scheduled report
+ready.
 
 `GET /api/v1/notifications/events` returns the catalogue.
 
@@ -36,7 +43,7 @@ expiring · storage pressure · update available.
   are not flooded.
 - **Quiet hours** — set a window to **delay** non-emergency notifications (they are
   never dropped; they send when the window ends). Emergencies (KEV match, storage
-  pressure, Scout offline) are not delayed.
+  pressure, Scout offline, and security alerts) are not delayed.
 
 Emission is decoupled from delivery: an event only queues a pending delivery, so a
 notification problem never blocks a scan or finding. Delivery runs via

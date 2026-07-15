@@ -13,6 +13,14 @@ untested one. The machine-readable version is
 | Debian | 12 | official |
 | Fedora | 40 | community |
 
+This host matrix applies to the central appliance and Linux endpoint tooling.
+The signed Scout and Relay release artifacts target Linux `amd64` and `arm64`.
+There is currently no native Windows or macOS Scout/Relay service installer.
+
+Windows, macOS, and other platforms remain usable as browser clients and scan
+targets. Windows software inventory is collected remotely over WinRM from an
+eligible Linux Scout; it does not require a Windows Vulna agent.
+
 ## Container runtime
 
 - Docker Engine 24.0+ with Compose v2.20+.
@@ -40,6 +48,8 @@ Current Firefox (+ESR), Chrome/Chromium, Safari, and Edge.
 
 - A VulnaScout must be within **one minor version** of VulnaDash.
 - Signed job/policy formats are versioned; a Scout verifies before running.
+- VulnaRelay currently accepts IPv4 site scopes. Its host needs WireGuard,
+  `iproute2`, `iptables`, IP forwarding, and root-managed network capabilities.
 
 ## Scanners
 

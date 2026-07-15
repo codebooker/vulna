@@ -1,7 +1,7 @@
 # Vulna Threat Model
 
-> **Status:** Skeleton established in Phase 0. This document is expanded in
-> Phase 15 (Hardening and public release). It uses a STRIDE-oriented approach.
+> **Status:** Current pre-1.0 threat model. It uses a STRIDE-oriented approach
+> and is reviewed as part of release qualification.
 
 ## Assets to protect
 
@@ -31,6 +31,8 @@
     credential, pinned host identity, fixed read-only command allowlist).
 11. VulnaDash worker ↔ operator-configured ticket provider (selected finding
     fields, purpose-bound secret, outbound HTTPS).
+12. Central Relay egress ↔ VulnaRelay ↔ approved site LAN (WireGuard, central
+    allow/deny policy, and Relay forwarding rules).
 
 ## Threats and controls (STRIDE summary)
 
@@ -112,6 +114,15 @@
 - Premature ticket closure or deadline tampering → immutable SLA calculations
   and exception history, risk-acceptance pause only by explicit policy, and normal
   closure only after a successful verification (or an explicit audited override).
+- Compromised or misrouted Relay → the endpoint receives no scanner credentials or
+  job-signing keys; central egress and endpoint forwarding both apply approved and
+  denied IPv4 ranges; overlapping peer routes are rejected; tunnel health, the
+  per-Relay kill switch, the organization switch, and certificate revocation all
+  fail closed.
+- Relay scope bypass through another Scout → Relay-managed ranges are included only
+  in the configured central Scout's signed policy, that Scout is forced primary for
+  the Relay-backed network, and job validation intersects explicit network targets
+  with the selected Scout's policy.
 
 ## Required controls (baseline)
 
@@ -120,7 +131,7 @@ strict parsers · content sanitization · least privilege · encrypted evidence 
 RBAC · append-only audit trail · SBOMs · dependency scanning · reproducible
 releases where feasible.
 
-## Privacy and data ownership (Phase 31)
+## Privacy and data ownership
 
 Vulna is self-hosted and does not require an account, license server, hosted
 control plane, or telemetry endpoint, and the running application never contacts a

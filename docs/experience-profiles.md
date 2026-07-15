@@ -34,7 +34,8 @@ The API equivalents are:
 The installer writes `VULNA_DEPLOYMENT_PROFILE`. Bootstrap reads it only when it
 creates a new organization; it never changes an existing one. The onboarding
 profile plan stores answers and recommendations in the organization's onboarding
-state. `available` means the capability exists now; `planned` means it is a
-roadmap item. Recommendations never apply a policy automatically.
+state. `available` means the capability exists in the installed version;
+`planned` means the recommendation is recognized but is not yet usable.
+Recommendations never apply a policy automatically.
 
 See the [capability matrix](capabilities.md) for the current status.

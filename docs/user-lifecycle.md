@@ -1,8 +1,8 @@
 # User administration and lifecycle
 
-Phase 34 replaces administrator-chosen passwords and hard deletion with a
-history-preserving account lifecycle. The Users page is available to organization
-administrators.
+Vulna uses invitation-based onboarding and a history-preserving account lifecycle
+instead of administrator-chosen passwords and hard deletion. The Users page is
+available to organization administrators.
 
 ## Invite a user
 
@@ -15,13 +15,13 @@ Reissuing an invitation revokes older invitations and all currently available
 credentials for that account. Administrators cannot assign a permanent password.
 For an active local account, **Reset password** produces a separate, single-use
 link with a distinct cryptographic purpose. Password changes invalidate existing
-Phase 34 access tokens.
+access tokens and sessions.
 
 ## Status and history
 
 Accounts are `invited`, `active`, `suspended`, `locked`, or `deactivated` and are
-owned by `local`, `jit`, or `scim` authentication sources. Phase 34 creates local
-accounts; the other source values prepare the additive SSO/SCIM phases. Every
+owned by `local`, `jit`, or `scim` authentication sources. Local invitations,
+SSO JIT, and SCIM retain separate ownership boundaries. Every
 status, role, site, invitation, and password-reset action is audited and reflected
 in lifecycle history. Deactivation preserves findings, reports, audit attribution,
 and the user record.
@@ -39,8 +39,8 @@ access. Frontend navigation is never the authorization boundary.
 
 Site access applies to sites, assets, scopes, networks, Scouts, changes, findings,
 reports, jobs, schedules, workflows, dashboards/search, notifications, retention,
-privacy analytics, relays, and controlled pentest data. Phase 39 migrates these
-assignments into generalized scoped grants and retains these fields as derived
+privacy analytics, relays, and controlled pentest data. Vulna materializes these
+assignments into generalized scoped grants and retains the fields as derived
 `/api/v1` compatibility projections.
 
 ## Upgrade, export, and recovery

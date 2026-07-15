@@ -29,5 +29,5 @@ the preset. See [low-resource](low-resource.md) and the
 The release qualification runs small, standard, and constrained reference
 benchmarks to catch regressions in resource behavior — most importantly that the
 **Lite profile completes the documented safe assessment on the minimum reference
-hardware without out-of-memory termination** (see the Phase 27 acceptance
-criteria and [low-resource](low-resource.md)).
+hardware without out-of-memory termination** (see
+[low-resource](low-resource.md)).

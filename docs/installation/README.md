@@ -17,13 +17,17 @@ SHA-256 checksum and Ed25519 signature, and only then runs it. Review the script
 first; it never pipes unverified content into a shell.
 
 ```bash
-# 1. Download and read the script.
-curl -fsSLO https://github.com/codebooker/vulna/releases/latest/download/install.sh
+# 1. Select an exact published tag, then download and read its script.
+VULNA_VERSION="vX.Y.Z"
+curl -fsSLO "https://github.com/codebooker/vulna/releases/download/${VULNA_VERSION}/install.sh"
 less install.sh
 
 # 2. Run it. Everything after `--` is passed to `vulna install`.
-VULNA_VERSION=v1.0.0 sh install.sh -- install
+VULNA_VERSION="${VULNA_VERSION}" sh install.sh -- install
 ```
+
+Replace `vX.Y.Z` with the exact release tag you selected. Pinning the bootstrap
+and artifacts to the same tag avoids an ambiguous or changing `latest` target.
 
 The installer prompts only for: installation directory, data directory,
 deployment profile (`1` Small Business / `2` Enterprise), access mode

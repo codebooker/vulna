@@ -1,8 +1,8 @@
 # Roles, scoped grants, service accounts, and API tokens
 
-Phase 39 replaces endpoint role checks with a code-defined permission catalogue and
-database roles. Authorization is always enforced by the API; navigation visibility
-uses the same permission keys only as a convenience.
+Vulna uses a code-defined permission catalogue and database-backed roles.
+Authorization is always enforced by the API; navigation visibility uses the same
+permission keys only as a convenience.
 
 ## Permission catalogue and roles
 

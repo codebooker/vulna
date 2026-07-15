@@ -1,7 +1,7 @@
 # Remediation SLAs and ticket synchronization
 
-Phase 43 adds governed remediation deadlines and a durable boundary between finding
-persistence and external ticket systems. SLA calculations work without internet
+Vulna provides governed remediation deadlines and a durable boundary between
+finding persistence and external ticket systems. SLA calculations work without internet
 access. Ticket connectors are optional and disabled until an administrator tests
 and explicitly enables each destination.
 

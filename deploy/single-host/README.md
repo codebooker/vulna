@@ -3,7 +3,7 @@
 Run the entire Vulna platform — dashboard, database, reverse proxy, **and** a
 working local VulnaScout — on one machine, with no second host, no cloud
 dependency, and no manual token copying. This is the recommended starting point
-for self-hosters (roadmap Phase 17).
+for self-hosters and small deployments.
 
 The local Scout comes up **enrolled but idle**: it authenticates with the same
 mutual-TLS certificate, signed policy, and signed jobs as any remote Scout, and
@@ -106,12 +106,19 @@ application containers is safe — identity, findings, reports, and Scout
 enrollment persist. To upgrade, pull/rebuild and `up -d` again; migrations reapply
 idempotently.
 
-## Growing to multiple Scouts
+## Growing to remote sites
 
 This is the same data model and enrollment flow as a distributed deployment.
-Adding a remote VulnaScout later is the normal "Add VulnaScout" flow against the
+Adding a remote VulnaScout later is the normal **Add Scout** flow against the
 same database and organization — no migration, no data loss. The single-host
 profile is a packaging choice, not a different product.
+
+The profile also includes the central WireGuard egress namespace needed by
+VulnaRelay. Relay mode stays off until an administrator enables it under
+**Management → Appliances → Relay**. A remote Scout remains the recommended
+choice when a site can run scanners; use a Relay when the site requires a
+scanner-free endpoint. See the [endpoint deployment guide](../../docs/deployment.md)
+and [Relay security model](../../docs/relay.md).
 
 ## Advanced knobs
 

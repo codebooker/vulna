@@ -1,6 +1,6 @@
 # OIDC and SAML single sign-on
 
-Phase 37 adds optional, organization-scoped identity federation. A fresh install
+Vulna supports optional, organization-scoped identity federation. A fresh install
 and every upgrade keep SSO **disabled**, so local authentication continues until
 an administrator deliberately completes the validation, test, enablement, and
 policy gates.
@@ -93,12 +93,14 @@ External accounts are keyed by `(provider, subject)` and never by a mutable disp
 name. A first link or JIT provision requires a provider-verified email. JIT users
 are passwordless, active, and owned by the external source. Exact external group
 mappings can select the compatibility role and existing site assignments. If
-groups map to conflicting roles, sign-in fails instead of choosing one. Phase 39
-will migrate these compatibility roles/sites into scoped grants.
+groups map to conflicting roles, sign-in fails instead of choosing one. Vulna
+materializes the resulting role and site snapshot into scoped authorization grants
+and revokes older sessions when the effective access changes.
 
-SCIM ownership is not implemented in Phase 37. Do not treat JIT as a substitute
-for deprovisioning; disable the Vulna user or provider until Phase 38 provisioning
-is configured.
+JIT and SCIM have different ownership boundaries. JIT creates or updates an
+account at sign-in; it does not receive a directory deprovisioning event. For
+directory-driven suspension and group lifecycle, configure
+[SCIM provisioning](scim.md). SCIM never takes ownership of local or JIT users.
 
 ## Backup, export, and offline operation
 
