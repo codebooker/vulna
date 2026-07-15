@@ -157,15 +157,14 @@ async def build_summary(
         ),
         reverse=True,
     )
-    asset_names = dict(
-        (
-            await session.execute(
-                select(Asset.id, Asset.canonical_name).where(
-                    Asset.id.in_([item[0] for item in ranked_assets[:5]])
-                )
+    asset_name_rows = (
+        await session.execute(
+            select(Asset.id, Asset.canonical_name).where(
+                Asset.id.in_([item[0] for item in ranked_assets[:5]])
             )
-        ).all()
-    )
+        )
+    ).all()
+    asset_names: dict[uuid.UUID, str] = {row[0]: row[1] for row in asset_name_rows}
 
     # --- What changed recently ---
     window_start = now - timedelta(days=CHANGE_WINDOW_DAYS)
