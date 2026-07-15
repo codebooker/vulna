@@ -48,18 +48,18 @@ ownership**, and refuses to overwrite an existing deployment without `--confirm`
 (taking a safety backup first). Because the **CA** and the database are backed up,
 restoring does **not** require re-enrolling every Scout.
 
-The database dump includes Phase 34 account status, site assignments, lifecycle
-history, still-valid invitation/reset hashes, Phase 35 session/refresh state, and
-Phase 36 encrypted TOTP factors, recovery-code hashes, WebAuthn public credentials,
-MFA policy, authentication strength, and used/expired challenge state. Phase 37
-adds identity-provider configuration, purpose-encrypted OIDC client secrets and
+The database dump includes account status, site assignments, lifecycle history,
+still-valid invitation/reset hashes, session/refresh state, encrypted TOTP factors,
+recovery-code hashes, WebAuthn public credentials, MFA policy, authentication
+strength, and used/expired challenge state. It also includes identity-provider
+configuration, purpose-encrypted OIDC client secrets and
 SAML certificates/private keys, external identity links, group mappings, SSO
 policy/test history, and consumed protocol/replay state.
-Phase 38 adds hashed SCIM bearer tokens, provisioned group membership and role/site
+SCIM backup data includes hashed bearer tokens, provisioned group membership and role/site
 mappings, rate-limit windows, external directory ids, and sanitized provisioning
 history. These records are required to keep a restored connector's old token,
 revocation, ownership, and access decisions intact.
-Phase 39 adds authorization roles/permissions, user and service-account scoped
+Authorization backup data includes roles/permissions, user and service-account scoped
 grants, service-principal lifecycle, hashed personal/service API tokens, expiry/IP
 restrictions, rotation links, and authorization versions. These records keep
 least-privilege automation and immediate revocation intact after restore.
@@ -68,35 +68,35 @@ that an assigned user sees the same sites, a deactivated user remains unable to
 sign in, consumed one-time links remain unusable, revoked sessions remain revoked,
 and a refresh token cannot be reused after restore. Unlike the non-secret
 portability export, backup data is sensitive and must remain encrypted.
-A Phase 36 restore test must additionally verify that a used recovery code remains
+An MFA restore test must additionally verify that a used recovery code remains
 used, WebAuthn sign counters do not move backward, and required-MFA grace state is
 preserved.
-A Phase 37 restore test must verify that provider secrets still decrypt only for
+An SSO restore test must verify that provider secrets still decrypt only for
 their original purpose, disabled providers remain disabled, enforcement retains a
 strong-MFA break-glass user, external subjects stay linked to the same organization,
 and consumed OIDC state or SAML assertion IDs remain unusable.
-A Phase 38 restore test must verify that revoked/rotated SCIM tokens remain unusable,
+A SCIM restore test must verify that revoked/rotated SCIM tokens remain unusable,
 active tokens still resolve only their original organization, deprovisioned users
 remain inactive, group-derived role/site access is unchanged, and provisioning
 logs contain no bearer values.
-A Phase 39 restore test must verify that custom and built-in grants resolve to the
+An authorization restore test must verify that custom and built-in grants resolve to the
 same sites and permissions, the last-administrator protection remains effective,
 suspended service accounts remain unusable, revoked/rotated API tokens stay
 unusable, active tokens retain their original organization and IP restrictions,
 and no token value appears in logs or exports.
-A Phase 40 restore test must verify that structured asset context, normalized tags,
+An asset-context restore test must verify that structured asset context, normalized tags,
 static and dynamic group membership/explanations, site and department owners, and
 effective-owner history are unchanged. Re-evaluating a restored dynamic group must
 produce the same membership, and the legacy `tags_json` compatibility projection
 must still match normalized assignments.
-A Phase 41 restore test must verify that the active risk-profile version and every
+A risk and remediation restore test must verify that the active risk-profile version and every
 score input hash/factor contribution survive unchanged, current findings still point
 to their latest immutable snapshot, remediation membership and reviewed suggestions
 are intact, and active/revoked/expired finding decisions retain their evidence,
 expiry, and prior-status projection. Re-running the expiry sweep after restore must
 be idempotent.
 
-A Phase 42 restore test must verify that each vault ciphertext still decrypts only
+An authenticated-inventory restore test must verify that each vault ciphertext still decrypts only
 under its SSH or WinRM purpose, version/retirement history and assignments are
 unchanged, deactivated credentials do not resolve, and usage/software/EOL history
 is intact. Scout public keys and opt-in state must remain bound to their original
@@ -104,7 +104,7 @@ Scout; Scout private X25519 keys live only in Scout state. A restored active vau
 must create an envelope decryptable by that Scout without exposing plaintext in the
 job row, export, report, evidence, or logs.
 
-A Phase 43 restore test must verify that each finding still points to the same
+An SLA and ticketing restore test must verify that each finding still points to the same
 latest immutable SLA calculation, all predecessor calculations, exceptions,
 guidance, pause/resume and breach/completion events remain reconstructable, and the
 `due_at` compatibility projection is unchanged. Connector secrets must decrypt only
@@ -113,14 +113,14 @@ disabled, idempotency keys and external ticket identities must survive, and a
 restored worker retry must not duplicate a successful remote ticket. No connector
 secret may appear in portability, task payloads, audit metadata, or logs.
 
-A Phase 44 restore test must verify connector ciphertext under its dedicated HKDF
+A passive-inventory restore test must verify connector ciphertext under its dedicated HKDF
 purpose, append-only observations, source links, lifecycle events, daily aggregates,
 reconciliation snapshots/splits, and report template schedules/runs. Report export
 passwords must decrypt only under their separate purpose and must not appear in
 task payloads, portability, audit metadata, or logs. Restored auto-merge decisions
 must remain reversible without contacting the original source.
 
-The same Phase 44 restore must preserve authoritative DNS public configuration and
+The same passive-inventory restore must preserve authoritative DNS public configuration and
 decrypt its TSIG value only under the inventory-connector purpose. A restored DNS
 connector remains disabled or retains its prior tested/enabled state exactly; its
 secret must remain absent from portability, task payloads, test metadata, cursors,

@@ -2,7 +2,7 @@
 
 Vulna's dashboard aims to be usable with a keyboard and a screen reader. This
 document records the accessibility approach and a keyboard-only review of the core
-flows (Phase 22).
+flows.
 
 ## Approach
 

@@ -2,8 +2,8 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://vulna.dev/schemas/data-map.json",
   "title": "Vulna Data Map",
-  "description": "Machine-readable map of what data Vulna stores, where, its sensitivity, and whether it can leave the deployment (updated through scan progress and failure diagnostics). Not a JSON Schema for validation; a documented data inventory.",
-  "version": "7",
+  "description": "Machine-readable map of what data Vulna stores, where, its sensitivity, and whether it can leave the deployment (including Scout and Relay endpoint state). Not a JSON Schema for validation; a documented data inventory.",
+  "version": "8",
   "leaves_deployment": {
     "intelligence_feeds": {
       "destinations": ["services.nvd.nist.gov", "www.cisa.gov", "epss.cyentia.com"],
@@ -65,6 +65,7 @@
     { "category": "organization/sites/scopes", "store": "database", "sensitivity": "low", "in_export": true },
     { "category": "experience profile and onboarding plan", "store": "database", "sensitivity": "low", "in_export": "profile_only" },
     { "category": "scouts", "store": "database", "sensitivity": "low", "in_export": "metadata_only" },
+    { "category": "relays, tunnel addresses, scope, status, and certificate fingerprints", "store": "database", "sensitivity": "high", "in_export": false },
     { "category": "assets/services", "store": "database", "sensitivity": "medium", "in_export": true },
     { "category": "structured asset context, normalized tags/groups, membership explanations, and ownership history", "store": "database", "sensitivity": "medium", "in_export": true },
     { "category": "findings", "store": "database", "sensitivity": "medium", "in_export": true },
@@ -106,6 +107,8 @@
     { "category": "report export passwords", "store": "database (purpose-bound encrypted)", "sensitivity": "critical", "in_export": false },
     { "category": "scope-specific analytics cache", "store": "database", "sensitivity": "medium", "in_export": false },
     { "category": "internal CA + signing keys", "store": "keys volume", "sensitivity": "critical", "in_export": false },
+    { "category": "central Relay WireGuard private key and peer configuration", "store": "relay configuration volume", "sensitivity": "critical", "in_export": false },
+    { "category": "Relay mTLS identity and WireGuard private key", "store": "remote Relay state (0700)", "sensitivity": "critical", "in_export": false },
     { "category": "notification/SMTP secrets", "store": "database (encrypted)", "sensitivity": "high", "in_export": false }
   ]
 }

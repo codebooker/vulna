@@ -26,6 +26,7 @@ cross-installation identifier.
 |---|---|---|---|
 | Organization / sites / scopes | database | low | yes |
 | Scouts | database | low | metadata only |
+| Relays, tunnel addresses, scope, status, and certificate fingerprints | database | high | no |
 | Assets / services | database | medium | yes |
 | Structured asset context, normalized tags/groups, membership explanations, and ownership history | database | medium | yes |
 | Findings | database | medium | yes |
@@ -67,6 +68,8 @@ cross-installation identifier.
 | Report export passwords | database (purpose-bound encrypted) | critical | no |
 | Scope-specific analytics cache | database | medium | no |
 | Internal CA + signing keys | keys volume | critical | no |
+| Central Relay WireGuard private key and peer configuration | relay configuration volume | critical | no |
+| Relay mTLS identity and WireGuard private key | remote Relay state (`0700`) | critical | no |
 | Notification / SMTP secrets | database (encrypted) | high | no |
 
 The [export](portability.md) contains only the non-secret categories marked "yes"

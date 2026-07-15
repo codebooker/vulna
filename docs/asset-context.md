@@ -1,9 +1,9 @@
 # Asset context, groups, and ownership
 
-Phase 40 adds organization-owned context to inventory without changing scan scope
-or authorization. Context improves search, reporting, prioritization, and assignment;
-it never grants access to an asset. Every API continues to apply the caller's Phase
-39 permission and site scope.
+Vulna adds organization-owned context to inventory without changing scan scope or
+authorization. Context improves search, reporting, prioritization, and assignment;
+it never grants access to an asset. Every API continues to apply the caller's
+permission and site scope.
 
 ## Structured context and tags
 
@@ -87,7 +87,7 @@ mutation, and organization-wide tag/department management requires an organizati
 grant. Every mutation is audited. SCIM identity-group mappings can now reference
 validated asset-group ids, but such a mapping does not bypass asset authorization.
 
-Phase 40 records are included in encrypted database backups. Non-secret structured
+Asset-context records are included in encrypted database backups. Non-secret structured
 context, normalized tags/groups, membership explanations, and ownership history are
 also included in portability schema v4. User credentials, tokens, evidence, and raw
 scanner output remain excluded.

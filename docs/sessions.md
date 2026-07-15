@@ -1,7 +1,7 @@
 # Sessions and signed-in devices
 
-Phase 35 replaces long-lived stateless browser tokens with revocable server-side
-sessions. A password sign-in returns a 15-minute access token that the frontend
+Vulna uses revocable server-side sessions rather than long-lived stateless browser
+tokens. A password sign-in returns a 15-minute access token that the frontend
 keeps only in memory and sets a random refresh token in an HttpOnly cookie. The
 server stores only a purpose-bound HMAC hash of that refresh token.
 
@@ -44,7 +44,7 @@ access or refresh.
 
 ## Upgrades, backup, and portability
 
-The Phase 35 migration invalidates legacy stateless tokens, so an upgrade causes a
+The session-model migration invalidates legacy stateless tokens, so an upgrade causes a
 one-time forced sign-in. Encrypted full-database backups preserve session state,
 including revocation and token-use records. Portability exports intentionally omit
 all session metadata and refresh hashes.

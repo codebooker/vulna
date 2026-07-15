@@ -1,7 +1,7 @@
 # Explainable risk and remediation grouping
 
-Phase 41 replaces the old rule-only priority classifier with versioned,
-organization-owned risk profiles and immutable score snapshots. The formal finding
+Vulna uses versioned, organization-owned risk profiles and immutable score
+snapshots. The formal finding
 severity, CVSS, threat intelligence, validation state, workflow status, and existing
 `/api/v1` shapes remain available. The friendly priority bucket is presentation,
 derived from the latest `0–100` score.

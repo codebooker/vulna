@@ -1,9 +1,70 @@
-# VulnaScout appliance deployment
+# Deploying VulnaScout and VulnaRelay endpoints
 
-> Just want everything on one machine? See
+> If the central appliance can reach the target network, stop here and use its
+> bundled local Scout. See
 > [`../deploy/single-host/README.md`](../deploy/single-host/README.md) for the
-> single-host deployment, which brings up VulnaDash **and** an auto-enrolled local
-> Scout with one command. This document covers deploying a *remote* Scout.
+> single-host deployment. A remote endpoint is needed only for another location
+> or an isolated network segment.
+
+## Choose the endpoint role
+
+| | VulnaScout | VulnaRelay |
+|---|---|---|
+| Remote host runs | Scanner agent and approved scanner stages | WireGuard tunnel agent; no scanners |
+| Scanners run | At the remote site | On the central appliance |
+| Scope boundary | Signed policy enforced locally and centrally | Central egress policy plus Relay routing rules |
+| Remote requirements | Linux `amd64`/`arm64` and resources for the selected scanners | Linux `amd64`/`arm64`, WireGuard, IP forwarding, and `iptables` |
+| Recommended for | Most offices, sites, and network segments | Constrained sites or central-scan policies |
+
+Prefer VulnaScout whenever the site can run it. Choose VulnaRelay deliberately
+when a scanner-free endpoint is the requirement; read its
+[security model and tradeoffs](relay.md) before enabling it.
+
+Both endpoint types are linked to the appliance by a short-lived, single-use
+enrollment token generated for a specific site. Enrollment issues an mTLS
+identity. It does **not** authorize a target range.
+
+## Add a remote Scout
+
+1. Create the destination site in VulnaDash.
+2. Open **Management → Appliances → Scouts**, select **Add Scout**, and choose
+   the site.
+3. Copy the generated command. It contains a one-time token and the exact signed
+   release URL, and is shown only once.
+4. Run the command as root on the remote Linux host:
+
+   ```sh
+   curl -fsSLo /tmp/install-scout.sh \
+     https://github.com/codebooker/vulna/releases/download/vX.Y.Z/install-scout.sh
+   VULNA_SERVER=https://vulna.example.com:8443 \
+     VULNA_ENROLL_TOKEN=replace-with-the-shown-token \
+     VULNA_VERSION=vX.Y.Z sh /tmp/install-scout.sh
+   ```
+
+   This is an illustrative shape only. Use the dashboard's command because it
+   supplies the installed release tag, one-time token, and private-CA material
+   when needed.
+
+5. Wait for the appliance page to show the Scout as connected, then approve the
+   site's network scope. Until that approval, the Scout refuses every target.
+
+The token is passed through the environment rather than a command argument so it
+does not remain in process listings. The Scout initiates outbound mTLS traffic to
+the appliance; no inbound management port is opened on the Scout.
+
+### Operate a remote Scout
+
+```sh
+vulnascout doctor    # Check DNS, TLS, time, enrollment, and policy health.
+vulnascout stop      # Engage the local emergency stop, even while offline.
+vulnascout resume    # Clear the local emergency stop.
+vulnascout reset     # Revoke the identity centrally and wipe local enrollment.
+```
+
+The emergency stop and signed local policy remain authoritative if VulnaDash is
+unreachable. `reset` self-revokes over mTLS before removing its local private key.
+
+## Scout packaging reference
 
 VulnaScout is the remote assessment probe. It deploys as a Docker container, a
 Debian package (amd64 or arm64 / Raspberry Pi-class), or a VM image, and enrolls
@@ -31,7 +92,8 @@ VERSION=1.0.0 deploy/probe/build-packages.sh   # -> dist/vulnascout_1.0.0_{amd64
 
 ```sh
 docker build -f deploy/probe/Dockerfile -t vulnascout .
-docker run --rm -v vulna-data:/var/lib/vulna vulnascout enroll --server https://dash.example --token <token>
+docker run --rm -e VULNASCOUT_ENROLL_TOKEN=replace-with-the-shown-token \
+  -v vulna-data:/var/lib/vulna vulnascout enroll --server https://dash.example:8443
 docker run -d  -v vulna-data:/var/lib/vulna vulnascout run
 ```
 
@@ -47,7 +109,8 @@ On a fresh Debian/Ubuntu VM (amd64 or arm64):
 
 ```sh
 sudo dpkg -i vulnascout_1.0.0_amd64.deb || sudo apt-get -f install -y
-sudo vulna-appliance enroll --server https://dash.example --token <one-time-token>
+sudo VULNASCOUT_ENROLL_TOKEN=replace-with-the-shown-token \
+  vulna-appliance enroll --server https://dash.example:8443
 vulna-appliance status
 ```
 
@@ -64,7 +127,8 @@ smoke test on Pi-class hardware:
 
 ```sh
 sudo dpkg -i vulnascout_1.0.0_arm64.deb || sudo apt-get -f install -y
-sudo vulna-appliance enroll --server https://dash.example --token <token>
+sudo VULNASCOUT_ENROLL_TOKEN=replace-with-the-shown-token \
+  vulna-appliance enroll --server https://dash.example:8443
 ```
 
 ## Upgrade and rollback
@@ -107,31 +171,26 @@ descriptions, evidence, or IP addresses appear in any label or value. The public
 Caddy proxy does not route `/metrics`, so it is reachable only on the internal
 Docker network for Prometheus to scrape.
 
-## Adding a remote Scout (Phase 20)
+## Add a Relay
 
-In VulnaDash, use **Add VulnaScout** on a site to generate a one-time install
-command. Run it on the remote Linux host (amd64/arm64):
+Relay mode is off by default.
 
-```sh
-VULNA_SERVER=https://vulna.example.com VULNA_ENROLL_TOKEN=<token> sh install-scout.sh
-```
+1. Open **Management → Appliances → Relay** and enable
+   **Organization relay mode**.
+2. Select **Add Relay**, choose a site, and run the generated command as root on
+   the endpoint. The verified installer installs WireGuard dependencies when the
+   host uses `apt` or `apk`, installs `vulnarelay`, enrolls it, and starts the
+   hardened systemd service.
+3. Enter approved CIDRs and any narrower denied CIDRs, then save the Relay scope.
+   Public addresses stay blocked unless **Allow public addresses** is explicitly
+   selected.
+4. Confirm both the enrolled status and **Tunnel up** badge before scanning.
 
-The command downloads a **pinned, signed** release, verifies its Ed25519 signature
-and checksum before installing, then enrolls. The token is single-use, expires,
-and is passed via the environment so it does not linger in process listings. No
-inbound port is opened on the remote host; all communication is Scout-initiated
-outbound. Enrolling does **not** authorize any target — approve a scope afterward.
+The Relay connects outbound to the appliance's control listener and WireGuard
+endpoint. The appliance must publish TCP `8443` and UDP `51820` (or the configured
+alternatives). Use the per-Relay kill switch for an immediate reversible stop;
+use **Revoke** to invalidate its certificate, tear down the tunnel, and remove its
+managed scope.
 
-### Operating a remote Scout
-
-```sh
-vulnascout doctor    # staged connection test with remediation for DNS/TLS/clock/…
-vulnascout stop      # local emergency stop — works even if VulnaDash is unreachable
-vulnascout resume    # clear the emergency stop
-vulnascout reset     # revoke this identity centrally, then wipe local state to re-enroll
-```
-
-The emergency stop and the local signed policy remain authoritative even when the
-central service is unavailable or compromised. `reset` self-revokes over mTLS so
-the old identity can no longer poll or upload; the private key is removed in place
-and never leaves the Scout.
+See [VulnaRelay](relay.md) for detailed routing, central-scanner behavior, scope
+rules, recovery, and revocation.

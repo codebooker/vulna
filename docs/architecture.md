@@ -1,16 +1,20 @@
 # Vulna Architecture
 
-This document gives a high-level overview of Vulna's architecture. It
-complements [`VULNA_CODEX_BUILD_PLAN.md`](../VULNA_CODEX_BUILD_PLAN.md), which is
-the authoritative specification, and the Architecture Decision Records in
-[`adr/`](adr/).
+This document gives a high-level overview of the current Vulna architecture. The
+security rationale and historical design decisions live in the
+[Architecture Decision Records](adr/).
 
 ## Overview
 
-Vulna is a distributed platform with a central orchestrator (**VulnaDash**) and
-lightweight remote appliances (**VulnaScout**) deployed at each site. Probes
-initiate all communication outbound over HTTPS with mutual TLS; the orchestrator
-never opens a connection to a probe and never sends an arbitrary command.
+Vulna is a distributed platform with a central appliance (**VulnaDash**), an
+auto-enrolled local **VulnaScout**, and optional remote endpoints. A remote
+VulnaScout runs scanners at its site. A **VulnaRelay** runs no scanners; it
+provides a constrained WireGuard path so the appliance's local Scout can assess
+an approved remote network.
+
+Scouts initiate all control communication outbound over HTTPS with mutual TLS;
+the orchestrator never opens a management connection to a Scout and never sends
+an arbitrary command. Relays use an mTLS control channel plus a WireGuard tunnel.
 
 ```text
                          ┌──────────────┐
@@ -18,24 +22,25 @@ never opens a connection to a probe and never sends an arbitrary command.
                          └──────┬───────┘
                                 │ HTTPS
                                 ▼
-┌──────────────────────────────────────────────────────────────┐
-│                 VulnaDash Central Orchestrator                 │
-│                                                                │
-│  Caddy ─▶ Web/API (FastAPI) ─▶ Workers (queue / scheduler)     │
-│                │                        │                      │
-│     PostgreSQL (data/tasks)        Redis (cache)               │
-│                │                        │                      │
-│         Report Service          CVE Intelligence              │
-│         (PDF/CSV/JSON)          (NVD / KEV / EPSS)             │
-└───────────────────────────┬───────────────────────────────────┘
-                            │ Outbound HTTPS + mTLS (probe-initiated)
-        ┌───────────────────┼────────────────────┐
-        ▼                   ▼                     ▼
-   VulnaScout A        VulnaScout B          VulnaScout C
-   Local Policy        Local Policy          Local Policy
-   Scanner Plugins     Scanner Plugins       Scanner Plugins
-        │                   │                     │
-   Approved CIDRs      Approved CIDRs        Approved CIDRs
+┌────────────────────────────────────────────────────────────────────┐
+│                    Vulna central appliance                          │
+│                                                                     │
+│  Caddy ─▶ Web/API ─▶ PostgreSQL tasks/data ─▶ scheduler + workers   │
+│              │              │                     │                 │
+│       identity/RBAC    reports + evidence      CVE intelligence     │
+│              │                                    │                 │
+│              └──────── local Scout + scanners ────┘                 │
+│                              │                                      │
+│                  central Relay egress controller                    │
+└──────────────────┬───────────┴────────────────────┬─────────────────┘
+                   │ outbound HTTPS + mTLS          │ WireGuard
+          ┌────────┴────────┐                       ▼
+          ▼                 ▼                  VulnaRelay
+   remote Scout A    remote Scout B                 │
+   signed policy     signed policy             approved site LAN
+   scanner plugins   scanner plugins
+          │                 │
+   approved LAN A     approved LAN B
 ```
 
 ## Components
@@ -47,8 +52,9 @@ never opens a connection to a probe and never sends an arbitrary command.
   (VulnaWatch), reporting controls (VulnaReport), and workflow orchestration.
   Backed by PostgreSQL (SQLAlchemy 2.x + Alembic migrations) and Redis caching.
 - **frontend/** — React + TypeScript single-page app (Vite) providing the
-  dashboard, sites, probes, scans, assets, findings, CVE intelligence,
-  remediation, reports, and administration pages.
+  dashboard, sites, appliances, scans, assets, findings, CVE intelligence,
+  inventory, remediation, reports, identity, integrations, and administration
+  pages. Routes and API reads are permission- and site-aware.
 
 The scheduler and worker are dedicated processes built from the API image. They
 coordinate through PostgreSQL-leased tasks and advisory-lock leader election; no
@@ -60,8 +66,8 @@ scheduled jobs retain the same trust identity and artifacts survive restarts.
 Asset context is organization-owned and independent from authorization. Normalized
 tags and bounded JSON-AST group rules produce materialized, explainable membership;
 one shared resolver applies finding → asset → group → site → department ownership.
-Phase 39 permission and site predicates still govern every inventory and report
-query. See [Asset context, groups, and ownership](asset-context.md) and
+Permission and site predicates govern every inventory and report query. See
+[Asset context, groups, and ownership](asset-context.md) and
 [ADR 0041](adr/0041-asset-context-groups-ownership.md).
 
 Finding priority is produced by an organization-selected immutable risk-profile
@@ -102,6 +108,12 @@ polls for signed jobs, enforces its signed local policy independently, runs
 scanner plugins in isolated child processes with resource limits, and uploads
 results in resumable chunks. Local durable state lives in SQLite.
 
+The same source tree also builds `vulnarelay`, a separate scanner-free entrypoint.
+It enrolls with a site-bound one-time token, holds an mTLS control certificate and
+its WireGuard private key, reconciles approved/denied routes, and reports tunnel
+health. It never receives scanner credentials or job-signing private keys. See
+[VulnaRelay](relay.md).
+
 ### Supporting components
 
 - **watch/** (VulnaWatch) — CVE/KEV/EPSS synchronization and matching workers.
@@ -112,7 +124,7 @@ results in resumable chunks. Local durable state lives in SQLite.
 - **lab/** (VulnaLab) — isolated integration/demo environment.
 - **shared/** — versioned JSON Schemas (job, result, plugin, policy) and examples.
 
-## Communication model
+## Scout communication model
 
 Vulna uses a **pull model** rather than an always-open command channel:
 
@@ -122,6 +134,19 @@ Vulna uses a **pull model** rather than an always-open command channel:
 3. The probe validates the signature, expiry, and local policy before executing.
 4. Results are uploaded in chunks (`POST .../jobs/{job_id}/results`) with content
    hashes; the server acknowledges durable receipt.
+
+## Relay communication model
+
+1. An administrator explicitly enables Relay mode and creates a site-bound,
+   single-use enrollment command.
+2. The endpoint enrolls over the mTLS control listener and receives its tunnel
+   address, central public key, endpoint, and scoped routing configuration.
+3. The central egress controller materializes only enrolled, current, non-killed
+   peers and their approved/denied ranges into WireGuard and firewall state.
+4. The Relay applies matching forwarding and NAT rules toward its site LAN.
+5. Relay-backed jobs are dispatched only to the configured central Scout. Traffic
+   is permitted only while both policy layers allow the target and the tunnel is
+   up.
 
 ## Defense in depth
 

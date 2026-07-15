@@ -14,17 +14,28 @@ Vulna does and does not send, how to inspect it, and the controls you have. See
 
 ## What can leave the deployment
 
-The Privacy page (`GET /api/v1/privacy/outbound`) lists every outbound
-destination and whether it is enabled:
+The Privacy page (`GET /api/v1/privacy/outbound`) lists runtime feed,
+notification, passive-inventory, update, and telemetry destinations and whether
+they are enabled. The complete category-level inventory is the
+[data map](data-map.md).
 
 - **Intelligence feeds** — NVD, CISA KEV, and EPSS, to enrich findings. Disable
   with the *intelligence feeds* toggle; you can instead import signed
   [offline bundles](low-resource.md).
 - **SMTP and webhooks** — only the [notification](notifications.md) channels you
   configure, to the destinations you set.
+- **OIDC and SAML** — protocol traffic only to identity providers an administrator
+  configures and enables.
+- **Ticket synchronization** — selected finding fields only to a tested and
+  enabled connector; never evidence or raw scanner output.
+- **Passive inventory** — bounded read-only requests to tested and enabled
+  inventory sources.
 - **Telemetry** — off unless you explicitly opt in (see below).
 
-Nothing else leaves the deployment.
+VulnaRelay carries explicitly authorized scan traffic between your own appliance
+and site network; it does not create a vendor data path. SCIM and browser/API
+traffic are inbound to the appliance. The running application does not contact a
+Vulna vendor service.
 
 ## Telemetry is opt-in and anonymous
 

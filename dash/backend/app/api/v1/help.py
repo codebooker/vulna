@@ -1,4 +1,4 @@
-"""Contextual help endpoints (Phase 30).
+"""Contextual help endpoints.
 
 Serve the help catalogue and the administrator exposure checklist so the UI can
 deep-link from errors, setup steps, findings, and maintenance warnings to a

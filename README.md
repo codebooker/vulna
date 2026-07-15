@@ -48,15 +48,25 @@ release information.
 
 ## What Vulna provides
 
-- Asset and service discovery with change tracking
-- Nmap discovery, Nuclei vulnerability checks, and TLS assessment
-- CVE intelligence from NVD, CISA KEV, and EPSS
-- Scope-controlled scan scheduling across one or many sites
-- Finding triage, ownership, risk acceptance, and verification scans
-- Executive and technical reports in PDF, CSV, and JSON formats
-- Signed jobs, mutual-TLS endpoint identities, cancellation, and audit logging
-- Optional Prometheus metrics, Grafana dashboards, alerts, and diagnostics
-- Backup, restore, update, rollback, and offline-operation workflows
+- **Assessment:** asset and service discovery, Nuclei vulnerability checks, TLS
+  review, web assessment, and separately approved controlled-pentest workflows.
+- **Distributed scanning:** a bundled local Scout, remote VulnaScout appliances,
+  or scanner-free VulnaRelay endpoints for networks reached through a tunnel.
+- **Inventory:** active discovery, read-only SSH and WinRM software inventory,
+  passive-source connectors, reversible reconciliation, tags, dynamic groups,
+  ownership, and change history.
+- **Risk and remediation:** NVD, CISA KEV, and EPSS enrichment; explainable risk
+  scoring; finding decisions; remediation units; verification scans; SLAs; and
+  optional ticket synchronization.
+- **Reporting and integrations:** executive, technical, pentest, and
+  full-spectrum PDFs; CSV and JSON exports; scheduled report templates; SMTP
+  email; and signed webhooks.
+- **Identity and access:** revocable sessions, TOTP and WebAuthn/passkeys, OIDC
+  and SAML SSO, SCIM provisioning, granular roles, site-scoped grants, service
+  accounts, and expiring API tokens.
+- **Operations:** durable background tasks, live scan progress, failure
+  diagnostics, audit logs, maintenance checks, optional Prometheus/Grafana
+  monitoring, backups, restore, signed updates, rollback, and offline operation.
 
 Vulna is an orchestration and vulnerability-management layer around proven
 open-source scanners. It does not replace those scanning engines.
@@ -67,11 +77,11 @@ Every installation begins with the central Vulna appliance. The appliance hosts
 the web interface, API, database, scheduler, reporting services, and a bundled
 local Scout.
 
-| Deployment                 | Where scans run                                          | Best for                                                    |
-| -------------------------- | -------------------------------------------------------- | ----------------------------------------------------------- |
-| **Central appliance only** | On the appliance's bundled local Scout                   | Networks directly reachable from the appliance              |
-| **Appliance + VulnaScout** | On a Scout installed at the remote location              | Most branch offices, client sites, and segmented networks   |
-| **Appliance + VulnaRelay** | On the appliance, through a tunnel provided by the Relay | Constrained sites where scanners should not run at the edge |
+| Deployment                 | Endpoint role                                        | Where scanners run                    | Best for                                                    |
+| -------------------------- | ---------------------------------------------------- | ------------------------------------- | ----------------------------------------------------------- |
+| **Central appliance only** | The bundled local Scout reaches the local network    | On the central appliance              | Networks directly reachable from the appliance              |
+| **Appliance + VulnaScout** | A remote Scout assesses its assigned site            | On the remote Scout                   | Most branch offices, client sites, and segmented networks   |
+| **Appliance + VulnaRelay** | A remote Relay provides a scope-controlled tunnel    | On the appliance, through the tunnel  | Constrained sites where scanners should not run at the edge |
 
 You do **not** need to install a separate endpoint to scan a network reachable
 from the central appliance. Its local Scout enrolls automatically, but starts
@@ -82,7 +92,8 @@ For remote locations, VulnaScout is the preferred option because it runs the
 scanners and independently enforces scope at the edge. VulnaRelay is an advanced,
 opt-in tunnel mode with no scanners on the remote host; scope is enforced by the
 central egress controller. See [VulnaRelay](docs/relay.md) for the security model
-and tradeoffs.
+and tradeoffs, or the [endpoint deployment guide](docs/deployment.md) for both
+installation paths.
 
 ## How a scan works
 
@@ -109,8 +120,9 @@ explains these communication paths in more detail.
 - Available TCP ports 80, 443, and 8443
 - Available UDP port 51820 when VulnaRelay is enabled
 
-Run the preflight command before installation to identify missing dependencies,
-port conflicts, storage limitations, and unsupported settings:
+The installer runs preflight automatically. If you downloaded the CLI separately,
+you can run the same read-only check first to identify missing dependencies, port
+conflicts, storage limitations, and unsupported settings:
 
 ```bash
 vulna preflight
@@ -122,9 +134,10 @@ Download the installer from the release you intend to use, review it, and then
 run it with that release version:
 
 ```bash
-curl -fsSLO https://github.com/codebooker/vulna/releases/download/<version>/install.sh
+VULNA_VERSION="vX.Y.Z"
+curl -fsSLO "https://github.com/codebooker/vulna/releases/download/${VULNA_VERSION}/install.sh"
 less install.sh
-VULNA_VERSION=<version> sh install.sh -- install
+VULNA_VERSION="${VULNA_VERSION}" sh install.sh -- install
 ```
 
 The bootstrap verifies the Ed25519 signature and SHA-256 checksum of every
@@ -132,14 +145,15 @@ downloaded artifact before executing it. The installer performs host preflight,
 generates strong secrets, installs the single-host stack, and starts the bundled
 local Scout.
 
-Replace `<version>` with a published tag such as `v1.0.0`. Do not copy the example
-unchanged. For manual verification, non-interactive installs, dry runs, and
-uninstallation, see the complete [installation guide](docs/installation/README.md).
+Replace `vX.Y.Z` with the exact tag of the release you downloaded. Do not copy
+the placeholder unchanged. For manual verification, non-interactive installs,
+dry runs, and uninstallation, see the complete
+[installation guide](docs/installation/README.md).
 
 ### Evaluate from a source checkout
 
-Until a signed release is available, the single-host stack can be built from a
-trusted checkout:
+For development or evaluation, the single-host stack can also be built from a
+trusted source checkout:
 
 ```bash
 git clone https://github.com/codebooker/vulna.git

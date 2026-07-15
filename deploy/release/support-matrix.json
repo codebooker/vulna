@@ -1,8 +1,8 @@
 {
   "$id": "https://vulna.dev/schemas/support-matrix.json",
   "title": "Vulna Support Matrix",
-  "description": "The environments Vulna is tested on and supports (Phase 32). Deliberately limited to what the project can test continuously.",
-  "version": "1",
+  "description": "The environments Vulna is tested on and supports. Deliberately limited to what the project can test continuously.",
+  "version": "2",
   "linux_distributions": [
     { "name": "Ubuntu", "versions": ["22.04 LTS", "24.04 LTS"], "tier": "official" },
     { "name": "Debian", "versions": ["12"], "tier": "official" },
@@ -14,6 +14,14 @@
     "note": "Docker Engine + Compose v2. Podman with a compatible Compose is community-tier."
   },
   "architectures": ["amd64", "arm64"],
+  "endpoint_support": {
+    "native_scout_relay_hosts": ["Linux amd64", "Linux arm64"],
+    "native_windows_service": false,
+    "native_macos_service": false,
+    "windows_inventory": "Remote read-only WinRM collection from an eligible Linux Scout",
+    "relay_scope": "IPv4",
+    "relay_runtime": ["WireGuard", "iproute2", "iptables", "IP forwarding"]
+  },
   "single_host_resource_tiers": [
     { "tier": "constrained", "profile": "lite", "cpu": "1-2 cores", "memory": "up to 2 GB", "disk": "10 GB" },
     { "tier": "standard", "profile": "standard", "cpu": "2 cores", "memory": "4 GB", "disk": "20 GB" },

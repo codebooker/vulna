@@ -1,8 +1,9 @@
 # Contributing to Vulna
 
 Thanks for your interest in contributing! Vulna is built in small, testable
-milestones. Please read [`VULNA_CODEX_BUILD_PLAN.md`](VULNA_CODEX_BUILD_PLAN.md)
-and [`docs/architecture.md`](docs/architecture.md) before starting.
+changes. Please read the [architecture](docs/architecture.md),
+[capability status](docs/capabilities.md), and
+[security review checklist](docs/security-review-checklist.md) before starting.
 
 ## Ground rules
 

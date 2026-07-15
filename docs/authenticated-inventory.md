@@ -6,6 +6,26 @@ Scout in. The Authenticated inventory page manages vault metadata, deterministic
 assignments, resolution previews, Scout opt-in, software history, end-of-life
 state, and sanitized usage records.
 
+## Run an inventory job
+
+1. Open **Management → Authenticated inventory** and create an SSH or WinRM
+   credential. The secret is write-only.
+2. Assign it to an asset, group, tag, network, site, or preset. Use the resolution
+   preview to confirm exactly which credential metadata wins for the target.
+3. In the Scout controls, opt in a Scout that is enrolled at the asset's site and
+   has published its credential-encryption public key.
+4. Open **Run inventory**, choose the asset and protocol, select an eligible
+   same-site Scout, and start the job. Vulna chooses an IP address or hostname
+   already bound to the asset; arbitrary commands and arbitrary targets are not
+   accepted.
+5. Follow the signed job under **Operations → Scans**. Completed package and OS
+   observations appear in the inventory and history views.
+
+Starting a job requires `jobs.create`; reading or managing credential metadata is
+controlled separately. A Scout that is offline, outside the asset's site, not
+opted in, or missing its encryption key is intentionally excluded from the run
+selector.
+
 ## Credential lifecycle
 
 Create either an SSH credential for Linux or a WinRM credential for Windows. A
