@@ -205,6 +205,41 @@ export function AssetsPage() {
         csvValue: (a) => a.canonical_name,
       },
       {
+        id: 'id',
+        header: 'Asset ID',
+        defaultHidden: true,
+        cell: (a) => <span className="font-mono text-xs text-muted">{a.id}</span>,
+        sortValue: (a) => a.id,
+        csvValue: (a) => a.id,
+      },
+      {
+        id: 'ipAddresses',
+        header: 'IP addresses',
+        cell: (a) => (
+          <span className="font-mono text-xs text-muted">{a.ip_addresses.join(', ') || '—'}</span>
+        ),
+        sortValue: (a) => a.ip_addresses.join(', '),
+        csvValue: (a) => a.ip_addresses.join(', '),
+      },
+      {
+        id: 'hostnames',
+        header: 'Hostnames',
+        defaultHidden: true,
+        cell: (a) => <span className="text-xs text-muted">{a.hostnames.join(', ') || '—'}</span>,
+        sortValue: (a) => a.hostnames.join(', '),
+        csvValue: (a) => a.hostnames.join(', '),
+      },
+      {
+        id: 'macAddresses',
+        header: 'MAC addresses',
+        defaultHidden: true,
+        cell: (a) => (
+          <span className="font-mono text-xs text-muted">{a.mac_addresses.join(', ') || '—'}</span>
+        ),
+        sortValue: (a) => a.mac_addresses.join(', '),
+        csvValue: (a) => a.mac_addresses.join(', '),
+      },
+      {
         id: 'type',
         header: 'Type',
         cell: (a) => <Badge tone="neutral">{humanize(a.asset_type)}</Badge>,
@@ -442,7 +477,7 @@ export function AssetsPage() {
         rows={preFiltered}
         rowKey={(a) => a.id}
         searchText={(a) =>
-          `${a.canonical_name} ${a.operating_system ?? ''} ${a.manufacturer ?? ''} ${a.department ?? ''} ${a.business_function ?? ''} ${a.tags.map((tagValue) => tagValue.name).join(' ')}`
+          `${a.canonical_name} ${a.ip_addresses.join(' ')} ${a.hostnames.join(' ')} ${a.mac_addresses.join(' ')} ${a.operating_system ?? ''} ${a.manufacturer ?? ''} ${a.department ?? ''} ${a.business_function ?? ''} ${a.tags.map((tagValue) => tagValue.name).join(' ')}`
         }
         searchPlaceholder="Search name, context, tags…"
         filters={filters}
@@ -461,6 +496,7 @@ export function AssetsPage() {
         emptyTitle="No assets discovered yet"
         emptyDescription="Assets appear automatically after your first assessment approves a scope and a scan runs."
         exportName="assets"
+        exportAllColumns
         storageKey="vulnadash.assets"
         defaultSort={{ id: 'lastSeen', dir: 'desc' }}
       />

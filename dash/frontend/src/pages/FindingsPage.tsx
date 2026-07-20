@@ -13,7 +13,42 @@ import {
 import { DataTable, type ColumnDef, type FilterDef } from '../components/app/data-table';
 import { FindingDetailDrawer } from '../components/app/finding-detail-drawer';
 import { PageHeader } from '../components/app/page-header';
+import { Button } from '../components/ui/button';
 import type { Finding } from '../types/finding';
+
+interface FindingRow extends Finding {
+  occurrence_count: number;
+  affected_asset_count: number;
+}
+
+const PRIORITY_ORDER = ['informational', 'watch', 'plan', 'fix_now'];
+const SEVERITY_ORDER = ['info', 'low', 'medium', 'high', 'critical'];
+const NON_ACTIONABLE_SUMMARIES = new Set([
+  'cipher negotiated',
+  'cipherlist strong',
+  'protocol negotiated',
+]);
+
+function findingFamily(title: string): { key: string; label: string } {
+  const normalized = title.trim().toLocaleLowerCase();
+  if (normalized === 'beast cbc tls1' || normalized === 'beast (tls 1.0 cbc)') {
+    return { key: 'beast-tls-cbc', label: 'BEAST (TLS 1.0 CBC)' };
+  }
+  if (
+    normalized === 'certificate expiry' ||
+    normalized === 'certificate validity (notafter)' ||
+    normalized === 'expired ssl certificate'
+  ) {
+    return { key: 'certificate-expiry', label: 'Certificate expiry' };
+  }
+  return { key: normalized, label: title };
+}
+
+function findingRank(finding: Finding): number {
+  const priority = PRIORITY_ORDER.indexOf(finding.priority);
+  const severity = SEVERITY_ORDER.indexOf(normalizeSeverity(finding.severity));
+  return Math.max(priority, 0) * 10 + Math.max(severity, 0);
+}
 
 /** Findings: a professional data table over the live findings API, with a
  *  tabbed detail drawer and the original one-click workflows. */
@@ -24,6 +59,7 @@ export function FindingsPage() {
   const [findingTotal, setFindingTotal] = useState(0);
   const [assetNames, setAssetNames] = useState<Map<string, string>>(new Map());
   const [selected, setSelected] = useState<Finding | null>(null);
+  const [groupSimilar, setGroupSimilar] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -53,6 +89,38 @@ export function FindingsPage() {
 
   const openDetail = (f: Finding) => setSelected(f);
 
+  const displayFindings: FindingRow[] = useMemo(() => {
+    if (!groupSimilar) {
+      return findings.map((finding) => ({
+        ...finding,
+        occurrence_count: 1,
+        affected_asset_count: finding.asset_id ? 1 : 0,
+      }));
+    }
+    const groups = new Map<string, { label: string; findings: Finding[] }>();
+    for (const finding of findings) {
+      const normalizedTitle = finding.title.trim().toLocaleLowerCase();
+      if (NON_ACTIONABLE_SUMMARIES.has(normalizedTitle)) continue;
+      const family = findingFamily(finding.title);
+      const group = groups.get(family.key) ?? { label: family.label, findings: [] };
+      group.findings.push(finding);
+      groups.set(family.key, group);
+    }
+    return [...groups.values()].map((group) => {
+      const representative = [...group.findings].sort((a, b) => findingRank(b) - findingRank(a))[0];
+      return {
+        ...representative,
+        title: group.label,
+        occurrence_count: group.findings.length,
+        affected_asset_count: new Set(
+          group.findings
+            .map((finding) => finding.asset_id)
+            .filter((assetId): assetId is string => assetId !== null),
+        ).size,
+      };
+    });
+  }, [findings, groupSimilar]);
+
   // Deep link from elsewhere (e.g. an asset's vulnerabilities): #findings?finding=<id>
   // opens that finding's detail once, without reopening after the user closes it.
   const deepFindingId = current.params.finding;
@@ -73,7 +141,7 @@ export function FindingsPage() {
       .catch((err) => setError(err instanceof Error ? err.message : 'Finding not found.'));
   }, [deepFindingId, findings, loading, token]);
 
-  const columns: ColumnDef<Finding>[] = useMemo(
+  const columns: ColumnDef<FindingRow>[] = useMemo(
     () => [
       {
         id: 'title',
@@ -102,6 +170,34 @@ export function FindingsPage() {
           ['info', 'low', 'medium', 'high', 'critical'].indexOf(normalizeSeverity(f.severity)),
         csvValue: (f) => f.severity,
       },
+      ...(groupSimilar
+        ? [
+            {
+              id: 'occurrences',
+              header: 'Occurrences',
+              align: 'right' as const,
+              cell: (f: FindingRow) => (
+                <span className="font-mono text-xs tabular-nums text-text">
+                  {f.occurrence_count.toLocaleString()}
+                </span>
+              ),
+              sortValue: (f: FindingRow) => f.occurrence_count,
+              csvValue: (f: FindingRow) => String(f.occurrence_count),
+            },
+            {
+              id: 'affectedAssetCount',
+              header: 'Assets',
+              align: 'right' as const,
+              cell: (f: FindingRow) => (
+                <span className="font-mono text-xs tabular-nums text-text">
+                  {f.affected_asset_count.toLocaleString()}
+                </span>
+              ),
+              sortValue: (f: FindingRow) => f.affected_asset_count,
+              csvValue: (f: FindingRow) => String(f.affected_asset_count),
+            },
+          ]
+        : []),
       {
         id: 'priority',
         header: 'Priority',
@@ -112,6 +208,19 @@ export function FindingsPage() {
       {
         id: 'risk',
         header: 'Risk score',
+        cell: (f) => (
+          <span className="font-mono text-xs tabular-nums text-text">
+            {f.risk_score != null ? f.risk_score.toFixed(1) : '—'}
+          </span>
+        ),
+        sortValue: (f) => f.risk_score ?? -1,
+        csvValue: (f) => (f.risk_score != null ? String(f.risk_score) : ''),
+        align: 'right',
+      },
+      {
+        id: 'cvss',
+        header: 'CVSS',
+        defaultHidden: true,
         cell: (f) => <RiskIndicator score={f.cvss_score} />,
         sortValue: (f) => f.cvss_score ?? -1,
         csvValue: (f) => (f.cvss_score != null ? String(f.cvss_score) : ''),
@@ -136,13 +245,39 @@ export function FindingsPage() {
         id: 'asset',
         header: 'Affected asset',
         cell: (f) =>
-          f.asset_id ? (
-            <span className="font-mono text-xs text-muted">{f.asset_id.slice(0, 12)}</span>
+          groupSimilar && f.affected_asset_count > 1 ? (
+            <span className="text-xs text-muted">Multiple assets</span>
+          ) : f.asset_id ? (
+            <span className="text-xs text-muted">{assetNames.get(f.asset_id) ?? f.asset_id}</span>
           ) : (
             <span className="text-faint">—</span>
           ),
+        sortValue: (f) => (f.asset_id ? (assetNames.get(f.asset_id) ?? f.asset_id) : ''),
+        csvValue: (f) => (f.asset_id ? (assetNames.get(f.asset_id) ?? f.asset_id) : ''),
+      },
+      {
+        id: 'assetId',
+        header: 'Asset ID',
+        defaultHidden: true,
+        cell: (f) => <span className="font-mono text-xs text-muted">{f.asset_id ?? '—'}</span>,
         sortValue: (f) => f.asset_id ?? '',
         csvValue: (f) => f.asset_id ?? '',
+      },
+      {
+        id: 'serviceId',
+        header: 'Service ID',
+        defaultHidden: true,
+        cell: (f) => <span className="font-mono text-xs text-muted">{f.service_id ?? '—'}</span>,
+        sortValue: (f) => f.service_id ?? '',
+        csvValue: (f) => f.service_id ?? '',
+      },
+      {
+        id: 'scanner',
+        header: 'Scanner',
+        defaultHidden: true,
+        cell: (f) => <span className="text-xs text-muted">{f.scanner_name}</span>,
+        sortValue: (f) => f.scanner_name,
+        csvValue: (f) => f.scanner_name,
       },
       {
         id: 'site',
@@ -215,10 +350,10 @@ export function FindingsPage() {
         csvValue: (f) => f.last_verified_at ?? '',
       },
     ],
-    [],
+    [assetNames, groupSimilar],
   );
 
-  const filters: FilterDef<Finding>[] = useMemo(
+  const filters: FilterDef<FindingRow>[] = useMemo(
     () => [
       {
         id: 'severity',
@@ -269,7 +404,20 @@ export function FindingsPage() {
         crumbs={[{ label: 'Operations' }, { label: 'Findings' }]}
         title="Findings"
         description="Tracked vulnerabilities across your assets, prioritized by risk."
+        actions={
+          <Button variant="secondary" size="sm" onClick={() => setGroupSimilar((value) => !value)}>
+            {groupSimilar ? 'All occurrences' : 'Group similar'}
+          </Button>
+        }
       />
+
+      {groupSimilar && findings.length > 0 && (
+        <p className="mb-3 text-xs text-muted">
+          Grouped {findings.length.toLocaleString()} occurrences into{' '}
+          {displayFindings.length.toLocaleString()} finding families. Open “All occurrences” for
+          service-level detail.
+        </p>
+      )}
 
       {findingTotal > findings.length && (
         <p className="mb-3 rounded border border-warn/30 bg-warn/10 px-3 py-2 text-xs text-muted">
@@ -278,28 +426,33 @@ export function FindingsPage() {
         </p>
       )}
 
-      <DataTable<Finding>
-        key={`${initialSeverity ?? ''}|${initialQuery ?? ''}`}
+      <DataTable<FindingRow>
+        key={`${initialSeverity ?? ''}|${initialQuery ?? ''}|${groupSimilar ? 'grouped' : 'all'}`}
         columns={columns}
         rows={
           initialSeverity
-            ? findings.filter((f) => normalizeSeverity(f.severity) === initialSeverity)
+            ? displayFindings.filter((f) => normalizeSeverity(f.severity) === initialSeverity)
             : initialQuery
-              ? findings.filter((f) => f.title.toLowerCase().includes(initialQuery.toLowerCase()))
-              : findings
+              ? displayFindings.filter((f) =>
+                  f.title.toLowerCase().includes(initialQuery.toLowerCase()),
+                )
+              : displayFindings
         }
-        rowKey={(f) => f.id}
-        searchText={(f) => `${f.title} ${f.id} ${f.scanner_name} ${f.cve_ids_json.join(' ')}`}
+        rowKey={(f) => (groupSimilar ? `family:${f.title.toLocaleLowerCase()}` : f.id)}
+        searchText={(f) =>
+          `${f.title} ${f.id} ${f.scanner_name} ${f.asset_id ? (assetNames.get(f.asset_id) ?? f.asset_id) : ''} ${f.cve_ids_json.join(' ')}`
+        }
         searchPlaceholder="Search findings…"
         filters={filters}
         onRowClick={openDetail}
-        selectable
+        selectable={!groupSimilar}
         loading={loading}
         error={error}
         onRetry={() => void load()}
         emptyTitle="No findings yet"
         emptyDescription="Run an assessment to populate findings across your assets."
         exportName="findings"
+        exportAllColumns
         storageKey="vulnadash.findings"
         defaultSort={{ id: 'severity', dir: 'desc' }}
       />

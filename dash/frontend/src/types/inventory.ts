@@ -45,6 +45,9 @@ export interface Asset {
   internet_exposed: boolean;
   owner_user_id: string | null;
   context_json: Record<string, unknown>;
+  ip_addresses: string[];
+  mac_addresses: string[];
+  hostnames: string[];
   tags: AssetTag[];
   group_ids: string[];
   first_seen_at: string | null;

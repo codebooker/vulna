@@ -14,6 +14,7 @@ from app.models.finding import Finding
 from app.models.organization import Organization
 from app.models.site import Site
 from app.models.user import User
+from app.schemas.finding import FindingRead
 from app.services import priority as prio
 from app.services.evidence import sanitize_evidence
 from httpx import AsyncClient
@@ -36,6 +37,24 @@ def _classify(severity, confidence, kev=False, epss=None, val=ValidationStatus.U
 
 def test_info_is_informational() -> None:
     assert _classify(Severity.INFO, 90)[0] == prio.INFORMATIONAL
+
+
+async def test_info_stays_informational_with_a_contextual_risk_score(
+    db_session: AsyncSession,
+    organization: Organization,
+) -> None:
+    site_id = await _site(db_session, organization.id, "INFO-RISK")
+    finding = await _finding(
+        db_session,
+        organization.id,
+        site_id,
+        title="Scanner metadata",
+        severity=Severity.INFO,
+        confidence=100,
+        risk_score=100,
+    )
+
+    assert FindingRead.from_model(finding).priority == prio.INFORMATIONAL
 
 
 def test_low_confidence_never_fix_now() -> None:

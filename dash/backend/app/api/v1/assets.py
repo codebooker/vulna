@@ -14,7 +14,12 @@ from app.auth.site_scope import site_scope_clause
 from app.db.session import get_session
 from app.models.asset import Asset
 from app.models.asset_context import AssetGroup, AssetGroupMembership, AssetTag, AssetTagAssignment
-from app.models.enums import AssetCriticality, AssetEnvironment, DataClassification
+from app.models.enums import (
+    AssetCriticality,
+    AssetEnvironment,
+    DataClassification,
+    IdentifierType,
+)
 from app.models.service import Service
 from app.schemas.asset import (
     AssetDetail,
@@ -75,15 +80,46 @@ async def _asset_reads(session: AsyncSession, assets: list[Asset]) -> list[Asset
         ).all()
         for asset_id, group_id in group_rows:
             groups_by_asset[asset_id].append(group_id)
-    return [
-        AssetRead.model_validate(asset).model_copy(
-            update={
-                "tags": tags_by_asset[asset.id],
-                "group_ids": groups_by_asset[asset.id],
+    reads: list[AssetRead] = []
+    hostname_types = {
+        IdentifierType.HOSTNAME,
+        IdentifierType.FQDN,
+        IdentifierType.SMB_NAME,
+    }
+    for asset in assets:
+        ip_addresses = sorted(
+            {
+                identifier.identifier_value
+                for identifier in asset.identifiers
+                if identifier.identifier_type == IdentifierType.IP_ADDRESS
             }
         )
-        for asset in assets
-    ]
+        mac_addresses = sorted(
+            {
+                identifier.identifier_value
+                for identifier in asset.identifiers
+                if identifier.identifier_type == IdentifierType.MAC_ADDRESS
+            }
+        )
+        hostnames = sorted(
+            {
+                identifier.identifier_value
+                for identifier in asset.identifiers
+                if identifier.identifier_type in hostname_types
+            }
+        )
+        reads.append(
+            AssetRead.model_validate(asset).model_copy(
+                update={
+                    "ip_addresses": ip_addresses,
+                    "mac_addresses": mac_addresses,
+                    "hostnames": hostnames,
+                    "tags": tags_by_asset[asset.id],
+                    "group_ids": groups_by_asset[asset.id],
+                }
+            )
+        )
+    return reads
 
 
 @router.get("", response_model=Page[AssetRead], summary="List assets")
@@ -170,7 +206,10 @@ async def list_assets(
     result = await session.execute(
         select(Asset)
         .where(*filters)
-        .order_by(Asset.last_seen_at.desc())
+        # Offset pagination must have a total order. A scan gives many assets the
+        # same last-seen timestamp; ordering by that value alone lets rows move
+        # across page boundaries, producing duplicate and missing exports.
+        .order_by(Asset.last_seen_at.desc().nullslast(), Asset.id.asc())
         .limit(limit)
         .offset(offset)
     )

@@ -3,8 +3,15 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 
+from app.models.asset import Asset
+from app.models.enums import AssetType, FindingStatus, FindingType, Severity
+from app.models.finding import Finding
+from app.models.organization import Organization
+from app.models.site import Site
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.conftest import probe_cert_headers
 from tests.test_jobs import _ready_probe
@@ -144,3 +151,54 @@ async def test_finding_update_requires_operator(
         f"/api/v1/findings/{finding_id}", json={"status": "false_positive"}, headers=viewer_headers
     )
     assert resp.status_code == 403
+
+
+async def test_finding_offset_pages_are_stable_when_last_seen_ties(
+    client: AsyncClient,
+    admin_headers: dict[str, str],
+    db_session: AsyncSession,
+    organization: Organization,
+) -> None:
+    site = Site(
+        organization_id=organization.id,
+        name="Paging site",
+        code="PAGING-FINDINGS",
+        timezone="UTC",
+    )
+    db_session.add(site)
+    await db_session.flush()
+    asset = Asset(
+        organization_id=organization.id,
+        site_id=site.id,
+        canonical_name="paging-host",
+        asset_type=AssetType.SERVER,
+    )
+    db_session.add(asset)
+    await db_session.flush()
+    seen_at = datetime(2026, 7, 20, tzinfo=UTC)
+    db_session.add_all(
+        [
+            Finding(
+                organization_id=organization.id,
+                site_id=site.id,
+                asset_id=asset.id,
+                scanner_name="paging-test",
+                canonical_finding_key=f"paging-{index:04d}",
+                finding_type=FindingType.VULNERABILITY,
+                title=f"Finding {index}",
+                severity=Severity.LOW,
+                status=FindingStatus.NEW,
+                last_seen_at=seen_at,
+            )
+            for index in range(205)
+        ]
+    )
+    await db_session.commit()
+
+    first = await client.get("/api/v1/findings?limit=200&offset=0", headers=admin_headers)
+    second = await client.get("/api/v1/findings?limit=200&offset=200", headers=admin_headers)
+    ids = [item["id"] for item in first.json()["items"] + second.json()["items"]]
+
+    assert len(ids) == 205
+    assert len(set(ids)) == 205
+    assert ids == sorted(ids)

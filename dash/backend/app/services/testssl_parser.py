@@ -26,6 +26,30 @@ _SEVERITY = {
     "MEDIUM": Severity.MEDIUM,
     "LOW": Severity.LOW,
 }
+_SEVERITY_RANK = {
+    Severity.LOW: 0,
+    Severity.MEDIUM: 1,
+    Severity.HIGH: 2,
+    Severity.CRITICAL: 3,
+}
+
+# testssl emits a few summary rows whose severity describes the selected
+# handshake, not a weakness. Turning them into findings creates records such as
+# "Cipher negotiated" and even "Cipherlist STRONG" with alarming severities.
+_IGNORED_CHECKS = {
+    "cipher_negotiated",
+    "cipherlist_strong",
+    "protocol_negotiated",
+}
+
+# Different testssl releases have used multiple ids for the same control. Map
+# those ids before building the canonical finding key so one service produces
+# one durable issue across upgrades and rescans.
+_CHECK_ALIASES = {
+    "beast_cbc_tls1": "BEAST",
+    "cert_expiration": "cert_expirationStatus",
+    "cert_notafter": "cert_expirationStatus",
+}
 
 _PROTOCOL = FindingType.WEAK_PROTOCOL
 _CIPHER = FindingType.WEAK_PROTOCOL
@@ -192,14 +216,18 @@ def parse_testssl_json(data: bytes) -> list[ParsedFinding]:
     if not isinstance(parsed, list):
         raise TestsslParseError("Unexpected testssl JSON structure")
 
-    findings: list[ParsedFinding] = []
+    findings: dict[tuple[str | None, int | None, str], ParsedFinding] = {}
     for entry in parsed:
         if not isinstance(entry, dict):
             continue
         severity = _SEVERITY.get(str(entry.get("severity", "")).upper())
         if severity is None:
             continue
-        check_id = str(entry.get("id") or "unknown")
+        raw_check_id = str(entry.get("id") or "unknown")
+        normalized_id = raw_check_id.casefold()
+        if normalized_id in _IGNORED_CHECKS:
+            continue
+        check_id = _CHECK_ALIASES.get(normalized_id, raw_check_id)
         finding_text = str(entry.get("finding") or "")
         port: int | None = None
         try:
@@ -226,27 +254,31 @@ def parse_testssl_json(data: bytes) -> list[ParsedFinding]:
             "finding": finding_text,
             "severity": str(entry.get("severity", "")),
         }
+        if check_id != raw_check_id:
+            evidence["scanner_check_id"] = raw_check_id
         if cve_ids:
             evidence["cve"] = " ".join(cve_ids)
         if cwe_ids:
             evidence["cwe"] = " ".join(cwe_ids)
 
-        findings.append(
-            ParsedFinding(
-                scanner="testssl",
-                weakness_key=check_id,
-                finding_type=finding_type,
-                title=title,
-                severity=severity,
-                target_ip=_target_ip(entry),
-                port=port,
-                transport=ServiceTransport.TCP,
-                description=description,
-                cve_ids=cve_ids,
-                cwe_ids=cwe_ids,
-                remediation=remediation,
-                evidence=evidence,
-                scanner_finding_id=check_id,
-            )
+        finding = ParsedFinding(
+            scanner="testssl",
+            weakness_key=check_id,
+            finding_type=finding_type,
+            title=title,
+            severity=severity,
+            target_ip=_target_ip(entry),
+            port=port,
+            transport=ServiceTransport.TCP,
+            description=description,
+            cve_ids=cve_ids,
+            cwe_ids=cwe_ids,
+            remediation=remediation,
+            evidence=evidence,
+            scanner_finding_id=check_id,
         )
-    return findings
+        key = (finding.target_ip, finding.port, finding.weakness_key)
+        existing = findings.get(key)
+        if existing is None or _SEVERITY_RANK[finding.severity] > _SEVERITY_RANK[existing.severity]:
+            findings[key] = finding
+    return list(findings.values())

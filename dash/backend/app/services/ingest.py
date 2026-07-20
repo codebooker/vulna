@@ -304,6 +304,10 @@ async def _ingest_host(
     asset.last_seen_at = now
     asset.last_assessed_at = now
     asset.status = AssetStatus.ACTIVE
+    # Preserve an operator-assigned name, but promote scanner-created IP/MAC
+    # placeholders when a later scan discovers a useful hostname.
+    if host.hostnames and asset.canonical_name in {host.ip, host.mac, "unknown"}:
+        asset.canonical_name = host.hostnames[0]
     if host.operating_system:
         asset.operating_system = host.operating_system
     if host.mac_vendor and not asset.manufacturer:

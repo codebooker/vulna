@@ -69,6 +69,9 @@ class AssetRead(BaseModel):
     internet_exposed: bool
     owner_user_id: uuid.UUID | None
     context_json: dict[str, Any]
+    ip_addresses: list[str] = Field(default_factory=list)
+    mac_addresses: list[str] = Field(default_factory=list)
+    hostnames: list[str] = Field(default_factory=list)
     tags: list[AssetTagRead] = Field(default_factory=list)
     group_ids: list[uuid.UUID] = Field(default_factory=list)
     first_seen_at: datetime | None

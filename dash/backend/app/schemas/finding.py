@@ -75,7 +75,19 @@ class FindingRead(BaseModel):
         from app.services.risk import priority_from_score
 
         read = cls.model_validate(finding)
-        if finding.risk_score is not None:
+        # Informational scanner output is never actionable by itself. Preserve
+        # that invariant even when contextual risk factors produce a non-zero
+        # score; an explicit validated vulnerability arrives with a real
+        # severity rather than INFO.
+        if finding.severity == Severity.INFO:
+            priority, rationale = classify(
+                severity=finding.severity,
+                confidence=finding.confidence,
+                known_exploited=finding.known_exploited,
+                epss_score=finding.epss_score,
+                validation_status=finding.validation_status,
+            )
+        elif finding.risk_score is not None:
             priority, rationale = priority_from_score(finding.risk_score)
         else:
             # Upgrade compatibility for an object not yet backfilled/scored.
