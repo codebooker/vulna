@@ -867,7 +867,12 @@ async def report_job_status(
         JobStatus.REJECTED_BY_PROBE,
     }
     if job.status in terminal_statuses:
-        if payload.status == job.status:
+        if payload.status == job.status or (
+            job.status == JobStatus.EXPIRED and payload.status in terminal_statuses
+        ):
+            # A server-side timeout can race the Scout's own terminal report.
+            # Keep the already-published EXPIRED outcome, but acknowledge any
+            # late terminal status so the Scout can release its local job slot.
             return Response(status_code=status.HTTP_204_NO_CONTENT)
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
