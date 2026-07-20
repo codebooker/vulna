@@ -186,7 +186,9 @@ export function ScansPage() {
       try {
         setDiagnostics(await api.jobDiagnostics(token, job.id));
       } catch (err) {
-        setDiagnosticsError(err instanceof Error ? err.message : 'Failed to load the failure log.');
+        setDiagnosticsError(
+          err instanceof Error ? err.message : 'Failed to load scan diagnostics.',
+        );
       } finally {
         setDiagnosticsLoading(false);
       }
@@ -366,7 +368,7 @@ export function ScansPage() {
                 disabled={diagnosticsLoading && diagnosticJob?.id === j.id}
                 onClick={() => void showDiagnostics(j)}
               >
-                Failure log
+                Diagnostics
               </Button>
             </span>
           ) : null,
@@ -646,7 +648,7 @@ export function ScansPage() {
       <Modal
         open={diagnosticJob !== null}
         onClose={() => setDiagnosticJob(null)}
-        title="Scan failure log"
+        title="Scan diagnostics"
         description={
           diagnosticJob
             ? `Sanitized diagnostics for ${diagnosticJob.requested_targets_json.join(', ')}`
@@ -655,7 +657,7 @@ export function ScansPage() {
         wide
       >
         {diagnosticsLoading ? (
-          <p className="text-sm text-muted">Loading failure details…</p>
+          <p className="text-sm text-muted">Loading scan diagnostics…</p>
         ) : diagnosticsError ? (
           <InlineError message={diagnosticsError} />
         ) : diagnostics?.failures.length ? (

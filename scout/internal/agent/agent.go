@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -88,15 +89,21 @@ func (a *Agent) QueueBacklog() (count int, bytes int64) {
 // RunningJob is a job currently executing in the test worker.
 type RunningJob struct {
 	JobID  string
-	cancel context.CancelFunc
+	cancel context.CancelCauseFunc
 	done   chan executor.Result
 }
 
 // Cancel stops the running worker.
-func (r *RunningJob) Cancel() { r.cancel() }
+func (r *RunningJob) Cancel() { r.cancel(errCancellationRequested) }
 
 // Done returns a channel that receives the worker result when it finishes.
 func (r *RunningJob) Done() <-chan executor.Result { return r.done }
+
+var (
+	errCancellationRequested = errors.New("scan cancellation requested")
+	errMaxDurationExceeded   = errors.New("scan maximum duration exceeded")
+	errAuthorizationExpired  = errors.New("scan authorization expired")
+)
 
 // SyncPolicy fetches, verifies, caches, and persists the signed local policy.
 // A policy that fails signature verification is rejected and not applied.
@@ -185,12 +192,27 @@ func (a *Agent) PollAndStart(ctx context.Context) (*RunningJob, error) {
 	if err := a.client.ReportJobStatus(ctx, job.JobID, api.JobStatusReport{Status: "accepted"}); err != nil {
 		return nil, err
 	}
-	jobCtx, cancel := context.WithDeadline(ctx, jobDeadline(job, time.Now().UTC()))
+	deadline, deadlineCause := jobDeadlineCause(job, time.Now().UTC())
+	deadlineCtx, stopDeadline := context.WithDeadlineCause(ctx, deadline, deadlineCause)
+	jobCtx, cancel := context.WithCancelCause(deadlineCtx)
 	done := make(chan executor.Result, 1)
 	_ = a.client.ReportJobStatus(ctx, job.JobID, api.JobStatusReport{Status: "running"})
 	go func() {
+		defer stopDeadline()
 		defer job.ClearCredentials()
 		res, _ := a.runWithProgress(jobCtx, job)
+		if res.Cancelled {
+			switch cause := context.Cause(jobCtx); {
+			case errors.Is(cause, errMaxDurationExceeded):
+				res.CancelReason = executor.CancelReasonMaxDurationExceeded
+			case errors.Is(cause, errAuthorizationExpired):
+				res.CancelReason = executor.CancelReasonAuthorizationExpiry
+			case errors.Is(cause, errCancellationRequested):
+				res.CancelReason = executor.CancelReasonRequested
+			default:
+				res.CancelReason = executor.CancelReasonAgentStopped
+			}
+		}
 		done <- res
 	}()
 	return &RunningJob{JobID: job.JobID, cancel: cancel, done: done}, nil
@@ -200,18 +222,25 @@ func (a *Agent) PollAndStart(ctx context.Context) (*RunningJob, error) {
 // expiry always wins, while max_duration_seconds also caps the complete workflow
 // from the moment execution begins (rather than resetting for every stage/chunk).
 func jobDeadline(job *policy.Job, started time.Time) time.Time {
+	deadline, _ := jobDeadlineCause(job, started)
+	return deadline
+}
+
+func jobDeadlineCause(job *policy.Job, started time.Time) (time.Time, error) {
 	expiresAt, err := time.Parse(time.RFC3339, job.ExpiresAt)
 	if err != nil {
-		return started
+		return started, errAuthorizationExpired
 	}
 	deadline := expiresAt
+	cause := error(errAuthorizationExpired)
 	if seconds := job.Limits.MaxDurationSeconds; seconds > 0 {
 		limit := started.Add(time.Duration(seconds) * time.Second)
 		if limit.Before(deadline) {
 			deadline = limit
+			cause = errMaxDurationExceeded
 		}
 	}
-	return deadline
+	return deadline, cause
 }
 
 func (a *Agent) runWithProgress(ctx context.Context, job *policy.Job) (executor.Result, error) {
@@ -223,6 +252,7 @@ func (a *Agent) runWithProgress(ctx context.Context, job *policy.Job) (executor.
 				CurrentPlugin: progress.CurrentPlugin, StagesTotal: progress.StagesTotal,
 				StagesCompleted: progress.StagesCompleted, StagesRun: progress.StagesRun,
 				StagesFailed: progress.StagesFailed, StagesSkipped: progress.StagesSkipped,
+				WorkUnitsTotal: progress.WorkUnitsTotal, WorkUnitsDone: progress.WorkUnitsDone,
 				TargetGroups: progress.TargetGroups, TargetAddresses: progress.TargetAddresses,
 				ElapsedSeconds: progress.ElapsedSeconds, ETASeconds: progress.ETASeconds,
 			},
@@ -299,6 +329,23 @@ func (a *Agent) Finalize(ctx context.Context, running *RunningJob, res executor.
 	switch {
 	case res.Cancelled:
 		status = "cancelled"
+		switch res.CancelReason {
+		case executor.CancelReasonMaxDurationExceeded:
+			errCode = "max_duration_exceeded"
+			errMsg = "Scan stopped after reaching its signed maximum duration"
+		case executor.CancelReasonAuthorizationExpiry:
+			errCode = "authorization_expired"
+			errMsg = "Scan stopped because its signed authorization window expired"
+		case executor.CancelReasonRequested:
+			errCode = "cancellation_requested"
+			errMsg = "Scan was cancelled by an operator request"
+		default:
+			errCode = "agent_stopped"
+			errMsg = "Scan stopped because the Scout execution context ended"
+		}
+		failureDetails = append(failureDetails, api.JobFailureDetail{
+			Code: errCode, Message: errMsg,
+		})
 	case res.StagesFailed > 0:
 		status, errCode = "failed", "scanner_error"
 		errMsg = fmt.Sprintf("%d stage(s) failed: %s", res.StagesFailed, strings.Join(res.Errors, "; "))
@@ -324,6 +371,7 @@ func (a *Agent) Finalize(ctx context.Context, running *RunningJob, res executor.
 			"stages_total":   res.StagesTotal,
 			"stages_failed":  res.StagesFailed,
 			"stages_skipped": res.StagesSkipped,
+			"cancel_reason":  res.CancelReason,
 		},
 	})
 }

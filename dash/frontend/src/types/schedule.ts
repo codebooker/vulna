@@ -29,6 +29,8 @@ export interface JobProgressStats {
   stages_run?: number;
   stages_failed?: number;
   stages_skipped?: number;
+  work_units_total?: number;
+  work_units_done?: number;
   target_groups?: number;
   target_addresses?: number;
   elapsed_seconds?: number;

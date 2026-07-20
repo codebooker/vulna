@@ -211,18 +211,20 @@ type JobStatusReport struct {
 
 // JobProgressReport is the bounded progress payload accepted by the API.
 type JobProgressReport struct {
-	Percent         int    `json:"percent"`
-	CurrentStage    string `json:"current_stage,omitempty"`
-	CurrentPlugin   string `json:"current_plugin,omitempty"`
-	StagesTotal     int    `json:"stages_total"`
-	StagesCompleted int    `json:"stages_completed"`
-	StagesRun       int    `json:"stages_run"`
-	StagesFailed    int    `json:"stages_failed"`
-	StagesSkipped   int    `json:"stages_skipped"`
-	TargetGroups    int    `json:"target_groups"`
-	TargetAddresses int    `json:"target_addresses"`
-	ElapsedSeconds  int    `json:"elapsed_seconds"`
-	ETASeconds      *int   `json:"eta_seconds,omitempty"`
+	Percent         int     `json:"percent"`
+	CurrentStage    string  `json:"current_stage,omitempty"`
+	CurrentPlugin   string  `json:"current_plugin,omitempty"`
+	StagesTotal     int     `json:"stages_total"`
+	StagesCompleted int     `json:"stages_completed"`
+	StagesRun       int     `json:"stages_run"`
+	StagesFailed    int     `json:"stages_failed"`
+	StagesSkipped   int     `json:"stages_skipped"`
+	WorkUnitsTotal  int     `json:"work_units_total"`
+	WorkUnitsDone   float64 `json:"work_units_done"`
+	TargetGroups    int     `json:"target_groups"`
+	TargetAddresses int     `json:"target_addresses"`
+	ElapsedSeconds  int     `json:"elapsed_seconds"`
+	ETASeconds      *int    `json:"eta_seconds,omitempty"`
 }
 
 // JobFailureDetail is one stage-specific failure sent for server sanitization.

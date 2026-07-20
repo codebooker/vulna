@@ -35,7 +35,7 @@ from app.models.network_scope import NetworkScope
 from app.models.probe import Probe
 from app.models.scan_job import ScanJob
 from app.services import credentials as credential_service
-from app.services.policy import build_policy_document
+from app.services.policy import build_policy_document, duration_limit_for_hosts
 from app.services.scopes import ScopeValidationError, normalize_cidr
 from app.services.signing import get_signer
 
@@ -336,6 +336,13 @@ async def create_scan_job(
         allow_public=bool(policy["allow_public_addresses"]),
     )
     _enforce_host_limit(normalized_targets, policy["limits"])
+    # The policy carries the maximum duration permitted by the approved host
+    # limit. Sign only the smaller budget justified by this specific job.
+    limits = dict(policy["limits"])
+    limits["max_duration_seconds"] = min(
+        int(limits["max_duration_seconds"]),
+        duration_limit_for_hosts(_count_hosts(normalized_targets)),
+    )
 
     protocols = list(dict.fromkeys(authenticated_protocols or []))
     asset: Asset | None = None
@@ -393,7 +400,7 @@ async def create_scan_job(
             raise JobValidationError(f"No known scanner stages in {stages}")
     if web_profile is not None and web_start_urls:
         validated_urls = _validate_web_start_urls(web_start_urls, approved)
-        workflow.append(_build_web_stage(web_profile, validated_urls, policy["limits"]))
+        workflow.append(_build_web_stage(web_profile, validated_urls, limits))
     for protocol in protocols:
         workflow.append(
             {
@@ -409,7 +416,11 @@ async def create_scan_job(
 
     now = datetime.now(UTC)
     start = not_before or now
-    end = expires_at or (now + timedelta(minutes=settings.job_default_ttl_minutes))
+    default_window_seconds = max(
+        settings.job_default_ttl_minutes * 60,
+        int(limits["max_duration_seconds"]) + 60 * 60,
+    )
+    end = expires_at or (start + timedelta(seconds=default_window_seconds))
     if end <= start:
         raise JobValidationError("expires_at must be after not_before")
 
@@ -437,7 +448,7 @@ async def create_scan_job(
         mode=mode,
         targets=normalized_targets,
         workflow=workflow,
-        limits=policy["limits"],
+        limits=limits,
         policy_version=int(policy["policy_version"]),
         not_before=start,
         expires_at=end,
@@ -456,7 +467,7 @@ async def create_scan_job(
         status=JobStatus.QUEUED,
         requested_targets_json=normalized_targets,
         workflow_json=workflow,
-        limits_json=policy["limits"],
+        limits_json=limits,
         policy_version=int(policy["policy_version"]),
         envelope_json=signed,
         job_signature=signed["signature"],

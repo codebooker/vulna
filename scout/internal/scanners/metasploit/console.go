@@ -4,10 +4,11 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/codebooker/vulna/scout/internal/processutil"
 )
 
 // ConsoleRunner drives Metasploit by executing msfconsole with a generated
@@ -51,7 +52,7 @@ func (c *ConsoleRunner) RunModule(ctx context.Context, spec ModuleSpec) (RunResu
 	}
 	_ = f.Close()
 
-	cmd := exec.CommandContext(ctx, c.binary(), "-q", "-n", "-r", f.Name())
+	cmd := processutil.CommandContext(ctx, c.binary(), "-q", "-n", "-r", f.Name())
 	out, runErr := cmd.CombinedOutput()
 	res := RunResult{
 		Evidence: map[string]any{"console": string(out)},
@@ -75,7 +76,7 @@ func (c *ConsoleRunner) StopSession(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	return exec.CommandContext(ctx, c.binary(), args...).Run()
+	return processutil.CommandContext(ctx, c.binary(), args...).Run()
 }
 
 // buildResourceScript renders a safe msfconsole resource script: use the module,

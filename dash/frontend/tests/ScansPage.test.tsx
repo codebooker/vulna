@@ -142,7 +142,7 @@ it('shows live percent, stage statistics, ETA, and operator failure diagnostics'
   );
 
   fireEvent.click(screen.getByRole('tab', { name: /Failed/ }));
-  fireEvent.click(await screen.findByRole('button', { name: 'Failure log' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Diagnostics' }));
   expect(await screen.findByText('testssl exited with status 2')).toBeInTheDocument();
   expect(screen.getByText('Stage: tls')).toBeInTheDocument();
   expect(screen.getByText('Scanner: testssl')).toBeInTheDocument();

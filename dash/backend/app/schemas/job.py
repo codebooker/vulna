@@ -79,6 +79,11 @@ class JobProgressUpdate(BaseModel):
     stages_run: int = Field(ge=0, le=10_000)
     stages_failed: int = Field(ge=0, le=10_000)
     stages_skipped: int = Field(ge=0, le=10_000)
+    # New Scouts report chunk-level work units so a large scan can make honest
+    # progress before an entire workflow stage is complete. Optional keeps a
+    # rolling API upgrade compatible with older enrolled Scouts.
+    work_units_total: int | None = Field(default=None, ge=0, le=10_000_000)
+    work_units_done: float | None = Field(default=None, ge=0, le=10_000_000)
     target_groups: int = Field(ge=0, le=1_000_000)
     target_addresses: int = Field(ge=0, le=1_000_000_000)
     elapsed_seconds: int = Field(ge=0, le=31_536_000)
@@ -92,13 +97,24 @@ class JobProgressUpdate(BaseModel):
             raise ValueError("stages_completed must equal run + failed + skipped")
         if self.stages_completed > self.stages_total:
             raise ValueError("stages_completed cannot exceed stages_total")
-        expected_percent = (
-            min(99, self.stages_completed * 100 // self.stages_total) if self.stages_total else 0
-        )
-        if self.percent != expected_percent:
-            raise ValueError("percent must match completed workflow stages")
-        if self.eta_seconds is not None and not (0 < self.stages_completed < self.stages_total):
-            raise ValueError("eta_seconds requires a partially completed workflow")
+        if (self.work_units_total is None) != (self.work_units_done is None):
+            raise ValueError("work unit total and completed values must be reported together")
+        if self.work_units_total is not None and self.work_units_done is not None:
+            if self.work_units_done > self.work_units_total:
+                raise ValueError("completed work units cannot exceed total work units")
+            expected_percent = (
+                min(99, int(self.work_units_done * 100 / self.work_units_total))
+                if self.work_units_total
+                else 0
+            )
+            if self.percent != expected_percent:
+                raise ValueError("percent must match completed scan work units")
+            if self.eta_seconds is not None and not (
+                0 < self.work_units_done < self.work_units_total
+            ):
+                raise ValueError("eta_seconds requires partially completed scan work")
+        elif self.eta_seconds is not None and self.percent == 0:
+            raise ValueError("eta_seconds requires measurable scan progress")
         return self
 
 
@@ -127,9 +143,10 @@ class JobStatusUpdate(BaseModel):
             raise ValueError("progress may only be reported while a job is running")
         if self.failure_details and self.status not in (
             JobStatus.FAILED,
+            JobStatus.CANCELLED,
             JobStatus.REJECTED_BY_PROBE,
         ):
-            raise ValueError("failure_details require a failed or rejected job")
+            raise ValueError("failure_details require a failed, cancelled, or rejected job")
         return self
 
 

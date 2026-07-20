@@ -31,8 +31,9 @@ type StageFailure struct {
 	Message string
 }
 
-// Progress is an honest stage-level execution snapshot. Percent advances only
-// after a stage finishes; ETA is omitted until completed-stage timing exists.
+// Progress is an honest execution snapshot. Stage counters advance only after a
+// stage has finished across every target chunk, while work units let percent and
+// ETA advance within a large, multi-chunk scan.
 type Progress struct {
 	Percent         int
 	CurrentStage    string
@@ -42,6 +43,8 @@ type Progress struct {
 	StagesRun       int
 	StagesFailed    int
 	StagesSkipped   int
+	WorkUnitsTotal  int
+	WorkUnitsDone   float64
 	TargetGroups    int
 	TargetAddresses int
 	ElapsedSeconds  int
@@ -63,10 +66,18 @@ type Result struct {
 	Errors        []string
 	Failures      []StageFailure
 	Cancelled     bool
+	CancelReason  string
 	// Outputs holds the raw output of each completed stage (empty for the
 	// simulation worker, which contacts nothing).
 	Outputs []StageOutput
 }
+
+const (
+	CancelReasonRequested           = "cancellation_requested"
+	CancelReasonMaxDurationExceeded = "max_duration_exceeded"
+	CancelReasonAuthorizationExpiry = "authorization_expired"
+	CancelReasonAgentStopped        = "agent_stopped"
+)
 
 // JobRunner executes a verified job and returns its result. Implementations
 // must stop promptly when the context is cancelled.
@@ -181,7 +192,8 @@ func reportProgress(
 		Percent: percent, CurrentStage: stage, CurrentPlugin: plugin,
 		StagesTotal: res.StagesTotal, StagesCompleted: completed,
 		StagesRun: res.StagesRun, StagesFailed: res.StagesFailed,
-		StagesSkipped: res.StagesSkipped, TargetGroups: len(job.Targets),
+		StagesSkipped: res.StagesSkipped, WorkUnitsTotal: res.StagesTotal,
+		WorkUnitsDone: float64(completed), TargetGroups: len(job.Targets),
 		TargetAddresses: TargetAddressCount(job.Targets), ElapsedSeconds: elapsed,
 		ETASeconds: eta,
 	})

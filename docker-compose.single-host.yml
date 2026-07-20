@@ -119,6 +119,10 @@ services:
       context: .
       dockerfile: deploy/single-host/local-scout.Dockerfile
     restart: unless-stopped
+    # Reap grandchildren from shell-based scanners. Scanner commands also kill
+    # their process groups on cancellation; init is a second line of defense so
+    # an abnormal tool exit cannot leave zombies in the long-running Scout.
+    init: true
     # Share the egress controller's network namespace so scans of relay-backed
     # ranges follow its WireGuard routes. The Scout itself remains capability-free.
     network_mode: service:relay-netns

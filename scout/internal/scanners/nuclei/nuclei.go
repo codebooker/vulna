@@ -13,7 +13,6 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
-	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
@@ -21,6 +20,7 @@ import (
 
 	"github.com/codebooker/vulna/scout/internal/discovery"
 	"github.com/codebooker/vulna/scout/internal/policy"
+	"github.com/codebooker/vulna/scout/internal/processutil"
 )
 
 const (
@@ -180,16 +180,18 @@ func (w *Worker) Run(ctx context.Context, job *policy.Job) ([]byte, error) {
 	defer func() { _ = os.Remove(outPath) }()
 
 	args := BuildArgs(outPath, targetPath, w.TemplatesDir, w.Severities)
-	// Bound the run by the policy-approved duration when present, so a legitimate
-	// vulnerability stage over many discovered hosts isn't killed by the fixed
-	// fallback timeout (nuclei is SIGKILLed at the deadline, failing the job).
+	// The policy duration bounds the complete workflow. Keep the normal per-chunk
+	// scanner timeout unless the signed policy is stricter, otherwise one Nuclei
+	// invocation can consume the entire large-scan budget.
 	timeout := w.timeout()
 	if secs := job.Limits.MaxDurationSeconds; secs > 0 {
-		timeout = time.Duration(secs) * time.Second
+		if policyLimit := time.Duration(secs) * time.Second; policyLimit < timeout {
+			timeout = policyLimit
+		}
 	}
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd := exec.CommandContext(runCtx, w.binary(), args...)
+	cmd := processutil.CommandContext(runCtx, w.binary(), args...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	runErr := cmd.Run()
@@ -197,10 +199,17 @@ func (w *Worker) Run(ctx context.Context, job *policy.Job) ([]byte, error) {
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
+	data, _ := os.ReadFile(outPath)
+	if len(data) == 0 {
+		data = nil
+	}
+	if runCtx.Err() != nil {
+		return data, runCtx.Err()
+	}
 	// A non-zero exit (e.g. the binary is missing) is a real failure; nuclei
 	// exits 0 when it simply finds nothing.
 	if runErr != nil {
-		return nil, fmt.Errorf("nuclei failed: %v: %s", runErr, strings.TrimSpace(stderr.String()))
+		return data, fmt.Errorf("nuclei failed: %v: %s", runErr, strings.TrimSpace(stderr.String()))
 	}
 	// A zero exit with empty output can mean "clean" OR "nothing was actually
 	// scanned" (templates failed to load, every request errored). Those are not
@@ -209,7 +218,6 @@ func (w *Worker) Run(ctx context.Context, job *policy.Job) ([]byte, error) {
 	if reason := scanIntegrityFailure(stderr.Bytes()); reason != "" {
 		return nil, fmt.Errorf("nuclei result is not trustworthy: %s", reason)
 	}
-	data, _ := os.ReadFile(outPath)
 	// Empty output is valid (no findings matched).
 	return data, nil
 }

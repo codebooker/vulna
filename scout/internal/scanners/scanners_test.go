@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/codebooker/vulna/scout/internal/executor"
@@ -225,6 +226,61 @@ func TestRunStreamingEmitsPerChunk(t *testing.T) {
 	}
 	if res.StagesRun != 1 || res.StagesTotal != 1 {
 		t.Errorf("unexpected stage counts: %+v", res)
+	}
+}
+
+type orderScanner struct {
+	stage, name string
+	order       *[]string
+}
+
+func (s orderScanner) Stage() string { return s.stage }
+func (s orderScanner) Name() string  { return s.name }
+func (s orderScanner) Run(_ context.Context, job *policy.Job) ([]byte, error) {
+	*s.order = append(*s.order, s.name+":"+job.Targets[0])
+	return []byte("output"), nil
+}
+
+func TestRunStreamingCompletesDiscoveryAcrossAllChunksFirst(t *testing.T) {
+	var order []string
+	wf := NewWorkflow(
+		orderScanner{stage: "discovery", name: "nmap", order: &order},
+		orderScanner{stage: "vulnerability", name: "nuclei", order: &order},
+	)
+	job := jobWith("nmap", "nuclei")
+	job.Targets = []string{"10.0.0.0/23"}
+
+	var reports []executor.Progress
+	res, err := wf.RunStreaming(
+		context.Background(), job, func(p executor.Progress) { reports = append(reports, p) },
+		func(executor.StageOutput) error { return nil },
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"nmap:10.0.0.0/24", "nmap:10.0.1.0/24",
+		"nuclei:10.0.0.0/24", "nuclei:10.0.1.0/24",
+	}
+	if !slices.Equal(order, want) {
+		t.Fatalf("workflow order = %v, want discovery-first %v", order, want)
+	}
+	if res.StagesRun != 2 {
+		t.Fatalf("unexpected result: %+v", res)
+	}
+	var sawChunkProgress bool
+	for _, progress := range reports {
+		if progress.Percent == 25 && progress.StagesCompleted == 0 &&
+			progress.WorkUnitsDone == 1 && progress.WorkUnitsTotal == 4 {
+			sawChunkProgress = true
+		}
+	}
+	if !sawChunkProgress {
+		t.Fatalf("did not report honest chunk progress: %+v", reports)
+	}
+	last := reports[len(reports)-1]
+	if last.Percent != 99 || last.StagesCompleted != 2 || last.WorkUnitsDone != 4 {
+		t.Fatalf("unexpected final progress: %+v", last)
 	}
 }
 
