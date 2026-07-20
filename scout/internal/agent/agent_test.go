@@ -7,6 +7,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/codebooker/vulna/scout/internal/api"
 	"github.com/codebooker/vulna/scout/internal/executor"
@@ -24,14 +25,15 @@ const (
 )
 
 type fakeOrch struct {
-	mu        sync.Mutex
-	policy    []byte
-	job       []byte
-	jobServed bool
-	reports   []api.JobStatusReport
-	uploads   int
-	uploaded  []byte
-	uploadErr error // when set, uploads fail (simulates an offline link)
+	mu             sync.Mutex
+	policy         []byte
+	job            []byte
+	jobServed      bool
+	reports        []api.JobStatusReport
+	uploads        int
+	uploaded       []byte
+	uploadErr      error // when set, uploads fail (simulates an offline link)
+	reportFailures int
 }
 
 func (f *fakeOrch) FetchPolicy(context.Context) ([]byte, error) { return f.policy, nil }
@@ -69,6 +71,10 @@ func (f *fakeOrch) ReportJobStatus(_ context.Context, _ string, r api.JobStatusR
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.reports = append(f.reports, r)
+	if f.reportFailures > 0 {
+		f.reportFailures--
+		return errors.New("temporary status failure")
+	}
 	return nil
 }
 
@@ -383,6 +389,75 @@ func TestFinalizeReportsFailedWhenNothingRan(t *testing.T) {
 	_ = a.Finalize(ctx, running, res)
 	if !contains(f.statuses(), "failed") {
 		t.Errorf("a scan that ran nothing must report failed, got %v", f.statuses())
+	}
+}
+
+func TestFinalizeRetriesTerminalStatusWithoutUploadingTwice(t *testing.T) {
+	f := &fakeOrch{reportFailures: 1}
+	a := &Agent{client: f}
+	running := &RunningJob{JobID: "retry-terminal-job"}
+	res := executor.Result{
+		JobID: "retry-terminal-job", StagesRun: 1, StagesTotal: 1,
+		Outputs: []executor.StageOutput{{
+			Stage: "discovery", Scanner: "nmap", Raw: []byte("<nmaprun/>")},
+		},
+	}
+
+	if err := a.Finalize(context.Background(), running, res); err == nil {
+		t.Fatal("expected the first terminal status post to fail")
+	}
+	if err := a.Finalize(context.Background(), running, res); err != nil {
+		t.Fatalf("terminal status retry failed: %v", err)
+	}
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.uploads != 1 {
+		t.Fatalf("result output was uploaded %d times, want exactly once", f.uploads)
+	}
+	if len(f.reports) != 2 || f.reports[0].Status != "completed" || f.reports[1].Status != "completed" {
+		t.Fatalf("unexpected terminal status attempts: %+v", f.reports)
+	}
+}
+
+func TestFinalizeBoundsTerminalDiagnosticsToAPISchema(t *testing.T) {
+	f := &fakeOrch{}
+	a := &Agent{client: f}
+	running := &RunningJob{JobID: "bounded-diagnostics-job"}
+	long := strings.Repeat("é", maxFailureMessageRunes+100)
+	failures := make([]executor.StageFailure, maxTerminalFailureDetails+10)
+	for i := range failures {
+		failures[i] = executor.StageFailure{
+			Code:    strings.Repeat("c", maxFailureCodeRunes+10),
+			Stage:   strings.Repeat("s", maxFailureStageRunes+10),
+			Plugin:  strings.Repeat("p", maxFailurePluginRunes+10),
+			Message: long,
+		}
+	}
+	res := executor.Result{
+		JobID: "bounded-diagnostics-job", StagesTotal: 1, StagesFailed: 1,
+		Errors: []string{long}, Failures: failures,
+	}
+
+	if err := a.Finalize(context.Background(), running, res); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	last := f.reports[len(f.reports)-1]
+	f.mu.Unlock()
+	if got := utf8.RuneCountInString(last.ErrorMessage); got > maxTerminalErrorMessageRunes {
+		t.Fatalf("error_message contains %d runes, max is %d", got, maxTerminalErrorMessageRunes)
+	}
+	if len(last.FailureDetails) != maxTerminalFailureDetails {
+		t.Fatalf("failure_details contains %d entries, max is %d", len(last.FailureDetails), maxTerminalFailureDetails)
+	}
+	for _, detail := range last.FailureDetails {
+		if utf8.RuneCountInString(detail.Code) > maxFailureCodeRunes ||
+			utf8.RuneCountInString(detail.Stage) > maxFailureStageRunes ||
+			utf8.RuneCountInString(detail.Plugin) > maxFailurePluginRunes ||
+			utf8.RuneCountInString(detail.Message) > maxFailureMessageRunes {
+			t.Fatalf("unbounded failure detail: %+v", detail)
+		}
 	}
 }
 

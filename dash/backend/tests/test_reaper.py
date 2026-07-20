@@ -11,6 +11,8 @@ from app.models.scan_job import ScanJob
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tests.conftest import probe_cert_headers
+
 EnrollFactory = Callable[..., Awaitable[dict[str, str]]]
 
 
@@ -85,3 +87,54 @@ async def test_reap_leaves_live_jobs_untouched(
     assert created.status_code == 201
     reaped = await client.post("/api/v1/jobs/reap", headers=admin_headers)
     assert reaped.json()["reaped"] == 0  # well within its deadline
+
+
+async def test_reap_uses_signed_execution_limit_and_acknowledges_late_terminal_report(
+    client: AsyncClient,
+    admin_headers: dict[str, str],
+    enroll_probe: EnrollFactory,
+    db_session: AsyncSession,
+) -> None:
+    probe = await _ready_probe(client, admin_headers, enroll_probe)
+    created = await client.post(
+        "/api/v1/jobs",
+        json={"probe_id": probe["probe_id"], "targets": ["10.20.0.5"]},
+        headers=admin_headers,
+    )
+    job = await db_session.get(ScanJob, uuid.UUID(created.json()["id"]))
+    assert job is not None
+
+    now = datetime.now(UTC)
+    job.status = JobStatus.RUNNING
+    job.accepted_at = now - timedelta(minutes=3)
+    job.started_at = now - timedelta(minutes=2)
+    job.expires_at = now + timedelta(hours=1)
+    job.limits_json = {**job.limits_json, "max_duration_seconds": 60}
+    await db_session.commit()
+
+    # The Scout gets one offline-detection window to publish its own terminal
+    # outcome after enforcing the hard execution deadline locally.
+    grace = await client.post("/api/v1/jobs/reap", headers=admin_headers)
+    assert grace.status_code == 200 and grace.json()["reaped"] == 0
+    await db_session.refresh(job)
+    assert job.status == JobStatus.RUNNING
+
+    job.accepted_at = now - timedelta(minutes=6)
+    job.started_at = now - timedelta(minutes=5)
+    await db_session.commit()
+    reaped = await client.post("/api/v1/jobs/reap", headers=admin_headers)
+    assert reaped.status_code == 200 and reaped.json()["reaped"] == 1
+    await db_session.refresh(job)
+    assert job.status == JobStatus.EXPIRED
+    assert job.error_code == "max_duration_exceeded"
+
+    # The reaper may win a narrow race with the Scout's own deadline handler.
+    # Acknowledge that late terminal report while retaining the published expiry.
+    late = await client.post(
+        f"/api/v1/probes/{probe['probe_id']}/jobs/{job.id}/status",
+        json={"status": "cancelled", "error_code": "max_duration_exceeded"},
+        headers=probe_cert_headers(probe["fingerprint"]),
+    )
+    assert late.status_code == 204
+    await db_session.refresh(job)
+    assert job.status == JobStatus.EXPIRED

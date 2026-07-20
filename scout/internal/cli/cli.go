@@ -22,6 +22,7 @@ import (
 	"github.com/codebooker/vulna/scout/internal/buildinfo"
 	"github.com/codebooker/vulna/scout/internal/config"
 	"github.com/codebooker/vulna/scout/internal/enrollment"
+	"github.com/codebooker/vulna/scout/internal/executor"
 	"github.com/codebooker/vulna/scout/internal/netdetect"
 	"github.com/codebooker/vulna/scout/internal/policy"
 	"github.com/codebooker/vulna/scout/internal/queue"
@@ -344,6 +345,9 @@ func runRun(args []string, stdout, stderr io.Writer) int {
 
 	hb := buildHeartbeat(cfg.StateDir)
 	var running *agent.RunningJob
+	var pendingResult *executor.Result
+	finalizeRetryDelay := time.Second
+	var nextFinalizeAttempt time.Time
 	for {
 		// Local emergency stop is authoritative even if the orchestrator is
 		// unreachable or compromised: honor it before doing any work.
@@ -399,10 +403,12 @@ func runRun(args []string, stdout, stderr io.Writer) int {
 				}
 			}
 			if running != nil {
-				for _, id := range resp.Cancellations {
-					if id == running.JobID {
-						fmt.Fprintf(stdout, "vulnascout: cancelling job %s\n", id)
-						running.Cancel()
+				if pendingResult == nil {
+					for _, id := range resp.Cancellations {
+						if id == running.JobID {
+							fmt.Fprintf(stdout, "vulnascout: cancelling job %s\n", id)
+							running.Cancel()
+						}
 					}
 				}
 			} else if started, perr := scout.PollAndStart(ctx); perr != nil {
@@ -423,21 +429,39 @@ func runRun(args []string, stdout, stderr io.Writer) int {
 		tick := interval
 		if running != nil {
 			tick = time.Second
-			select {
-			case res := <-running.Done():
-				outcome := "completed"
-				if res.Cancelled {
-					outcome = "cancelled"
+			if pendingResult == nil {
+				select {
+				case res := <-running.Done():
+					pendingResult = &res
+				default:
 				}
-				if err := scout.Finalize(ctx, running, res); err != nil {
-					fmt.Fprintln(stderr, "vulnascout: finalize error:", err)
+			}
+			if pendingResult != nil && !time.Now().Before(nextFinalizeAttempt) {
+				if err := scout.Finalize(ctx, running, *pendingResult); err != nil {
+					fmt.Fprintf(
+						stderr, "vulnascout: finalize error (retrying in %s): %v\n",
+						finalizeRetryDelay, err,
+					)
+					nextFinalizeAttempt = time.Now().Add(finalizeRetryDelay)
+					finalizeRetryDelay *= 2
+					if finalizeRetryDelay > 30*time.Second {
+						finalizeRetryDelay = 30 * time.Second
+					}
+				} else {
+					outcome := "completed"
+					if pendingResult.Cancelled {
+						outcome = "cancelled"
+					}
+					fmt.Fprintf(
+						stdout, "vulnascout: job %s %s (%d/%d stages)\n",
+						running.JobID, outcome,
+						pendingResult.StagesRun, pendingResult.StagesTotal,
+					)
+					running = nil
+					pendingResult = nil
+					finalizeRetryDelay = time.Second
+					nextFinalizeAttempt = time.Time{}
 				}
-				fmt.Fprintf(
-					stdout, "vulnascout: job %s %s (%d/%d stages)\n",
-					running.JobID, outcome, res.StagesRun, res.StagesTotal,
-				)
-				running = nil
-			default:
 			}
 		}
 

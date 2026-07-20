@@ -13,6 +13,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/codebooker/vulna/scout/internal/api"
 	"github.com/codebooker/vulna/scout/internal/executor"
@@ -88,9 +89,10 @@ func (a *Agent) QueueBacklog() (count int, bytes int64) {
 
 // RunningJob is a job currently executing in the test worker.
 type RunningJob struct {
-	JobID  string
-	cancel context.CancelCauseFunc
-	done   chan executor.Result
+	JobID          string
+	cancel         context.CancelCauseFunc
+	done           chan executor.Result
+	terminalReport *api.JobStatusReport
 }
 
 // Cancel stops the running worker.
@@ -103,6 +105,16 @@ var (
 	errCancellationRequested = errors.New("scan cancellation requested")
 	errMaxDurationExceeded   = errors.New("scan maximum duration exceeded")
 	errAuthorizationExpired  = errors.New("scan authorization expired")
+)
+
+const (
+	maxTerminalErrorCodeRunes    = 64
+	maxTerminalErrorMessageRunes = 2048
+	maxFailureCodeRunes          = 64
+	maxFailureStageRunes         = 128
+	maxFailurePluginRunes        = 128
+	maxFailureMessageRunes       = 2048
+	maxTerminalFailureDetails    = 50
 )
 
 // SyncPolicy fetches, verifies, caches, and persists the signed local policy.
@@ -283,6 +295,13 @@ func (a *Agent) runWithProgress(ctx context.Context, job *policy.Job) (executor.
 // the job still completes and the backlog uploads on a later heartbeat. Without
 // a queue, outputs upload directly and an upload failure fails the job.
 func (a *Agent) Finalize(ctx context.Context, running *RunningJob, res executor.Result) error {
+	// A completed worker remains attached to the RunningJob until the orchestrator
+	// acknowledges its terminal state. On retries, send the exact same bounded
+	// report without uploading or enqueueing scanner output a second time.
+	if running.terminalReport != nil {
+		return a.client.ReportJobStatus(ctx, running.JobID, *running.terminalReport)
+	}
+
 	if !res.Cancelled {
 		for _, out := range res.Outputs {
 			if len(out.Raw) == 0 && !out.Complete {
@@ -293,7 +312,7 @@ func (a *Agent) Finalize(ctx context.Context, running *RunningJob, res executor.
 					JobID: running.JobID, Stage: out.Stage, Scanner: out.Scanner, Raw: out.Raw,
 					Complete: out.Complete,
 				}); err != nil {
-					return a.client.ReportJobStatus(ctx, running.JobID, api.JobStatusReport{
+					return a.reportTerminal(ctx, running, api.JobStatusReport{
 						Status:       "failed",
 						ErrorCode:    "queue_full",
 						ErrorMessage: err.Error(),
@@ -304,7 +323,7 @@ func (a *Agent) Finalize(ctx context.Context, running *RunningJob, res executor.
 			if err := a.client.UploadResults(
 				ctx, running.JobID, out.Raw, out.Stage, out.Scanner, out.Complete,
 			); err != nil {
-				return a.client.ReportJobStatus(ctx, running.JobID, api.JobStatusReport{
+				return a.reportTerminal(ctx, running, api.JobStatusReport{
 					Status:       "failed",
 					ErrorCode:    "upload_failed",
 					ErrorMessage: err.Error(),
@@ -361,7 +380,7 @@ func (a *Agent) Finalize(ctx context.Context, running *RunningJob, res executor.
 			})
 		}
 	}
-	return a.client.ReportJobStatus(ctx, running.JobID, api.JobStatusReport{
+	return a.reportTerminal(ctx, running, api.JobStatusReport{
 		Status:         status,
 		ErrorCode:      errCode,
 		ErrorMessage:   errMsg,
@@ -374,6 +393,65 @@ func (a *Agent) Finalize(ctx context.Context, running *RunningJob, res executor.
 			"cancel_reason":  res.CancelReason,
 		},
 	})
+}
+
+// reportTerminal bounds the report to the orchestrator schema and retains it
+// on the running job before the first send. A transient status-post failure can
+// therefore be retried without repeating result delivery or changing details.
+func (a *Agent) reportTerminal(
+	ctx context.Context, running *RunningJob, report api.JobStatusReport,
+) error {
+	report = boundTerminalReport(report)
+	running.terminalReport = &report
+	return a.client.ReportJobStatus(ctx, running.JobID, report)
+}
+
+func boundTerminalReport(report api.JobStatusReport) api.JobStatusReport {
+	report.ErrorCode = truncateRunes(report.ErrorCode, maxTerminalErrorCodeRunes)
+	report.ErrorMessage = truncateRunes(report.ErrorMessage, maxTerminalErrorMessageRunes)
+
+	details := report.FailureDetails
+	if len(details) > maxTerminalFailureDetails {
+		// Cancellation diagnostics are appended last and explain why the signed
+		// execution stopped, so retain that final detail when trimming the list.
+		if report.Status == "cancelled" {
+			details = append(
+				append([]api.JobFailureDetail(nil), details[:maxTerminalFailureDetails-1]...),
+				details[len(details)-1],
+			)
+		} else {
+			details = details[:maxTerminalFailureDetails]
+		}
+	}
+	report.FailureDetails = make([]api.JobFailureDetail, len(details))
+	for i, detail := range details {
+		if detail.Code == "" {
+			detail.Code = "scanner_error"
+		}
+		if detail.Message == "" {
+			detail.Message = "Scanner stage failed without diagnostics"
+		}
+		detail.Code = truncateRunes(detail.Code, maxFailureCodeRunes)
+		detail.Stage = truncateRunes(detail.Stage, maxFailureStageRunes)
+		detail.Plugin = truncateRunes(detail.Plugin, maxFailurePluginRunes)
+		detail.Message = truncateRunes(detail.Message, maxFailureMessageRunes)
+		report.FailureDetails[i] = detail
+	}
+	return report
+}
+
+func truncateRunes(value string, limit int) string {
+	if limit <= 0 {
+		return ""
+	}
+	if utf8.RuneCountInString(value) <= limit {
+		return value
+	}
+	runes := []rune(value)
+	if limit == 1 {
+		return "…"
+	}
+	return string(runes[:limit-1]) + "…"
 }
 
 func extractJobID(raw []byte) string {
