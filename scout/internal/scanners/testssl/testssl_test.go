@@ -17,6 +17,7 @@ func TestBuildArgsAllowlisted(t *testing.T) {
 	args := BuildArgs("/tmp/out.json", "10.0.0.1:443")
 	for _, want := range []string{
 		"--quiet", "--color", "0", "--warnings", "batch",
+		"--connect-timeout", "5", "--openssl-timeout", "15",
 		"--jsonfile", "/tmp/out.json", "10.0.0.1:443",
 	} {
 		if !slices.Contains(args, want) {

@@ -902,7 +902,11 @@ async def report_job_status(
             job.error_message = sanitize_failure_message(payload.error_message)
         if payload.summary is not None:
             job.summary_json = payload.summary
-        if payload.status in (JobStatus.FAILED, JobStatus.REJECTED_BY_PROBE):
+        if payload.status in (
+            JobStatus.FAILED,
+            JobStatus.CANCELLED,
+            JobStatus.REJECTED_BY_PROBE,
+        ):
             job.failure_log_json = build_failure_log(
                 payload.failure_details,
                 now=now,

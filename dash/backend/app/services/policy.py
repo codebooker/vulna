@@ -32,6 +32,20 @@ _DEFAULT_LIMITS = {
     "max_duration_seconds": 10800,
 }
 
+_DURATION_HOST_STEP = 256
+_MAX_DURATION_SECONDS = 24 * 60 * 60
+
+
+def duration_limit_for_hosts(hosts: int) -> int:
+    """Scale the signed workflow budget with explicitly approved scope size.
+
+    Three hours remains the conservative budget for up to one /24. Larger host
+    limits get another three-hour block per 256 addresses, capped at 24 hours so
+    an abandoned job never becomes open-ended.
+    """
+    steps = max(1, (max(1, hosts) + _DURATION_HOST_STEP - 1) // _DURATION_HOST_STEP)
+    return min(_MAX_DURATION_SECONDS, _DEFAULT_LIMITS["max_duration_seconds"] * steps)
+
 
 async def _probe_scopes(session: AsyncSession, probe: Probe) -> list[NetworkScope]:
     """Return the enabled ranges this probe may assess.
@@ -96,10 +110,11 @@ async def build_policy_document(
     # The policy version tracks the latest scope change for the probe's site.
     policy_version = max((s.policy_version for s in scopes), default=0)
 
+    max_hosts = _int_or_default(
+        [s.maximum_hosts for s in scopes], _DEFAULT_LIMITS["max_hosts"]
+    )
     limits = {
-        "max_hosts": _int_or_default(
-            [s.maximum_hosts for s in scopes], _DEFAULT_LIMITS["max_hosts"]
-        ),
+        "max_hosts": max_hosts,
         "max_parallel_hosts": _int_or_default(
             [s.maximum_concurrency for s in scopes], _DEFAULT_LIMITS["max_parallel_hosts"]
         ),
@@ -107,7 +122,7 @@ async def build_policy_document(
             [s.maximum_packets_per_second for s in scopes],
             _DEFAULT_LIMITS["max_packets_per_second"],
         ),
-        "max_duration_seconds": _DEFAULT_LIMITS["max_duration_seconds"],
+        "max_duration_seconds": duration_limit_for_hosts(max_hosts),
     }
 
     # Controlled-pentest mode + the metasploit plugin are permitted only for a

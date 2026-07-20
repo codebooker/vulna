@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/codebooker/vulna/scout/internal/policy"
 )
@@ -140,6 +141,20 @@ func TestBuildArgsRejectsInvalidHostTimeout(t *testing.T) {
 	)
 	if err == nil {
 		t.Error("expected rejection of a malformed host-timeout")
+	}
+}
+
+func TestPlanRunTreatsPolicyDurationAsCeiling(t *testing.T) {
+	w := &Worker{Profile: SafeDiscoveryProfile(), Timeout: 2 * time.Minute}
+	job := &policy.Job{Limits: policy.Limits{MaxDurationSeconds: 60 * 60}}
+	_, timeout := w.planRun(job)
+	if timeout != 2*time.Minute {
+		t.Fatalf("a broad workflow limit expanded one Nmap chunk to %s", timeout)
+	}
+	job.Limits.MaxDurationSeconds = 30
+	_, timeout = w.planRun(job)
+	if timeout != 30*time.Second {
+		t.Fatalf("a stricter signed limit was not enforced: %s", timeout)
 	}
 }
 

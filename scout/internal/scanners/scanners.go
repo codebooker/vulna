@@ -173,13 +173,11 @@ func (w *Workflow) RunWithProgress(
 	return res, nil
 }
 
-// RunStreaming executes the workflow per target chunk, emitting each chunk's
-// output through sink the moment it is produced so results can be uploaded — and
-// assets/findings surfaced — while the scan is still running. Output handed to
-// the sink is not repeated in the returned Result; if the sink rejects a batch,
-// it is carried in Result.Outputs so the caller still delivers it. Semantics
-// otherwise match RunWithProgress: an unavailable plugin is a skipped stage, a
-// scanner error fails that stage, and cancellation stops promptly.
+// RunStreaming executes one workflow stage across every target chunk before
+// moving to the next stage. Discovery therefore covers the complete requested
+// network before slower vulnerability/TLS checks begin; one slow endpoint can no
+// longer prevent all later subnets from entering inventory. Each chunk's output
+// is emitted immediately so assets and findings still surface live.
 func (w *Workflow) RunStreaming(
 	ctx context.Context,
 	job *policy.Job,
@@ -217,33 +215,30 @@ func (w *Workflow) RunStreaming(
 	chunks := ChunkTargets(job.Targets, discoveryChunkAddresses)
 	totalUnits := len(chunks) * len(runnable)
 	completed := 0
-	ran := make([]bool, len(runnable))
-	failed := make([]bool, len(runnable))
 	deliveryFailed := make([]bool, len(runnable))
+	// Discovery output is retained per chunk so later stages receive only the
+	// concrete services found in the matching range.
+	endpointsByChunk := make([][]discovery.Endpoint, len(chunks))
 
 	emit := func(stage, plugin string) {
 		reportStreamingProgress(
-			report, job, res, ran, failed, started, stage, plugin, float64(completed), totalUnits,
+			report, job, res, started, stage, plugin, float64(completed), totalUnits,
 		)
 	}
 	emit("", "")
 
-	for _, chunk := range chunks {
-		chunkJob := *job
-		chunkJob.Targets = chunk
-		// Endpoints discovered by this chunk's discovery stage. The stages that
-		// follow target these services instead of re-scanning the raw range; empty
-		// (discovery found nothing usable, or failed) falls back to the range.
-		var endpoints []discovery.Endpoint
-		for si := range runnable {
-			st := runnable[si]
+	for si := range runnable {
+		st := runnable[si]
+		stageRan := false
+		stageFailed := false
+		for ci, chunk := range chunks {
 			if ctx.Err() != nil {
 				res.Cancelled = true
 				return res, ctx.Err()
 			}
 
-			stageJob := chunkJob
-			stageJob.Targets = stageTargets(st.scanner, endpoints, chunk)
+			stageJob := *job
+			stageJob.Targets = stageTargets(st.scanner, endpointsByChunk[ci], chunk)
 			isDiscovery := st.scanner.Stage() == discoveryStage
 			var discovered [][]byte
 
@@ -284,7 +279,7 @@ func (w *Workflow) RunStreaming(
 							frac = math.Min(1, float64(hostsDone)/float64(total))
 						}
 						reportStreamingProgress(
-							report, job, res, ran, failed, started, st.stage, st.plugin,
+							report, job, res, started, st.stage, st.plugin,
 							float64(base)+frac, totalUnits,
 						)
 					},
@@ -300,35 +295,38 @@ func (w *Workflow) RunStreaming(
 				res.Cancelled = true
 				return res, ctx.Err()
 			}
-			// Derive endpoints from the discovery output so the stages that follow
-			// scan the services actually found (each streamed batch is a self-
-			// contained nmaprun document).
-			if isDiscovery && err == nil {
+			// Derive endpoints even from a partial discovery run. Those batches were
+			// already ingested and are safer/more useful than falling back to blindly
+			// re-scanning the complete range after an Nmap timeout.
+			if isDiscovery {
 				for _, batch := range discovered {
-					endpoints = append(endpoints, discovery.ParseEndpoints(batch)...)
+					endpointsByChunk[ci] = append(
+						endpointsByChunk[ci], discovery.ParseEndpoints(batch)...,
+					)
 				}
 			}
 			completed++
 			if err != nil {
-				if !failed[si] {
+				if !stageFailed {
 					message := fmt.Sprintf("%s failed: %v", st.scanner.Name(), err)
 					res.Errors = append(res.Errors, message)
 					res.Failures = append(res.Failures, executor.StageFailure{
 						Code: "scanner_error", Stage: st.stage, Plugin: st.scanner.Name(), Message: message,
 					})
-					failed[si] = true
 				}
+				stageFailed = true
 			} else {
-				ran[si] = true
+				stageRan = true
 			}
 			emit(st.stage, st.plugin)
 		}
-	}
-	for si := range runnable {
+
+		// A stage is complete only after every target chunk has been attempted.
+		// This keeps "stages completed" truthful while chunk-level percent moves.
 		switch {
-		case failed[si]:
+		case stageFailed:
 			res.StagesFailed++
-		case ran[si]:
+		case stageRan:
 			res.StagesRun++
 			completion := executor.StageOutput{
 				Stage:    runnable[si].scanner.Stage(),
@@ -341,6 +339,7 @@ func (w *Workflow) RunStreaming(
 				res.Outputs = append(res.Outputs, completion)
 			}
 		}
+		emit(st.stage, st.plugin)
 	}
 	return res, nil
 }
@@ -375,20 +374,20 @@ func reportWorkflowProgress(
 		Percent: percent, CurrentStage: stage, CurrentPlugin: plugin,
 		StagesTotal: res.StagesTotal, StagesCompleted: completed,
 		StagesRun: res.StagesRun, StagesFailed: res.StagesFailed,
-		StagesSkipped: res.StagesSkipped, TargetGroups: len(job.Targets),
+		StagesSkipped: res.StagesSkipped, WorkUnitsTotal: res.StagesTotal,
+		WorkUnitsDone: float64(completed), TargetGroups: len(job.Targets),
 		TargetAddresses: executor.TargetAddressCount(job.Targets),
 		ElapsedSeconds:  int(elapsedDuration.Seconds()), ETASeconds: eta,
 	})
 }
 
 // reportStreamingProgress reports percent by completed (chunk × stage) work units
-// so the bar advances smoothly across chunks. Stage tallies are computed live
-// from the per-stage outcome so the UI reflects what has run so far.
+// so the bar advances smoothly across chunks. Stage tallies change only after a
+// stage has finished across every chunk.
 func reportStreamingProgress(
 	report executor.ProgressCallback,
 	job *policy.Job,
 	res executor.Result,
-	ran, failed []bool,
 	started time.Time,
 	stage, plugin string,
 	completedUnits float64,
@@ -396,15 +395,6 @@ func reportStreamingProgress(
 ) {
 	if report == nil {
 		return
-	}
-	liveRun, liveFailed := 0, 0
-	for i := range ran {
-		switch {
-		case failed[i]:
-			liveFailed++
-		case ran[i]:
-			liveRun++
-		}
 	}
 	percent := 0
 	if totalUnits > 0 {
@@ -425,8 +415,10 @@ func reportStreamingProgress(
 	report(executor.Progress{
 		Percent: percent, CurrentStage: stage, CurrentPlugin: plugin,
 		StagesTotal:     res.StagesTotal,
-		StagesCompleted: liveRun + liveFailed + res.StagesSkipped,
-		StagesRun:       liveRun, StagesFailed: liveFailed, StagesSkipped: res.StagesSkipped,
+		StagesCompleted: res.StagesRun + res.StagesFailed + res.StagesSkipped,
+		StagesRun:       res.StagesRun, StagesFailed: res.StagesFailed,
+		StagesSkipped: res.StagesSkipped, WorkUnitsTotal: totalUnits,
+		WorkUnitsDone:   completedUnits,
 		TargetGroups:    len(job.Targets),
 		TargetAddresses: executor.TargetAddressCount(job.Targets),
 		ElapsedSeconds:  int(elapsed.Seconds()), ETASeconds: eta,

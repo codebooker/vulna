@@ -176,6 +176,34 @@ func TestJobCancellation(t *testing.T) {
 	if got := f.statuses(); !contains(got, "cancelled") {
 		t.Errorf("expected a cancelled report, got %v", got)
 	}
+	f.mu.Lock()
+	last := f.reports[len(f.reports)-1]
+	f.mu.Unlock()
+	if last.ErrorCode != "cancellation_requested" || len(last.FailureDetails) != 1 {
+		t.Fatalf("cancel reason was not reported: %+v", last)
+	}
+}
+
+func TestFinalizeReportsMaximumDurationCancellation(t *testing.T) {
+	f := &fakeOrch{}
+	a := &Agent{client: f}
+	running := &RunningJob{JobID: "timed-out-job"}
+	res := executor.Result{
+		JobID: "timed-out-job", StagesTotal: 3, Cancelled: true,
+		CancelReason: executor.CancelReasonMaxDurationExceeded,
+	}
+	if err := a.Finalize(context.Background(), running, res); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	last := f.reports[len(f.reports)-1]
+	if last.Status != "cancelled" || last.ErrorCode != "max_duration_exceeded" {
+		t.Fatalf("deadline cancellation was not explained: %+v", last)
+	}
+	if len(last.FailureDetails) != 1 || last.FailureDetails[0].Code != "max_duration_exceeded" {
+		t.Fatalf("deadline diagnostics missing: %+v", last.FailureDetails)
+	}
 }
 
 func TestAlteredJobRejected(t *testing.T) {

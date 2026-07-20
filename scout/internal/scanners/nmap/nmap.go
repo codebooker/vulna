@@ -12,13 +12,13 @@ import (
 	"fmt"
 	"net/netip"
 	"os"
-	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/codebooker/vulna/scout/internal/policy"
+	"github.com/codebooker/vulna/scout/internal/processutil"
 )
 
 const (
@@ -242,7 +242,7 @@ func (w *Worker) Run(ctx context.Context, job *policy.Job) ([]byte, error) {
 	}
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd := exec.CommandContext(runCtx, w.binary(), args...)
+	cmd := processutil.CommandContext(runCtx, w.binary(), args...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	runErr := cmd.Run()
@@ -251,6 +251,12 @@ func (w *Worker) Run(ctx context.Context, job *policy.Job) ([]byte, error) {
 		return nil, ctx.Err()
 	}
 	xml, _ := os.ReadFile(outPath)
+	if runCtx.Err() != nil {
+		// Preserve any complete hosts Nmap wrote before its per-chunk deadline;
+		// the workflow uploads that partial evidence and still marks the stage
+		// inconclusive instead of pretending the chunk completed.
+		return xml, runCtx.Err()
+	}
 	if len(xml) == 0 {
 		return nil, fmt.Errorf(
 			"nmap produced no output: %v: %s", runErr, strings.TrimSpace(stderr.String()),
@@ -260,8 +266,9 @@ func (w *Worker) Run(ctx context.Context, job *policy.Job) ([]byte, error) {
 }
 
 // planRun derives the effective profile (with the job's packet-rate limit and a
-// floor at half the ceiling) and the run timeout (bounded by the policy-approved
-// duration when present). Shared by Run and Stream.
+// floor at half the ceiling) and the run timeout. The signed job duration is an
+// upper bound for the complete workflow, not permission for one Nmap chunk to
+// consume the entire job, so the smaller scanner timeout always wins.
 func (w *Worker) planRun(job *policy.Job) (Profile, time.Duration) {
 	profile := w.Profile
 	if job.Limits.MaxPacketsPerSecond > 0 {
@@ -272,7 +279,9 @@ func (w *Worker) planRun(job *policy.Job) (Profile, time.Duration) {
 	}
 	timeout := w.timeout()
 	if secs := job.Limits.MaxDurationSeconds; secs > 0 {
-		timeout = time.Duration(secs) * time.Second
+		if policyLimit := time.Duration(secs) * time.Second; policyLimit < timeout {
+			timeout = policyLimit
+		}
 	}
 	return profile, timeout
 }
@@ -312,7 +321,7 @@ func (w *Worker) Stream(
 	}
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd := exec.CommandContext(runCtx, w.binary(), args...)
+	cmd := processutil.CommandContext(runCtx, w.binary(), args...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
@@ -348,6 +357,9 @@ func (w *Worker) Stream(
 			flush() // deliver any hosts finished since the last tick
 			if ctx.Err() != nil {
 				return ctx.Err()
+			}
+			if runCtx.Err() != nil {
+				return runCtx.Err()
 			}
 			data, _ := os.ReadFile(outPath)
 			if len(data) == 0 {

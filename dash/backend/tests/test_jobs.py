@@ -205,6 +205,43 @@ async def test_create_job_over_host_limit_rejected(
     assert "exceed" in resp.json()["detail"].lower()
 
 
+async def test_large_job_gets_target_scaled_runtime_and_authorization_window(
+    client: AsyncClient,
+    admin_headers: dict[str, str],
+    enroll_probe: EnrollFactory,
+    db_session: AsyncSession,
+) -> None:
+    probe = await enroll_probe(site_code="LARGE", probe_name="p-LARGE")
+    await client.post(f"/api/v1/probes/{probe['probe_id']}/approve", headers=admin_headers)
+    scope = await client.post(
+        "/api/v1/scopes",
+        json={
+            "site_id": probe["site_id"],
+            "name": "large-lan",
+            "cidr": "10.20.0.0/21",
+            "maximum_hosts": 2048,
+        },
+        headers=admin_headers,
+    )
+    assert scope.status_code == 201
+
+    created = await client.post(
+        "/api/v1/jobs",
+        json={
+            "probe_id": probe["probe_id"],
+            "targets": [f"10.20.{third}.0/24" for third in range(5)],
+        },
+        headers=admin_headers,
+    )
+    assert created.status_code == 201
+    job = await db_session.get(ScanJob, uuid.UUID(created.json()["id"]))
+    assert job is not None
+    # Five /24 work units receive five three-hour blocks, while the signed
+    # authorization window includes an additional hour for queueing/finalize.
+    assert job.limits_json["max_duration_seconds"] == 15 * 60 * 60
+    assert job.expires_at - job.not_before == timedelta(hours=16)
+
+
 async def test_create_job_out_of_scope_rejected(
     client: AsyncClient, admin_headers: dict[str, str], enroll_probe: EnrollFactory
 ) -> None:
@@ -398,13 +435,15 @@ async def test_scan_progress_eta_and_sanitized_operator_failure_log(
     )
     progress = {
         "percent": 33,
-        "current_stage": "vulnerability",
-        "current_plugin": "nuclei",
+        "current_stage": "discovery",
+        "current_plugin": "nmap",
         "stages_total": 3,
-        "stages_completed": 1,
-        "stages_run": 1,
+        "stages_completed": 0,
+        "stages_run": 0,
         "stages_failed": 0,
         "stages_skipped": 0,
+        "work_units_total": 3,
+        "work_units_done": 1,
         "target_groups": 1,
         "target_addresses": 1,
         "elapsed_seconds": 15,
@@ -421,7 +460,8 @@ async def test_scan_progress_eta_and_sanitized_operator_failure_log(
     assert got.status_code == 200
     body = got.json()
     assert body["progress_percent"] == 33
-    assert body["progress_json"]["stages_completed"] == 1
+    assert body["progress_json"]["stages_completed"] == 0
+    assert body["progress_json"]["work_units_done"] == 1
     assert body["estimated_completion_at"] is not None
     assert "failure_log_json" not in body
 
@@ -434,12 +474,28 @@ async def test_scan_progress_eta_and_sanitized_operator_failure_log(
                 "percent": 0,
                 "stages_completed": 0,
                 "stages_run": 0,
+                "work_units_done": 0,
                 "eta_seconds": None,
             },
         },
         headers=headers,
     )
     assert regressed.status_code == 409
+
+    changed_total = await client.post(
+        f"/api/v1/probes/{probe['probe_id']}/jobs/{job_id}/status",
+        json={
+            "status": "running",
+            "progress": {
+                **progress,
+                "work_units_total": 6,
+                "work_units_done": 2,
+                "elapsed_seconds": 16,
+            },
+        },
+        headers=headers,
+    )
+    assert changed_total.status_code == 409
 
     failed = await client.post(
         f"/api/v1/probes/{probe['probe_id']}/jobs/{job_id}/status",
@@ -494,6 +550,52 @@ async def test_scan_progress_eta_and_sanitized_operator_failure_log(
         ).scalars()
     )
     assert {"job.failure_recorded", "job.diagnostics_viewed"} <= audit_actions
+
+
+async def test_cancelled_job_retains_sanitized_deadline_diagnostics(
+    client: AsyncClient,
+    admin_headers: dict[str, str],
+    enroll_probe: EnrollFactory,
+) -> None:
+    probe = await _ready_probe(client, admin_headers, enroll_probe, site_code="CANCEL-DIAG")
+    created = await client.post(
+        "/api/v1/jobs",
+        json={"probe_id": probe["probe_id"], "targets": ["10.20.0.5"]},
+        headers=admin_headers,
+    )
+    job_id = created.json()["id"]
+    headers = probe_cert_headers(probe["fingerprint"])
+    await client.post(f"/api/v1/probes/{probe['probe_id']}/jobs/next", headers=headers)
+    await client.post(
+        f"/api/v1/probes/{probe['probe_id']}/jobs/{job_id}/status",
+        json={"status": "accepted"},
+        headers=headers,
+    )
+    cancelled = await client.post(
+        f"/api/v1/probes/{probe['probe_id']}/jobs/{job_id}/status",
+        json={
+            "status": "cancelled",
+            "error_code": "max_duration_exceeded",
+            "error_message": "Scan stopped after reaching its signed maximum duration",
+            "failure_details": [
+                {
+                    "code": "max_duration_exceeded",
+                    "message": "Scan stopped after reaching its signed maximum duration",
+                }
+            ],
+        },
+        headers=headers,
+    )
+    assert cancelled.status_code == 204
+
+    diagnostics = await client.get(
+        f"/api/v1/jobs/{job_id}/diagnostics", headers=admin_headers
+    )
+    assert diagnostics.status_code == 200
+    body = diagnostics.json()
+    assert body["status"] == "cancelled"
+    assert body["error_code"] == "max_duration_exceeded"
+    assert body["failures"][0]["code"] == "max_duration_exceeded"
 
 
 async def test_scan_diagnostics_cannot_cross_organizations(

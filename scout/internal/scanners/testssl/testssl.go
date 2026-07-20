@@ -21,12 +21,15 @@ import (
 
 	"github.com/codebooker/vulna/scout/internal/discovery"
 	"github.com/codebooker/vulna/scout/internal/policy"
+	"github.com/codebooker/vulna/scout/internal/processutil"
 )
 
 const (
-	defaultBinary  = "testssl.sh"
-	defaultTimeout = 15 * time.Minute
-	defaultPort    = 443
+	defaultBinary         = "testssl.sh"
+	defaultTimeout        = 5 * time.Minute
+	defaultPort           = 443
+	connectTimeoutSeconds = 5
+	opensslTimeoutSeconds = 15
 )
 
 // BuildArgs builds allowlisted testssl.sh arguments for one host:port, writing
@@ -36,6 +39,11 @@ func BuildArgs(outPath, hostPort string) []string {
 		"--quiet",
 		"--color", "0",
 		"--warnings", "batch",
+		// testssl.sh otherwise permits individual socket/OpenSSL operations to
+		// hang. These are tool-supported bounds, separate from the per-endpoint
+		// context deadline below.
+		"--connect-timeout", strconv.Itoa(connectTimeoutSeconds),
+		"--openssl-timeout", strconv.Itoa(opensslTimeoutSeconds),
 		"--jsonfile", outPath,
 		hostPort,
 	}
@@ -184,7 +192,7 @@ func (w *Worker) scanOne(ctx context.Context, hostPort string) ([]byte, error) {
 	args := BuildArgs(outPath, hostPort)
 	runCtx, cancel := context.WithTimeout(ctx, w.timeout())
 	defer cancel()
-	cmd := exec.CommandContext(runCtx, w.binary(), args...)
+	cmd := processutil.CommandContext(runCtx, w.binary(), args...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	runErr := cmd.Run()

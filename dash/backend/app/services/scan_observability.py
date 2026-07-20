@@ -46,12 +46,24 @@ def apply_progress(job: ScanJob, progress: JobProgressUpdate, now: datetime) -> 
     previous = job.progress_json or {}
     previous_completed = int(previous.get("stages_completed", 0))
     previous_elapsed = int(previous.get("elapsed_seconds", 0))
+    previous_work_done = float(previous.get("work_units_done", 0))
+    previous_work_total = previous.get("work_units_total")
     if (
         progress.percent < job.progress_percent
         or progress.stages_completed < previous_completed
         or progress.elapsed_seconds < previous_elapsed
+        or (
+            progress.work_units_done is not None
+            and progress.work_units_done < previous_work_done
+        )
     ):
         raise ValueError("scan progress cannot move backwards")
+    if (
+        previous_work_total is not None
+        and progress.work_units_total is not None
+        and progress.work_units_total != int(previous_work_total)
+    ):
+        raise ValueError("scan work unit total cannot change")
     if progress.stages_total != len(job.workflow_json):
         raise ValueError("stage total does not match the signed job workflow")
     if progress.target_groups != len(job.requested_targets_json):

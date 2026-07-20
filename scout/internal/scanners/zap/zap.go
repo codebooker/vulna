@@ -7,12 +7,12 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/codebooker/vulna/scout/internal/policy"
+	"github.com/codebooker/vulna/scout/internal/processutil"
 )
 
 const (
@@ -98,7 +98,7 @@ func (w *Worker) Run(ctx context.Context, job *policy.Job) ([]byte, error) {
 
 	runCtx, cancel := context.WithTimeout(ctx, w.timeout())
 	defer cancel()
-	cmd := exec.CommandContext(runCtx, w.binary(), BuildArgs(planPath)...)
+	cmd := processutil.CommandContext(runCtx, w.binary(), BuildArgs(planPath)...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	runErr := cmd.Run()
