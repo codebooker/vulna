@@ -73,9 +73,9 @@ def test_parse_testssl_json() -> None:
 
     cert = findings[1]
     assert cert.cve_ids == ["CVE-2020-1971"]
-    # A check without a catalog entry still gets a humanized title, a category
-    # finding type, and non-empty remediation.
-    assert cert.title == "Cert expiration"
+    # Legacy check ids normalize onto the canonical certificate-expiry family.
+    assert cert.title == "Certificate expiry"
+    assert cert.weakness_key == "cert_expirationStatus"
     assert cert.finding_type == FindingType.MISCONFIGURATION
     assert cert.remediation
 
@@ -100,6 +100,28 @@ def test_parse_testssl_wrapped_object() -> None:
         b'"severity":"LOW","finding":"f"}]}'
     )
     assert len(parse_testssl_json(wrapped)) == 1
+
+
+def test_parse_testssl_ignores_handshake_summaries_and_deduplicates_aliases() -> None:
+    data = (
+        b'[{"id":"protocol_negotiated","ip":"10.0.0.5","port":"443",'
+        b'"severity":"LOW","finding":"TLSv1.2"},'
+        b'{"id":"cipher_negotiated","ip":"10.0.0.5","port":"443",'
+        b'"severity":"HIGH","finding":"ECDHE-RSA-AES256-GCM-SHA384"},'
+        b'{"id":"cipherlist_STRONG","ip":"10.0.0.5","port":"443",'
+        b'"severity":"MEDIUM","finding":"strong ciphers available"},'
+        b'{"id":"BEAST","ip":"10.0.0.5","port":"443",'
+        b'"severity":"LOW","finding":"CBC offered"},'
+        b'{"id":"BEAST_CBC_TLS1","ip":"10.0.0.5","port":"443",'
+        b'"severity":"MEDIUM","finding":"CBC offered with TLS 1.0"}]'
+    )
+
+    (finding,) = parse_testssl_json(data)
+
+    assert finding.weakness_key == "BEAST"
+    assert finding.title == "BEAST (TLS 1.0 CBC)"
+    assert finding.severity == Severity.MEDIUM
+    assert finding.evidence["scanner_check_id"] == "BEAST_CBC_TLS1"
 
 
 def test_parse_testssl_malformed_raises() -> None:

@@ -118,7 +118,9 @@ async def list_findings(
     result = await session.execute(
         select(Finding)
         .where(*filters)
-        .order_by(Finding.last_seen_at.desc())
+        # Findings from one scanner upload commonly share last_seen_at. Include
+        # the immutable id so offset pagination cannot repeat or skip tied rows.
+        .order_by(Finding.last_seen_at.desc().nullslast(), Finding.id.asc())
         .limit(limit)
         .offset(offset)
     )

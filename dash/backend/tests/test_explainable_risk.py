@@ -92,9 +92,12 @@ async def test_scoring_formula_is_versioned_explainable_and_immutable(
     await db_session.commit()
 
     expected = round(
-        sum(factor["contribution"] for factor in first.factors_json)
-        / sum(abs(value) for value in risk.DEFAULT_WEIGHTS.values())
-        * 100,
+        (
+            sum(factor["contribution"] for factor in first.factors_json)
+            / sum(abs(value) for value in risk.DEFAULT_WEIGHTS.values())
+            + 1
+        )
+        * 50,
         2,
     )
     assert first.score == expected
@@ -117,6 +120,51 @@ async def test_scoring_formula_is_versioned_explainable_and_immutable(
         )
         == 2
     )
+
+
+async def test_internal_critical_finding_is_not_scored_informational(
+    db_session: AsyncSession,
+    organization: Organization,
+) -> None:
+    site = Site(
+        organization_id=organization.id,
+        name=f"Site {uuid.uuid4().hex[:6]}",
+        code=f"S-{uuid.uuid4().hex[:8]}",
+        timezone="UTC",
+    )
+    db_session.add(site)
+    await db_session.flush()
+    asset = Asset(
+        organization_id=organization.id,
+        site_id=site.id,
+        canonical_name="internal-service",
+        asset_type=AssetType.SERVER,
+        criticality=AssetCriticality.UNKNOWN,
+        internet_exposed=False,
+    )
+    db_session.add(asset)
+    await db_session.flush()
+    finding = Finding(
+        organization_id=organization.id,
+        site_id=site.id,
+        asset_id=asset.id,
+        scanner_name="testssl",
+        canonical_finding_key=uuid.uuid4().hex,
+        finding_type=FindingType.MISCONFIGURATION,
+        title="Critical internal TLS issue",
+        severity=Severity.CRITICAL,
+        confidence=50,
+        known_exploited=False,
+        status=FindingStatus.NEW,
+    )
+    db_session.add(finding)
+    await db_session.flush()
+
+    snapshot = await risk.score_finding(db_session, finding)
+
+    assert snapshot.score == 50.0
+    assert risk.priority_from_score(snapshot.score)[0] == "plan"
+    assert finding.risk_input_hash is not None
 
 
 async def test_profile_versions_rescore_findings_and_reject_incomplete_catalogue(

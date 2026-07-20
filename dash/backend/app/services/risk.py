@@ -59,6 +59,11 @@ DEFAULT_WEIGHTS: dict[str, float] = {
     "asset_criticality": 15.0,
 }
 
+# Increment whenever score semantics change. It participates in the input hash,
+# so findings with an otherwise-identical profile are recalculated instead of
+# reusing a snapshot produced by an older algorithm.
+SCORING_ALGORITHM_VERSION = 2
+
 _SEVERITY = {
     Severity.INFO: -1.0,
     Severity.LOW: -0.5,
@@ -254,6 +259,7 @@ async def score_finding(
     weights = validate_weights(profile.weights_json)
     source_values, normalized = await _score_inputs(session, finding)
     input_document = {
+        "scoring_algorithm_version": SCORING_ALGORITHM_VERSION,
         "profile_id": str(profile.id),
         "profile_version": profile.version,
         "source_values": source_values,
@@ -283,7 +289,15 @@ async def score_finding(
             }
         )
     positive_maximum = sum(abs(value) for value in weights.values())
-    score = round(max(0.0, min(100.0, (weighted_sum / positive_maximum) * 100.0)), 2)
+    # Normalized factors span -1..1, so weighted_sum spans
+    # -positive_maximum..positive_maximum. Translate that full interval onto
+    # 0..100. The previous formula mapped only the positive half and clamped the
+    # entire negative half to zero, which made an internal critical finding with
+    # neutral enrichment indistinguishable from informational scanner output.
+    score = round(
+        max(0.0, min(100.0, ((weighted_sum / positive_maximum) + 1.0) * 50.0)),
+        2,
+    )
     snapshot = FindingScoreSnapshot(
         organization_id=finding.organization_id,
         site_id=finding.site_id,

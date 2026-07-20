@@ -65,6 +65,8 @@ export interface DataTableProps<T> {
   emptyDescription?: string;
   emptyAction?: ReactNode;
   exportName?: string;
+  /** Include default-hidden columns in CSV exports without changing the table view. */
+  exportAllColumns?: boolean;
   /** Persist saved views + column visibility under this key. */
   storageKey?: string;
   defaultSort?: { id: string; dir: 'asc' | 'desc' };
@@ -106,6 +108,7 @@ export function DataTable<T>({
   emptyDescription,
   emptyAction,
   exportName,
+  exportAllColumns = false,
   storageKey,
   defaultSort,
   pageSize: initialPageSize = 25,
@@ -212,7 +215,7 @@ export function DataTable<T>({
   );
 
   const exportCsv = () => {
-    const cols = visibleColumns;
+    const cols = exportAllColumns ? columns : visibleColumns;
     const toText = (c: ColumnDef<T>, r: T) => c.csvValue?.(r) ?? String(c.sortValue?.(r) ?? '');
     downloadCsv(
       `${exportName ?? 'export'}.csv`,

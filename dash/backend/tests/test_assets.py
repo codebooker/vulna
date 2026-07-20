@@ -3,8 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 
+from app.models.asset import Asset
+from app.models.enums import AssetType
+from app.models.organization import Organization
+from app.models.site import Site
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.conftest import probe_cert_headers
 from tests.test_jobs import _ready_probe
@@ -36,6 +42,27 @@ EMPTY_HOST_XML = b"""<?xml version="1.0"?>
   <host>
     <status state="up"/>
     <address addr="10.20.0.9" addrtype="ipv4"/>
+  </host>
+</nmaprun>
+"""
+
+IP_ONLY_XML = b"""<?xml version="1.0"?>
+<nmaprun scanner="nmap" version="7.94">
+  <host>
+    <status state="up"/>
+    <address addr="10.20.0.8" addrtype="ipv4"/>
+    <ports><port protocol="tcp" portid="443"><state state="open"/></port></ports>
+  </host>
+</nmaprun>
+"""
+
+HOSTNAME_ENRICHED_XML = b"""<?xml version="1.0"?>
+<nmaprun scanner="nmap" version="7.94">
+  <host>
+    <status state="up"/>
+    <address addr="10.20.0.8" addrtype="ipv4"/>
+    <hostnames><hostname name="portal.example.test" type="PTR"/></hostnames>
+    <ports><port protocol="tcp" portid="443"><state state="open"/></port></ports>
   </host>
 </nmaprun>
 """
@@ -129,6 +156,27 @@ async def test_reupload_updates_not_duplicates(
     assert listed.json()["total"] == 1
 
 
+async def test_reupload_promotes_ip_name_and_lists_identifiers(
+    client: AsyncClient, admin_headers: dict[str, str], enroll_probe: EnrollFactory
+) -> None:
+    probe = await _ready_probe(client, admin_headers, enroll_probe)
+    job_id = await _create_job(client, admin_headers, probe)
+    headers = {**probe_cert_headers(probe["fingerprint"]), **_XML_HEADERS}
+    url = f"/api/v1/probes/{probe['probe_id']}/jobs/{job_id}/results"
+
+    first = await client.post(url, content=IP_ONLY_XML, headers=headers)
+    assert first.json()["assets_created"] == 1
+    second = await client.post(url, content=HOSTNAME_ENRICHED_XML, headers=headers)
+    assert second.json()["assets_updated"] == 1
+
+    listed = await client.get("/api/v1/assets", headers=admin_headers)
+    asset = listed.json()["items"][0]
+    assert asset["canonical_name"] == "portal.example.test"
+    assert asset["ip_addresses"] == ["10.20.0.8"]
+    assert asset["hostnames"] == ["portal.example.test"]
+    assert asset["mac_addresses"] == []
+
+
 async def test_upload_rejects_malformed_xml(
     client: AsyncClient, admin_headers: dict[str, str], enroll_probe: EnrollFactory
 ) -> None:
@@ -172,3 +220,40 @@ async def test_assets_are_org_scoped(
     resp = await client.get("/api/v1/assets", headers=viewer_headers)
     assert resp.status_code == 200
     assert resp.json()["total"] == 1
+
+
+async def test_asset_offset_pages_are_stable_when_last_seen_ties(
+    client: AsyncClient,
+    admin_headers: dict[str, str],
+    db_session: AsyncSession,
+    organization: Organization,
+) -> None:
+    site = Site(
+        organization_id=organization.id,
+        name="Paging site",
+        code="PAGING-ASSETS",
+        timezone="UTC",
+    )
+    db_session.add(site)
+    await db_session.flush()
+    seen_at = datetime(2026, 7, 20, tzinfo=UTC)
+    assets = [
+        Asset(
+            organization_id=organization.id,
+            site_id=site.id,
+            canonical_name=f"10.30.0.{index}",
+            asset_type=AssetType.UNKNOWN,
+            last_seen_at=seen_at,
+        )
+        for index in range(1, 206)
+    ]
+    db_session.add_all(assets)
+    await db_session.commit()
+
+    first = await client.get("/api/v1/assets?limit=200&offset=0", headers=admin_headers)
+    second = await client.get("/api/v1/assets?limit=200&offset=200", headers=admin_headers)
+    ids = [item["id"] for item in first.json()["items"] + second.json()["items"]]
+
+    assert len(ids) == 205
+    assert len(set(ids)) == 205
+    assert ids == sorted(ids)
