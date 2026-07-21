@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — single-host PostgreSQL startup
+
+- Single-host bootstrap now enters the default organization's PostgreSQL tenant
+  context before reading or creating RLS-protected site data. Existing deployments
+  can restart cleanly after the tenant-isolation migration without weakening RLS
+  or bypassing the runtime role.
+
 ### Added — scan progress and failure diagnostics
 
 - Active scans now show durable stage-based percent complete, current workflow
