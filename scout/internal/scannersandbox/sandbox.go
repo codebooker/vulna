@@ -37,6 +37,11 @@ func Execute(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "scanner-sandbox: prepare workspace:", err)
 		return 1
 	}
+	// Landlock domains are inherited from the calling thread. Pin this goroutine
+	// from restriction through fork/exec so Go cannot migrate it to an
+	// unrestricted runtime thread before the scanner child is created.
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
 	if err := applyPlatformSandbox(workspace); err != nil {
 		fmt.Fprintln(stderr, "scanner-sandbox: isolation unavailable:", err)
 		return 1
