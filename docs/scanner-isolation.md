@@ -6,7 +6,8 @@ wrap every invocation in VulnaScout's hidden `scanner-sandbox` helper.
 
 The helper creates a per-invocation home, temporary directory, config directory,
 and cache inside a freshly created workspace. It then applies a Landlock
-filesystem ruleset before starting the scanner:
+filesystem ruleset on an OS-thread-pinned launch path before starting the
+scanner, guaranteeing that the child inherits the domain:
 
 - system binaries, libraries, scanner templates, certificates, `/proc`, and
   `/sys` are read-only;
