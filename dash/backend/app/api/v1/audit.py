@@ -16,12 +16,27 @@ from app.auth.dependencies import require_permission
 from app.db.session import get_session
 from app.models.audit import AuditEvent
 from app.models.user import User
-from app.schemas.audit import AuditEventRead
+from app.schemas.audit import AuditEventRead, AuditIntegrityRead
 from app.schemas.common import Page
+from app.services.audit import verify_audit_chain
 
 router = APIRouter(prefix="/audit", tags=["audit"])
 
 _reader = require_permission("audit.read")
+
+
+@router.get(
+    "/integrity",
+    response_model=AuditIntegrityRead,
+    summary="Verify the organization's tamper-evident audit chain",
+)
+async def audit_integrity(
+    reader: Annotated[User, Depends(_reader)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> AuditIntegrityRead:
+    return AuditIntegrityRead.model_validate(
+        await verify_audit_chain(session, reader.organization_id)
+    )
 
 
 @router.get("", response_model=Page[AuditEventRead], summary="List audit events")
@@ -40,9 +55,7 @@ async def list_audit_events(
     if target_type is not None:
         filters.append(AuditEvent.target_type == target_type)
 
-    total = await session.scalar(
-        select(func.count()).select_from(AuditEvent).where(*filters)
-    )
+    total = await session.scalar(select(func.count()).select_from(AuditEvent).where(*filters))
     result = await session.execute(
         select(AuditEvent)
         .where(*filters)

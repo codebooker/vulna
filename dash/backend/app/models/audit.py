@@ -9,7 +9,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from sqlalchemy import JSON, ForeignKey, String
+from sqlalchemy import JSON, BigInteger, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -21,6 +21,9 @@ class AuditEvent(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     """An append-only record of a security-relevant action."""
 
     __tablename__ = "audit_events"
+    __table_args__ = (
+        UniqueConstraint("chain_scope", "chain_sequence", name="uq_audit_chain_sequence"),
+    )
 
     organization_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("organizations.id", ondelete="SET NULL"),
@@ -41,3 +44,18 @@ class AuditEvent(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     user_agent: Mapped[str | None] = mapped_column(String(512), nullable=True)
     request_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    # New events are authenticated with a deployment-held HMAC key and linked in
+    # an organization-local SHA-256 chain. PostgreSQL assigns the final chain
+    # position in a serialized trigger; the ORM hook provides identical behavior
+    # for SQLite development/tests. Keeping the signature key outside PostgreSQL
+    # means a database-only compromise cannot silently rewrite history.
+    integrity_version: Mapped[int] = mapped_column(nullable=False, default=1)
+    integrity_algorithm: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="hmac-sha256-v1"
+    )
+    integrity_key_id: Mapped[str] = mapped_column(String(16), nullable=False)
+    event_signature: Mapped[str] = mapped_column(String(64), nullable=False)
+    chain_scope: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    chain_sequence: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    previous_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    chain_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)

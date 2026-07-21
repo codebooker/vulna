@@ -44,6 +44,7 @@ from app.models.enums import (
     ProbeStatus,
     SoftwareInventorySource,
 )
+from app.models.pentest_session import PentestSession
 from app.models.probe import Probe
 from app.models.probe_result_upload import ProbeResultUpload
 from app.models.scan_job import ScanJob
@@ -1019,6 +1020,16 @@ async def poll_next_job(
         )
         session.add(attempt)
         await session.flush()
+        pentest_session = await session.scalar(
+            select(PentestSession).where(PentestSession.scan_job_id == job.id)
+        )
+        if pentest_session is not None:
+            pentest_session.scan_job_attempt_id = attempt.id
+            pentest_session.authorization_snapshot_json = {
+                **pentest_session.authorization_snapshot_json,
+                "scan_job_attempt_id": str(attempt.id),
+                "fencing_token": attempt.fencing_token,
+            }
         return JSONResponse(content=job.envelope_json, headers=_attempt_response_headers(attempt))
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)

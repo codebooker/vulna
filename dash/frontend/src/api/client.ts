@@ -1342,7 +1342,20 @@ export const api = {
   },
   createRoE(
     token: string,
-    payload: { name: string; allowed_actions: string[]; cleanup_required: boolean },
+    payload: {
+      name: string;
+      authorization_owner: string;
+      authorization_source: string;
+      authorization_reference: string;
+      authorization_document_sha256: string;
+      effective_from: string;
+      effective_until: string;
+      authorized_cidrs: string[];
+      authorized_asset_ids: string[];
+      authorized_modules: string[];
+      allowed_actions: string[];
+      cleanup_required: boolean;
+    },
   ): Promise<RulesOfEngagement> {
     return request<RulesOfEngagement>('/api/v1/pentest/rules-of-engagement', {
       method: 'POST',
@@ -1358,7 +1371,7 @@ export const api = {
   },
   createPentestSession(
     token: string,
-    payload: { finding_id: string; module: string; rules_of_engagement_id?: string },
+    payload: { finding_id: string; module: string; rules_of_engagement_id: string },
   ): Promise<PentestSession> {
     return request<PentestSession>('/api/v1/pentest/sessions', {
       method: 'POST',
