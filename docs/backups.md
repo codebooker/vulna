@@ -142,12 +142,12 @@ portability, task state, observations, audit metadata, and errors after restore.
 A restore does not contact Microsoft until an operator explicitly tests, runs, or
 schedules the connector.
 
-UniFi restore coverage must preserve the exact public Integration API root, site
-UUID, resource selectors, bounds, private-network opt-in, and
-disabled/tested/enabled state. The API key must decrypt only with the
+UniFi restore coverage must preserve optional Site Manager host filters, bounds,
+and disabled/tested/enabled state. The fixed API endpoint is not stored
+configuration. The API key must decrypt only with the
 inventory-connector purpose and remain absent from portability, task state,
 observations, cursors, audit metadata, errors, and logs. Restore must not contact a
-controller until an operator explicitly tests, runs, or schedules the connector.
+provider until an operator explicitly tests, runs, or schedules the connector.
 
 VMware vCenter restore coverage must preserve the exact public HTTPS origin,
 username, resource selectors, limits, public CA trust, private-network opt-in, and

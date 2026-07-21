@@ -60,14 +60,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   distinction so GO-2026-5932 cannot be mistaken for a reachable call or silently
   ignored if an affected function enters the graph.
 
-### Added — Phase 44 connector: UniFi Network
+### Changed — UniFi Site Manager inventory
 
-- A read-only UniFi Network importer now collects bounded adopted-device and
-  connected-client observations from the official Network Integration API using
-  only fixed HTTPS `GET` operations, offset pagination, and one site UUID.
-- Local and Site Manager proxy roots are strictly allowlisted, every destination is
-  DNS-pinned, private controllers require explicit opt-in, and the one-way API key
-  never enters results, cursors, observations, logs, tasks, or portability exports.
+- The read-only UniFi importer now collects infrastructure devices account-wide
+  through the official Site Manager `GET /v1/devices` API. The endpoint is fixed in
+  code, optional host-ID filters narrow the result, and continuation-token paging
+  is bounded and validated.
+- Controller URLs, Network site UUIDs, private-network access, and connected-client
+  reads are removed from the connector contract. Site Manager API keys remain
+  one-way secrets and never enter results, cursors, observations, logs, tasks, or
+  portability exports.
 
 ### Added — Phase 44 connector: Microsoft Entra
 
