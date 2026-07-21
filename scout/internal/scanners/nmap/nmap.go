@@ -22,9 +22,8 @@ import (
 )
 
 const (
-	defaultBinary  = "nmap"
-	defaultTimeout = 30 * time.Minute
-	maxTopPorts    = 65535
+	defaultBinary = "nmap"
+	maxTopPorts   = 65535
 )
 
 // portSpecRE bounds an nmap -p spec to digits, commas and ranges, so a port set
@@ -194,12 +193,15 @@ func BuildArgs(profile Profile, outPath string, targets []string) ([]string, err
 type Worker struct {
 	Binary  string
 	Profile Profile
+	// Timeout is an optional per-invocation override, primarily for tests and
+	// operators that deliberately want a stricter bound. Zero inherits the
+	// signed, whole-job deadline installed by the agent.
 	Timeout time.Duration
 }
 
 // NewWorker returns a Worker with the safe discovery profile.
 func NewWorker() *Worker {
-	return &Worker{Binary: defaultBinary, Profile: SafeDiscoveryProfile(), Timeout: defaultTimeout}
+	return &Worker{Binary: defaultBinary, Profile: SafeDiscoveryProfile()}
 }
 
 func (w *Worker) binary() string {
@@ -209,11 +211,11 @@ func (w *Worker) binary() string {
 	return defaultBinary
 }
 
-func (w *Worker) timeout() time.Duration {
+func (w *Worker) runContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	if w.Timeout > 0 {
-		return w.Timeout
+		return context.WithTimeout(ctx, w.Timeout)
 	}
-	return defaultTimeout
+	return context.WithCancel(ctx)
 }
 
 // Stage is the workflow stage this scanner implements.
@@ -235,12 +237,12 @@ func (w *Worker) Run(ctx context.Context, job *policy.Job) ([]byte, error) {
 	_ = outFile.Close()
 	defer func() { _ = os.Remove(outPath) }()
 
-	profile, timeout := w.planRun(job)
+	profile := w.planRun(job)
 	args, err := BuildArgs(profile, outPath, job.Targets)
 	if err != nil {
 		return nil, err
 	}
-	runCtx, cancel := context.WithTimeout(ctx, timeout)
+	runCtx, cancel := w.runContext(ctx)
 	defer cancel()
 	cmd := processutil.CommandContext(runCtx, w.binary(), args...)
 	var stderr bytes.Buffer
@@ -265,11 +267,11 @@ func (w *Worker) Run(ctx context.Context, job *policy.Job) ([]byte, error) {
 	return xml, nil
 }
 
-// planRun derives the effective profile (with the job's packet-rate limit and a
-// floor at half the ceiling) and the run timeout. The signed job duration is an
-// upper bound for the complete workflow, not permission for one Nmap chunk to
-// consume the entire job, so the smaller scanner timeout always wins.
-func (w *Worker) planRun(job *policy.Job) (Profile, time.Duration) {
+// planRun derives the effective profile with the job's packet-rate limit and a
+// floor at half the ceiling. Runtime is governed by the signed, whole-job
+// context created by the agent; applying another fixed deadline here would
+// incorrectly fail slow but healthy target groups.
+func (w *Worker) planRun(job *policy.Job) Profile {
 	profile := w.Profile
 	if job.Limits.MaxPacketsPerSecond > 0 {
 		profile.MaxRate = job.Limits.MaxPacketsPerSecond
@@ -277,13 +279,7 @@ func (w *Worker) planRun(job *policy.Job) (Profile, time.Duration) {
 		// drops to a crawl on dead space, while the ceiling still bounds the load.
 		profile.MinRate = profile.MaxRate / 2
 	}
-	timeout := w.timeout()
-	if secs := job.Limits.MaxDurationSeconds; secs > 0 {
-		if policyLimit := time.Duration(secs) * time.Second; policyLimit < timeout {
-			timeout = policyLimit
-		}
-	}
-	return profile, timeout
+	return profile
 }
 
 // streamFlushInterval is how often Stream harvests newly-completed hosts from
@@ -314,12 +310,12 @@ func (w *Worker) Stream(
 	_ = outFile.Close()
 	defer func() { _ = os.Remove(outPath) }()
 
-	profile, timeout := w.planRun(job)
+	profile := w.planRun(job)
 	args, err := BuildArgs(profile, outPath, job.Targets)
 	if err != nil {
 		return err
 	}
-	runCtx, cancel := context.WithTimeout(ctx, timeout)
+	runCtx, cancel := w.runContext(ctx)
 	defer cancel()
 	cmd := processutil.CommandContext(runCtx, w.binary(), args...)
 	var stderr bytes.Buffer

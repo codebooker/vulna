@@ -4,6 +4,7 @@ import (
 	"context"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/codebooker/vulna/scout/internal/policy"
 )
@@ -20,6 +21,22 @@ func TestStageAndName(t *testing.T) {
 	w := NewWorker()
 	if w.Stage() != "web" || w.Name() != "zap" {
 		t.Errorf("unexpected stage/name %s/%s", w.Stage(), w.Name())
+	}
+}
+
+func TestNewWorkerDoesNotImposeInvocationDeadline(t *testing.T) {
+	w := NewWorker()
+	runCtx, cancel := w.runContext(context.Background())
+	defer cancel()
+	if deadline, ok := runCtx.Deadline(); ok {
+		t.Fatalf("default ZAP worker imposed a hidden invocation deadline: %s", deadline)
+	}
+
+	w.Timeout = 50 * time.Millisecond
+	runCtx, cancel = w.runContext(context.Background())
+	defer cancel()
+	if _, ok := runCtx.Deadline(); !ok {
+		t.Fatal("explicit ZAP timeout override was not applied")
 	}
 }
 

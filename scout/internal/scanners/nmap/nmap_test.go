@@ -144,17 +144,28 @@ func TestBuildArgsRejectsInvalidHostTimeout(t *testing.T) {
 	}
 }
 
-func TestPlanRunTreatsPolicyDurationAsCeiling(t *testing.T) {
-	w := &Worker{Profile: SafeDiscoveryProfile(), Timeout: 2 * time.Minute}
-	job := &policy.Job{Limits: policy.Limits{MaxDurationSeconds: 60 * 60}}
-	_, timeout := w.planRun(job)
-	if timeout != 2*time.Minute {
-		t.Fatalf("a broad workflow limit expanded one Nmap chunk to %s", timeout)
+func TestNewWorkerInheritsWholeJobDeadline(t *testing.T) {
+	w := NewWorker()
+	runCtx, cancel := w.runContext(context.Background())
+	defer cancel()
+	if deadline, ok := runCtx.Deadline(); ok {
+		t.Fatalf("default Nmap worker imposed a hidden invocation deadline: %s", deadline)
 	}
-	job.Limits.MaxDurationSeconds = 30
-	_, timeout = w.planRun(job)
-	if timeout != 30*time.Second {
-		t.Fatalf("a stricter signed limit was not enforced: %s", timeout)
+
+	w.Timeout = 50 * time.Millisecond
+	runCtx, cancel = w.runContext(context.Background())
+	defer cancel()
+	if _, ok := runCtx.Deadline(); !ok {
+		t.Fatal("explicit Nmap timeout override was not applied")
+	}
+}
+
+func TestPlanRunAppliesSignedPacketRate(t *testing.T) {
+	w := &Worker{Profile: SafeDiscoveryProfile()}
+	job := &policy.Job{Limits: policy.Limits{MaxPacketsPerSecond: 800}}
+	profile := w.planRun(job)
+	if profile.MaxRate != 800 || profile.MinRate != 400 {
+		t.Fatalf("signed packet rate not applied: max=%d min=%d", profile.MaxRate, profile.MinRate)
 	}
 }
 
