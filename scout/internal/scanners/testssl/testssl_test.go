@@ -3,9 +3,13 @@ package testssl
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -134,6 +138,19 @@ func TestRunFailsWhenTestsslExitsWithoutResults(t *testing.T) {
 	}
 }
 
+func TestRunFailsWhenTestsslExitsZeroWithoutResults(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "testssl.sh")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	w := &Worker{Binary: path, Port: 443}
+	job := &policy.Job{JobID: "j1", Targets: []string{"10.20.0.5"}}
+	if out, err := w.Run(context.Background(), job); err == nil {
+		t.Fatalf("empty testssl execution was reported clean: %s", out)
+	}
+}
+
 func TestRunFailsWhenTestsslWritesMalformedJSON(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "testssl.sh")
@@ -150,13 +167,35 @@ func TestRunFailsWhenTestsslWritesMalformedJSON(t *testing.T) {
 	}
 }
 
-func TestRunRetainsValidPartialJSONWhenTestsslExitsNonzero(t *testing.T) {
+func TestRunAcceptsValidJSONWhenTestsslReturnsAggregateCode(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "testssl.sh")
 	script := "#!/bin/sh\n" +
 		"while [ \"$1\" != \"--jsonfile\" ]; do shift; done\n" +
 		"printf '[{\"id\":\"partial\"}]\\n' > \"$2\"\n" +
-		"exit 2\n"
+		"exit 8\n"
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	w := &Worker{Binary: path, Port: 443}
+	job := &policy.Job{JobID: "j1", Targets: []string{"10.20.0.5"}}
+	out, err := w.Run(context.Background(), job)
+	if err != nil {
+		t.Fatalf("valid JSON plus aggregate testssl status should succeed: %v", err)
+	}
+	var records []map[string]string
+	if json.Unmarshal(out, &records) != nil || len(records) != 1 || records[0]["id"] != "partial" {
+		t.Fatalf("valid partial evidence was lost: %s", out)
+	}
+}
+
+func TestRunRejectsReservedFatalCodeEvenWithJSON(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "testssl.sh")
+	script := "#!/bin/sh\n" +
+		"while [ \"$1\" != \"--jsonfile\" ]; do shift; done\n" +
+		"printf '[{\"id\":\"scanProblem\",\"severity\":\"FATAL\",\"finding\":\"cannot connect\"}]\\n' > \"$2\"\n" +
+		"exit 246\n"
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -164,10 +203,9 @@ func TestRunRetainsValidPartialJSONWhenTestsslExitsNonzero(t *testing.T) {
 	job := &policy.Job{JobID: "j1", Targets: []string{"10.20.0.5"}}
 	out, err := w.Run(context.Background(), job)
 	if err == nil {
-		t.Fatal("nonzero testssl execution was reported clean")
+		t.Fatal("testssl connectivity failure was reported clean when no endpoint succeeded")
 	}
-	var records []map[string]string
-	if json.Unmarshal(out, &records) != nil || len(records) != 1 || records[0]["id"] != "partial" {
+	if !strings.Contains(string(out), `"id":"scanProblem"`) {
 		t.Fatalf("valid partial evidence was lost: %s", out)
 	}
 }
@@ -185,6 +223,31 @@ func TestRunFailsOnPerEndpointTimeout(t *testing.T) {
 	}
 }
 
+func TestRunHonorsParentJobCancellationWithConcurrentEndpoints(t *testing.T) {
+	w := &Worker{
+		Port: 443,
+		scanEndpoint: func(ctx context.Context, _ string) ([]byte, error) {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		},
+	}
+	job := &policy.Job{
+		JobID:   "cancelled",
+		Targets: []string{"10.0.0.1:443", "10.0.0.2:443"},
+		Limits:  policy.Limits{MaxParallelHosts: 2},
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	_, err := w.Run(ctx, job)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Run error = %v, want parent deadline", err)
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("parent cancellation took too long: %v", elapsed)
+	}
+}
+
 func TestStageAndName(t *testing.T) {
 	w := NewWorker()
 	if w.Stage() != "tls" || w.Name() != "testssl" {
@@ -199,10 +262,132 @@ func TestTargetsForReturnsTLSEndpoints(t *testing.T) {
 		{IP: "10.0.0.1", Port: 80, Transport: "tcp", Service: "http", HTTP: true}, // not TLS -> excluded
 		{IP: "10.0.0.2", Port: 8443, Transport: "tcp", Service: "https", TLS: true},
 		{IP: "10.0.0.3", Port: 443, Transport: "udp", TLS: true}, // udp -> excluded
+		{IP: "10.0.0.4", Port: 3389, Transport: "tcp", Service: "ms-wbt-server", TLS: true},
+		{IP: "10.0.0.5", Port: 22, Transport: "tcp", Service: "ssh", TLS: true},
+		{IP: "10.0.0.6", Port: 5900, Transport: "tcp", Service: "vnc", TLS: true},
+		{IP: "10.0.0.7", Port: 25, Transport: "tcp", Service: "smtp-starttls", TLS: true},
 	}
 	got := w.TargetsFor(eps)
 	want := []string{"10.0.0.1:443", "10.0.0.2:8443"}
 	if !slices.Equal(got, want) {
 		t.Errorf("TargetsFor = %v, want %v (only TCP TLS endpoints)", got, want)
+	}
+}
+
+func TestRunUsesSignedParallelLimitAndKeepsTargetOrder(t *testing.T) {
+	var active int32
+	var maximum int32
+	w := &Worker{
+		Port: 443,
+		scanEndpoint: func(_ context.Context, endpoint string) ([]byte, error) {
+			current := atomic.AddInt32(&active, 1)
+			for {
+				seen := atomic.LoadInt32(&maximum)
+				if current <= seen || atomic.CompareAndSwapInt32(&maximum, seen, current) {
+					break
+				}
+			}
+			time.Sleep(20 * time.Millisecond)
+			atomic.AddInt32(&active, -1)
+			return []byte(fmt.Sprintf(`[{"target":%q}]`, endpoint)), nil
+		},
+	}
+	job := &policy.Job{
+		JobID: "parallel",
+		Targets: []string{
+			"10.0.0.1:443", "10.0.0.2:443", "10.0.0.3:443", "10.0.0.4:443",
+		},
+		Limits: policy.Limits{MaxParallelHosts: 2},
+	}
+	out, err := w.Run(context.Background(), job)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if maximum != 2 {
+		t.Fatalf("maximum parallel scans = %d, want signed limit 2", maximum)
+	}
+	var records []map[string]string
+	if err := json.Unmarshal(out, &records); err != nil {
+		t.Fatal(err)
+	}
+	for i, record := range records {
+		if want := fmt.Sprintf("10.0.0.%d:443", i+1); record["target"] != want {
+			t.Fatalf("result %d target = %q, want %q", i, record["target"], want)
+		}
+	}
+}
+
+func TestRunToleratesRecoverableFailureWhenAnotherEndpointSucceeds(t *testing.T) {
+	w := &Worker{
+		Port: 443,
+		scanEndpoint: func(_ context.Context, endpoint string) ([]byte, error) {
+			if endpoint == "10.0.0.2:443" {
+				return nil, &endpointScanError{
+					err: errors.New("exit status 246"), recoverable: true,
+				}
+			}
+			return []byte(`[{"id":"usable"}]`), nil
+		},
+	}
+	job := &policy.Job{
+		JobID:   "partial",
+		Targets: []string{"10.0.0.1:443", "10.0.0.2:443"},
+		Limits:  policy.Limits{MaxParallelHosts: 2},
+	}
+	out, err := w.Run(context.Background(), job)
+	if err != nil {
+		t.Fatalf("one stale endpoint should not fail useful TLS results: %v", err)
+	}
+	if string(out) != `[{"id":"usable"}]` {
+		t.Fatalf("merged output = %s", out)
+	}
+}
+
+func TestRunHardFailureStillFailsAlongsideSuccessfulEndpoint(t *testing.T) {
+	w := &Worker{
+		Port: 443,
+		scanEndpoint: func(_ context.Context, endpoint string) ([]byte, error) {
+			if endpoint == "10.0.0.2:443" {
+				return nil, &endpointScanError{
+					err: errors.New("invalid testssl JSON"), recoverable: false,
+				}
+			}
+			return []byte(`[{"id":"usable"}]`), nil
+		},
+	}
+	job := &policy.Job{
+		JobID:   "hard-failure",
+		Targets: []string{"10.0.0.1:443", "10.0.0.2:443"},
+		Limits:  policy.Limits{MaxParallelHosts: 2},
+	}
+	if _, err := w.Run(context.Background(), job); err == nil {
+		t.Fatal("hard scanner corruption was tolerated")
+	}
+}
+
+func TestRunBoundsEndpointFailureDiagnostics(t *testing.T) {
+	w := &Worker{
+		Port: 443,
+		scanEndpoint: func(_ context.Context, _ string) ([]byte, error) {
+			return nil, &endpointScanError{
+				err: errors.New("exit status 246"), recoverable: true,
+			}
+		},
+	}
+	job := &policy.Job{JobID: "bounded", Limits: policy.Limits{MaxParallelHosts: 3}}
+	for i := 1; i <= 7; i++ {
+		job.Targets = append(job.Targets, fmt.Sprintf("10.0.0.%d:443", i))
+	}
+	_, err := w.Run(context.Background(), job)
+	if err == nil {
+		t.Fatal("all-endpoint failure was reported clean")
+	}
+	message := err.Error()
+	if !strings.Contains(message, "failed on 7 of 7 endpoint(s)") ||
+		!strings.Contains(message, "plus 2 more") {
+		t.Fatalf("unexpected bounded diagnostic: %s", message)
+	}
+	if strings.Contains(message, "10.0.0.6:443") {
+		t.Fatalf("diagnostic included more than %d samples: %s", maxDiagnosticSamples, message)
 	}
 }
