@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.context import get_request_context
 from app.core.config import Settings, get_settings
-from app.db.session import get_session
+from app.db.session import get_session, set_tenant_context
 from app.models.enums import (
     AccountStatus,
     ActorType,
@@ -159,6 +159,7 @@ async def get_scim_context(
     )
     request.state.scim_context = scim_context
     request.state.scim_bind = session.bind
+    await set_tenant_context(session, token.organization_id)
     token.last_used_at = now
     token.last_used_ip = context.source_ip
 
@@ -287,6 +288,7 @@ async def log_failed_request(request: Request, error: ScimError) -> None:
     if len(parts) >= 3 and parts[2] in {"Users", "Groups"}:
         resource_type = parts[2][:-1]
     async with AsyncSession(bind=bind, expire_on_commit=False) as session:
+        await set_tenant_context(session, context.organization_id)
         log_provisioning(
             session,
             context=context,

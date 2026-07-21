@@ -21,6 +21,20 @@ jobs:
   test:
     name: backend
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17@sha256:0af65001d05296a2ead57ac4a6412433d8913d1bb5d0c88435a7d1e1ee5cb04b
+        env:
+          POSTGRES_DB: vulna_rls_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres-test-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d vulna_rls_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -46,6 +60,15 @@ jobs:
         run: |
           alembic upgrade head
           alembic check
+
+      - name: PostgreSQL tenant RLS
+        env:
+          VULNA_DATABASE_URL: postgresql+asyncpg://postgres:postgres-test-password@127.0.0.1:5432/vulna_rls_test
+          VULNA_POSTGRES_RLS_TEST_URL: postgresql://postgres:postgres-test-password@127.0.0.1:5432/vulna_rls_test
+        run: |
+          alembic upgrade head
+          alembic check
+          pytest tests/test_postgres_rls.py
 
       - name: Pytest
         run: pytest

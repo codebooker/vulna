@@ -1,5 +1,16 @@
 # Migration notes
 
+## PostgreSQL row-level tenant isolation
+
+- The application now enters a restricted `vulna_runtime` role for every ORM
+  transaction and binds protected data access to one organization after user,
+  token, SCIM, or Scout authentication.
+- High-value tenant tables use PostgreSQL RLS. Missing tenant context fails
+  closed; cross-tenant writes are rejected by the database.
+- The migration creates two `NOLOGIN` roles and therefore requires `CREATEROLE`
+  or equivalent managed-database administration. The supported Compose database
+  owner already has this capability. See [tenant isolation](tenant-isolation.md).
+
 ## Audit integrity and complete Rules-of-Engagement grants
 
 - New audit events are HMAC-authenticated and linked in a serialized,
