@@ -24,8 +24,7 @@ import (
 )
 
 const (
-	defaultBinary  = "nuclei"
-	defaultTimeout = 30 * time.Minute
+	defaultBinary = "nuclei"
 	// templatesEnv points nuclei at a bundled templates directory. The scanner
 	// image sets it so offline, out-of-the-box vulnerability scans have templates
 	// to match against (without it, and with update checks disabled, nuclei loads
@@ -68,7 +67,9 @@ func BuildArgs(outPath, targetFile, templatesDir string, severities []string) []
 
 // Worker runs Nuclei scans. It satisfies scanners.Scanner.
 type Worker struct {
-	Binary       string
+	Binary string
+	// Timeout is an optional per-invocation override. Zero inherits the signed,
+	// whole-job deadline installed by the agent.
 	Timeout      time.Duration
 	Severities   []string
 	TemplatesDir string
@@ -80,7 +81,6 @@ type Worker struct {
 func NewWorker() *Worker {
 	return &Worker{
 		Binary:       defaultBinary,
-		Timeout:      defaultTimeout,
 		Severities:   safeSeverities,
 		TemplatesDir: os.Getenv(templatesEnv),
 	}
@@ -141,11 +141,11 @@ func (w *Worker) binary() string {
 	return defaultBinary
 }
 
-func (w *Worker) timeout() time.Duration {
+func (w *Worker) runContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	if w.Timeout > 0 {
-		return w.Timeout
+		return context.WithTimeout(ctx, w.Timeout)
 	}
-	return defaultTimeout
+	return context.WithCancel(ctx)
 }
 
 // Run scans the job's targets with nuclei and returns the raw JSONL. Empty
@@ -180,16 +180,9 @@ func (w *Worker) Run(ctx context.Context, job *policy.Job) ([]byte, error) {
 	defer func() { _ = os.Remove(outPath) }()
 
 	args := BuildArgs(outPath, targetPath, w.TemplatesDir, w.Severities)
-	// The policy duration bounds the complete workflow. Keep the normal per-chunk
-	// scanner timeout unless the signed policy is stricter, otherwise one Nuclei
-	// invocation can consume the entire large-scan budget.
-	timeout := w.timeout()
-	if secs := job.Limits.MaxDurationSeconds; secs > 0 {
-		if policyLimit := time.Duration(secs) * time.Second; policyLimit < timeout {
-			timeout = policyLimit
-		}
-	}
-	runCtx, cancel := context.WithTimeout(ctx, timeout)
+	// The agent's parent context carries the signed authorization expiry and the
+	// whole-job max duration. Do not reset either limit for every target chunk.
+	runCtx, cancel := w.runContext(ctx)
 	defer cancel()
 	cmd := processutil.CommandContext(runCtx, w.binary(), args...)
 	var stderr bytes.Buffer

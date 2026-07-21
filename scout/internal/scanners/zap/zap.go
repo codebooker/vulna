@@ -17,7 +17,6 @@ import (
 
 const (
 	defaultBinary  = "zap.sh"
-	defaultTimeout = 30 * time.Minute
 	reportBaseName = "zap-report"
 	// Conservative defaults applied when the job config omits a limit.
 	defaultMaxDepth     = 5
@@ -37,13 +36,15 @@ var safeExcludeURLs = []string{
 
 // Worker runs OWASP ZAP web assessments. It satisfies scanners.Scanner.
 type Worker struct {
-	Binary  string
+	Binary string
+	// Timeout is an optional per-invocation override. Zero inherits the signed,
+	// whole-job deadline installed by the agent.
 	Timeout time.Duration
 }
 
 // NewWorker returns a Worker with defaults.
 func NewWorker() *Worker {
-	return &Worker{Binary: defaultBinary, Timeout: defaultTimeout}
+	return &Worker{Binary: defaultBinary}
 }
 
 func (w *Worker) Stage() string { return "web" }
@@ -56,11 +57,11 @@ func (w *Worker) binary() string {
 	return defaultBinary
 }
 
-func (w *Worker) timeout() time.Duration {
+func (w *Worker) runContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	if w.Timeout > 0 {
-		return w.Timeout
+		return context.WithTimeout(ctx, w.Timeout)
 	}
-	return defaultTimeout
+	return context.WithCancel(ctx)
 }
 
 // BuildArgs returns the allowlisted ZAP arguments to run an automation plan.
@@ -96,7 +97,9 @@ func (w *Worker) Run(ctx context.Context, job *policy.Job) ([]byte, error) {
 		return nil, fmt.Errorf("write plan: %w", err)
 	}
 
-	runCtx, cancel := context.WithTimeout(ctx, w.timeout())
+	// The agent's parent context carries the signed authorization expiry and the
+	// whole-job max duration. Do not impose a hidden per-invocation deadline.
+	runCtx, cancel := w.runContext(ctx)
 	defer cancel()
 	cmd := processutil.CommandContext(runCtx, w.binary(), BuildArgs(planPath)...)
 	var stderr bytes.Buffer
@@ -107,6 +110,12 @@ func (w *Worker) Run(ctx context.Context, job *policy.Job) ([]byte, error) {
 	}
 
 	data, _ := os.ReadFile(filepath.Join(dir, reportBaseName+".json"))
+	if runCtx.Err() != nil {
+		return data, runCtx.Err()
+	}
+	if runErr != nil {
+		return data, fmt.Errorf("zap failed: %v: %s", runErr, strings.TrimSpace(stderr.String()))
+	}
 	if len(data) == 0 {
 		return nil, fmt.Errorf(
 			"zap produced no report: %v: %s", runErr, strings.TrimSpace(stderr.String()),
