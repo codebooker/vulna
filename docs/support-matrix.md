@@ -58,7 +58,7 @@ Current Firefox (+ESR), Chrome/Chromium, Safari, and Edge.
 | nmap | 7.80 |
 | Nuclei | 3.0 |
 | testssl.sh | 3.0 |
-| OWASP ZAP | 2.14 |
+| OWASP ZAP | 2.17 |
 
 ## Release channels
 

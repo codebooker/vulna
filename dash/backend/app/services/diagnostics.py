@@ -94,7 +94,7 @@ async def run_diagnostics(
                 "scanner_capabilities", WARN,
                 f"scanner capabilities: {health.scanner_capabilities}",
                 "some scan stages will be skipped", SAFE,
-                "install the standard scanner pack (nmap, nuclei, testssl.sh)",
+                "install the standard scanner pack (nmap, nuclei, testssl.sh, OWASP ZAP)",
                 "docs/updates.md",
             )
         )

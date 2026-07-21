@@ -316,7 +316,7 @@ func serverTimeSkew(serverURL string, cfg config.Config) (float64, bool, error) 
 
 // missingScanners returns the standard-pack scanners that are not on PATH.
 func missingScanners() []string {
-	standard := map[string]bool{"nmap": true, "nuclei": true, "testssl": true}
+	standard := map[string]bool{"nmap": true, "nuclei": true, "testssl": true, "zap": true}
 	var missing []string
 	for _, c := range selftest.Run() {
 		name := strings.TrimPrefix(c.Name, "scanner:")

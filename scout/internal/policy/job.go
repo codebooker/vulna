@@ -43,6 +43,11 @@ type Job struct {
 	Limits             Limits              `json:"limits"`
 	CredentialEnvelope *CredentialEnvelope `json:"credential_envelope,omitempty"`
 	Credentials        []Credential        `json:"-"`
+	// ScopeTargets is populated only in memory by the workflow runner before a
+	// service-aware adapter replaces Targets with discovered endpoints. It retains
+	// the original, signed and policy-verified IP/CIDR scope for adapters such as
+	// ZAP to re-check derived URLs immediately before execution.
+	ScopeTargets []string `json:"-"`
 }
 
 // CredentialEnvelope is signed with the job but encrypted to one Scout's
@@ -159,8 +164,10 @@ func VerifyJob(raw []byte, pub ed25519.PublicKey, p *Policy, now time.Time) (*Jo
 	if err := enforceLimits(job.Limits, p.Limits); err != nil {
 		return nil, err
 	}
-	// Every workflow stage's plugin must be permitted by the local policy.
-	if err := p.AllowsPlugins(job.Workflow); err != nil {
+	// Every workflow stage and its safety profile must be permitted by the local
+	// policy. In particular, the presence of the ZAP binary/plugin does not grant
+	// permission to use its limited-active profile.
+	if err := p.AllowsWorkflow(job.Workflow); err != nil {
 		return nil, err
 	}
 	if job.CredentialEnvelope != nil && !p.CredentialedScansAllowed {

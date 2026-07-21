@@ -92,6 +92,28 @@ func TestAllowsMode(t *testing.T) {
 	}
 }
 
+func TestAllowsWorkflowGatesActiveZAPSeparatelyFromPassive(t *testing.T) {
+	passive := []map[string]any{{
+		"stage": "web", "plugin": "zap",
+		"config": map[string]any{"profile": "passive_baseline"},
+	}}
+	active := []map[string]any{{
+		"stage": "web", "plugin": "zap",
+		"config": map[string]any{"profile": "limited_active"},
+	}}
+	p := &Policy{AllowedPlugins: []string{"zap"}}
+	if err := p.AllowsWorkflow(passive); err != nil {
+		t.Fatalf("passive ZAP should be allowed by the standard plugin policy: %v", err)
+	}
+	if err := p.AllowsWorkflow(active); err == nil {
+		t.Fatal("active ZAP must fail closed without the signed active-web opt-in")
+	}
+	p.ActiveWebScansAllowed = true
+	if err := p.AllowsWorkflow(active); err != nil {
+		t.Fatalf("active ZAP should be allowed after signed opt-in: %v", err)
+	}
+}
+
 func TestGoNativeSignRoundTrip(t *testing.T) {
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {

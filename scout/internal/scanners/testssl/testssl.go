@@ -11,12 +11,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/codebooker/vulna/scout/internal/discovery"
@@ -30,6 +33,7 @@ const (
 	defaultPort           = 443
 	connectTimeoutSeconds = 5
 	opensslTimeoutSeconds = 15
+	maxDiagnosticSamples  = 5
 )
 
 // BuildArgs builds allowlisted testssl.sh arguments for one host:port, writing
@@ -88,6 +92,9 @@ type Worker struct {
 	Binary  string
 	Timeout time.Duration
 	Port    int
+	// scanEndpoint is a test seam for exercising concurrency and aggregation
+	// without launching real testssl.sh processes.
+	scanEndpoint func(context.Context, string) ([]byte, error)
 }
 
 // NewWorker returns a Worker with defaults (port 443).
@@ -106,7 +113,7 @@ func (w *Worker) TargetsFor(endpoints []discovery.Endpoint) []string {
 	seen := map[string]bool{}
 	var out []string
 	for _, e := range endpoints {
-		if !e.TLS || e.Transport != "tcp" {
+		if !supportsDirectTLS(e) {
 			continue
 		}
 		addr := e.Addr()
@@ -116,6 +123,27 @@ func (w *Worker) TargetsFor(endpoints []discovery.Endpoint) []string {
 		}
 	}
 	return out
+}
+
+// supportsDirectTLS rejects encrypted services whose TLS negotiation is not a
+// direct ClientHello on connect. testssl.sh can assess HTTPS and implicit TLS
+// services on arbitrary ports, but it cannot speak RDP, SSH, VNC, or an
+// application-specific STARTTLS preamble before beginning its TLS checks.
+func supportsDirectTLS(e discovery.Endpoint) bool {
+	if !e.TLS || e.Transport != "tcp" {
+		return false
+	}
+	name := strings.ToLower(strings.TrimSpace(e.Service))
+	for _, unsupported := range []string{
+		"ms-wbt-server", "rdp", "ssh", "vnc", "tcpwrapped", "starttls",
+	} {
+		if strings.Contains(name, unsupported) {
+			return false
+		}
+	}
+	// RDP always performs its own negotiation before TLS. Nmap can report the
+	// tunnel as ssl even when its service name is absent or ambiguous.
+	return e.Port != 3389
 }
 
 func (w *Worker) binary() string {
@@ -140,42 +168,151 @@ func (w *Worker) port() int {
 }
 
 // Run scans the TLS of every single-host endpoint in the job and returns the
-// merged JSON. Each discovered host:port (or bare IP on the configured port) is
-// scanned in turn — not just the first — so a scan of several hosts, or of
-// service-aware TLS endpoints, no longer silently checks only one of them. When
-// there are no single-host endpoints (e.g. only CIDR targets), it returns no
-// output. Any endpoint execution failure is retained and fails the stage after
-// the remaining endpoints are attempted; it must never be presented as a clean
-// TLS result.
+// merged JSON. Endpoint scans run concurrently up to the job's signed
+// max_parallel_hosts limit, while results are merged in target order for stable
+// ingestion. Recoverable endpoint drift (a service closing or timing out after
+// discovery) does not fail an otherwise useful stage; hard local/tool errors and
+// a run where every endpoint failed remain terminal.
 func (w *Worker) Run(ctx context.Context, job *policy.Job) ([]byte, error) {
 	endpoints := w.endpoints(job.Targets)
 	if len(endpoints) == 0 {
 		return nil, nil
 	}
 
-	var parts [][]byte
-	var scanErrors []error
-	for _, ep := range endpoints {
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-		data, err := w.scanOne(ctx, ep)
-		if len(data) > 0 {
-			parts = append(parts, data)
-		}
-		if err != nil {
-			if errors.Is(err, exec.ErrNotFound) {
-				return nil, fmt.Errorf("testssl.sh unavailable: %w", err)
+	type task struct {
+		index    int
+		endpoint string
+	}
+	type result struct {
+		index int
+		data  []byte
+		err   error
+	}
+	tasks := make(chan task)
+	results := make(chan result, len(endpoints))
+	parallel := job.Limits.MaxParallelHosts
+	if parallel <= 0 {
+		parallel = 1
+	}
+	if parallel > len(endpoints) {
+		parallel = len(endpoints)
+	}
+
+	var workers sync.WaitGroup
+	workers.Add(parallel)
+	for range parallel {
+		go func() {
+			defer workers.Done()
+			for item := range tasks {
+				if ctx.Err() != nil {
+					return
+				}
+				data, err := w.runEndpoint(ctx, item.endpoint)
+				results <- result{index: item.index, data: data, err: err}
 			}
-			scanErrors = append(scanErrors, fmt.Errorf("%s: %w", ep, err))
+		}()
+	}
+	go func() {
+		defer close(tasks)
+		for i, endpoint := range endpoints {
+			select {
+			case tasks <- task{index: i, endpoint: endpoint}:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	go func() {
+		workers.Wait()
+		close(results)
+	}()
+
+	ordered := make([]result, len(endpoints))
+	completed := make([]bool, len(endpoints))
+	for item := range results {
+		ordered[item.index] = item
+		completed[item.index] = true
+	}
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
+	var parts [][]byte
+	var failures []endpointFailure
+	succeeded := 0
+	hardFailure := false
+	for i, item := range ordered {
+		if !completed[i] {
 			continue
 		}
+		if len(item.data) > 0 {
+			parts = append(parts, item.data)
+		}
+		if item.err == nil {
+			succeeded++
+			continue
+		}
+		if errors.Is(item.err, exec.ErrNotFound) {
+			return nil, fmt.Errorf("testssl.sh unavailable: %w", item.err)
+		}
+		if !isRecoverableEndpointError(item.err) {
+			hardFailure = true
+		}
+		failures = append(failures, endpointFailure{endpoint: endpoints[i], err: item.err})
 	}
 	merged := mergeJSONArrays(parts)
-	if len(scanErrors) > 0 {
-		return merged, fmt.Errorf("testssl failed on %d endpoint(s): %w", len(scanErrors), errors.Join(scanErrors...))
+	if len(failures) == 0 {
+		return merged, nil
 	}
-	return merged, nil
+	failureSummary := summarizeEndpointFailures(failures, len(endpoints), succeeded)
+	if succeeded > 0 && !hardFailure {
+		// Preserve visibility without turning ordinary post-discovery endpoint
+		// drift into a failed assessment. The dashboard receives the successful
+		// evidence; operators can inspect the Scout log for this bounded summary.
+		log.Printf("testssl completed with recoverable endpoint errors: %v", failureSummary)
+		return merged, nil
+	}
+	return merged, failureSummary
+}
+
+type endpointFailure struct {
+	endpoint string
+	err      error
+}
+
+type endpointScanError struct {
+	err         error
+	recoverable bool
+}
+
+func (e *endpointScanError) Error() string { return e.err.Error() }
+func (e *endpointScanError) Unwrap() error { return e.err }
+
+func isRecoverableEndpointError(err error) bool {
+	var scanErr *endpointScanError
+	return errors.As(err, &scanErr) && scanErr.recoverable
+}
+
+func summarizeEndpointFailures(failures []endpointFailure, total, succeeded int) error {
+	samples := make([]string, 0, min(len(failures), maxDiagnosticSamples))
+	for _, failure := range failures[:min(len(failures), maxDiagnosticSamples)] {
+		samples = append(samples, fmt.Sprintf("%s: %v", failure.endpoint, failure.err))
+	}
+	remaining := ""
+	if omitted := len(failures) - len(samples); omitted > 0 {
+		remaining = fmt.Sprintf("; plus %d more", omitted)
+	}
+	return fmt.Errorf(
+		"testssl failed on %d of %d endpoint(s) (%d succeeded); samples: %s%s",
+		len(failures), total, succeeded, strings.Join(samples, "; "), remaining,
+	)
+}
+
+func (w *Worker) runEndpoint(ctx context.Context, hostPort string) ([]byte, error) {
+	if w.scanEndpoint != nil {
+		return w.scanEndpoint(ctx, hostPort)
+	}
+	return w.scanOne(ctx, hostPort)
 }
 
 // scanOne runs testssl.sh against a single host:port and returns its raw JSON.
@@ -201,25 +338,82 @@ func (w *Worker) scanOne(ctx context.Context, hostPort string) ([]byte, error) {
 		return nil, ctx.Err()
 	}
 	if runCtx.Err() != nil {
-		return nil, runCtx.Err()
+		return nil, &endpointScanError{err: runCtx.Err(), recoverable: true}
 	}
 	data, _ := os.ReadFile(outPath)
 	if len(data) == 0 {
-		// No JSON produced: propagate the run error (which may be exec.ErrNotFound)
-		// so Run can tell a missing binary from a host that simply has no TLS.
 		if runErr != nil {
-			return nil, runErr
+			return nil, classifyExecutionError(runErr)
 		}
-		return nil, nil
+		return nil, &endpointScanError{
+			err: fmt.Errorf("testssl produced no JSON output"), recoverable: false,
+		}
 	}
 	var records []json.RawMessage
 	if err := json.Unmarshal(data, &records); err != nil {
-		return nil, fmt.Errorf("invalid testssl JSON: %w", err)
+		return nil, &endpointScanError{
+			err: fmt.Errorf("invalid testssl JSON: %w", err), recoverable: false,
+		}
 	}
+	if len(records) == 0 {
+		return nil, &endpointScanError{
+			err: fmt.Errorf("testssl produced an empty JSON result"), recoverable: false,
+		}
+	}
+	fatalResult := testsslFatalResult(records)
 	if runErr != nil {
-		return data, runErr
+		// testssl.sh 3.0.x returns the sum of individual check return values.
+		// The numeric exit value can therefore collide with its reserved fatal
+		// codes. A well-formed report is usable unless testssl also emitted its
+		// explicit scanProblem/FATAL record.
+		if fatalResult == "" {
+			return data, nil
+		}
+		return data, classifyExecutionError(runErr)
+	}
+	if fatalResult != "" {
+		return data, &endpointScanError{
+			err:         fmt.Errorf("testssl reported a fatal scan problem: %s", fatalResult),
+			recoverable: true,
+		}
 	}
 	return data, nil
+}
+
+func testsslFatalResult(records []json.RawMessage) string {
+	for _, raw := range records {
+		var record struct {
+			ID       string `json:"id"`
+			Severity string `json:"severity"`
+			Finding  string `json:"finding"`
+		}
+		if json.Unmarshal(raw, &record) != nil ||
+			!strings.EqualFold(record.ID, "scanProblem") ||
+			!strings.EqualFold(record.Severity, "FATAL") {
+			continue
+		}
+		if finding := strings.TrimSpace(record.Finding); finding != "" {
+			return finding
+		}
+		return "unspecified fatal scanner error"
+	}
+	return ""
+}
+
+func classifyExecutionError(err error) error {
+	if errors.Is(err, exec.ErrNotFound) {
+		return err
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		code := exitErr.ExitCode()
+		// 246 is testssl.sh's documented connectivity error. Lower codes are
+		// aggregate per-check outcomes. Both describe one endpoint, not a broken
+		// scanner installation, and may be tolerated when other endpoints pass.
+		recoverable := code == 246 || (code > 0 && code < 242)
+		return &endpointScanError{err: err, recoverable: recoverable}
+	}
+	return &endpointScanError{err: err, recoverable: false}
 }
 
 // mergeJSONArrays concatenates the elements of several testssl.sh JSON arrays

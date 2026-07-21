@@ -3,7 +3,7 @@
 # Co-located "local Scout" image for the single-host Vulna deployment (Phase 17).
 #
 # It is the ordinary VulnaScout probe binary plus the standard scanner capability
-# pack (nmap + nuclei + testssl.sh) and an auto-enroll entrypoint. Build context
+# pack (nmap + nuclei + testssl.sh + passive ZAP) and an auto-enroll entrypoint. Build context
 # is the repository root so the Go sources under scout/ are available.
 #
 #   docker build -f deploy/single-host/local-scout.Dockerfile -t vulna-local-scout .
@@ -66,6 +66,18 @@ RUN set -eu; \
     echo "${TESTSSL_SHA256}  /tmp/testssl.tar.gz" | sha256sum -c -; \
     mkdir -p /opt/testssl; \
     tar -xzf /tmp/testssl.tar.gz -C /opt/testssl --strip-components=1
+# OWASP ZAP — pinned full release with GitHub's published artifact digest. It is
+# present by default so passive web analysis can follow Nmap discovery offline;
+# the signed Scout policy still independently gates the limited-active profile.
+ARG ZAP_VERSION=2.17.0
+ARG ZAP_SHA256=efe799aaa3627db683b43f00c9c210aea0b75c00cc8f0a0f0434d12bb3ddde5a
+RUN set -eu; \
+    curl -fsSL -o /tmp/zap.tar.gz \
+      "https://github.com/zaproxy/zaproxy/releases/download/v${ZAP_VERSION}/ZAP_${ZAP_VERSION}_Linux.tar.gz"; \
+    echo "${ZAP_SHA256}  /tmp/zap.tar.gz" | sha256sum -c -; \
+    mkdir -p /opt/zap; \
+    tar -xzf /tmp/zap.tar.gz -C /opt/zap --strip-components=1; \
+    test -x /opt/zap/zap.sh
 
 # Point nuclei's config at the bundled templates. nuclei resolves RELATIVE
 # template/workflow references and helper (wordlist) files against its config's
@@ -110,7 +122,7 @@ USER root
 RUN apk add --no-cache \
       nmap nmap-scripts \
       bash procps coreutils openssl bind-tools \
-      ca-certificates libcap \
+      ca-certificates libcap openjdk17-jre-headless \
  && addgroup -S vulna \
  && adduser -S -G vulna -u 10001 -h /var/lib/vulna vulna \
  # The Metasploit base grants file capabilities (e.g. cap_net_raw on the ruby
@@ -130,7 +142,9 @@ COPY --from=tools /opt/nuclei-templates /opt/nuclei-templates
 # the vulna user because nuclei writes a provider-config there on first run.
 COPY --from=tools --chown=vulna:vulna /opt/nuclei-config /opt/nuclei-config
 COPY --from=tools /opt/testssl /opt/testssl
-RUN ln -s /opt/testssl/testssl.sh /usr/local/bin/testssl.sh
+COPY --from=tools /opt/zap /opt/zap
+RUN ln -s /opt/testssl/testssl.sh /usr/local/bin/testssl.sh \
+ && ln -s /opt/zap/zap.sh /usr/local/bin/zap.sh
 COPY deploy/single-host/local-scout-entrypoint.sh /usr/local/bin/local-scout-entrypoint.sh
 RUN chmod +x /usr/local/bin/local-scout-entrypoint.sh
 

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/codebooker/vulna/scout/internal/discovery"
 	"github.com/codebooker/vulna/scout/internal/policy"
 	"github.com/codebooker/vulna/scout/internal/processutil"
 )
@@ -50,6 +51,25 @@ func NewWorker() *Worker {
 func (w *Worker) Stage() string { return "web" }
 func (w *Worker) Name() string  { return "zap" }
 
+// TargetsFor turns Nmap-discovered HTTP services into exact start URLs. The
+// workflow runner retains the job's original signed address scope separately, so
+// these runtime-derived URLs can be validated against it before ZAP launches.
+func (w *Worker) TargetsFor(endpoints []discovery.Endpoint) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, endpoint := range endpoints {
+		if !endpoint.HTTP || endpoint.Transport != "tcp" {
+			continue
+		}
+		target := endpoint.URL()
+		if !seen[target] {
+			seen[target] = true
+			out = append(out, target)
+		}
+	}
+	return out
+}
+
 func (w *Worker) binary() string {
 	if w.Binary != "" {
 		return w.Binary
@@ -77,7 +97,22 @@ func (w *Worker) Run(ctx context.Context, job *policy.Job) ([]byte, error) {
 	if cfg == nil {
 		return nil, nil
 	}
-	scope, err := scopeFromConfig(cfg, job.Targets)
+	if autoDiscover, _ := cfg["auto_discover"].(bool); autoDiscover {
+		startURLs := httpURLs(job.Targets)
+		if len(startURLs) == 0 {
+			// Discovery found no HTTP(S) service in this target chunk. That is a
+			// valid empty passive-web result, not a scanner failure and not a reason
+			// to hand ZAP a raw CIDR it cannot crawl.
+			return nil, nil
+		}
+		cfg = cloneConfig(cfg)
+		cfg["start_urls"] = startURLs
+	}
+	scopeTargets := job.ScopeTargets
+	if len(scopeTargets) == 0 {
+		scopeTargets = job.Targets
+	}
+	scope, err := scopeFromConfig(cfg, scopeTargets)
 	if err != nil {
 		return nil, err
 	}
@@ -122,6 +157,27 @@ func (w *Worker) Run(ctx context.Context, job *policy.Job) ([]byte, error) {
 		)
 	}
 	return data, nil
+}
+
+func cloneConfig(cfg map[string]any) map[string]any {
+	cloned := make(map[string]any, len(cfg)+1)
+	for key, value := range cfg {
+		cloned[key] = value
+	}
+	return cloned
+}
+
+// httpURLs keeps only the exact runtime-derived URL form accepted by the ZAP
+// adapter. A raw IP/CIDR fallback therefore produces an intentional no-op.
+func httpURLs(targets []string) []string {
+	var out []string
+	for _, target := range targets {
+		u, err := url.Parse(target)
+		if err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != "" {
+			out = append(out, target)
+		}
+	}
+	return out
 }
 
 // findStageConfig returns the config map of the first workflow stage whose plugin

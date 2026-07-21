@@ -88,13 +88,15 @@ loses identity, findings, reports, or Scout state. No component runs privileged.
 ### 6. Standard capability pack; heavy/intrusive off by default
 
 The single-host Scout image bundles the **standard safe pack** — Nmap, safe
-Nuclei checks, and testssl.sh TLS checks — plus **Metasploit** for controlled
-pentests. Metasploit's presence is not a privilege: the controlled-pentest worker
+Nuclei checks, testssl.sh TLS checks, and **OWASP ZAP** for automatic passive web
+analysis — plus **Metasploit** for controlled pentests. The presence of the
+active engines is not a privilege: controlled-pentest execution
 stays inert until authorized in VulnaDash (the per-scout pentest toggle in the
 signed policy, then per-session approval), and DoS/non-allowlisted modules are
 refused locally. Bundling it makes "enable pentest" one click and offline-capable
 instead of a runtime download, while approval — not the absence of a binary —
-remains the gate. Active ZAP profiles remain off by default. Missing capabilities
+remains the gate. Active ZAP additionally requires that signed Scout opt-in plus
+explicit approval for the scan. Missing capabilities
 degrade gracefully (a stage is skipped with an explanation), never a mysterious
 failure.
 

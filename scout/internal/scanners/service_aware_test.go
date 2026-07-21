@@ -17,6 +17,7 @@ type targetRecorder struct {
 	stage, name string
 	raw         []byte
 	gotTargets  *[]string
+	gotScope    *[]string
 	targetsFor  func([]discovery.Endpoint) []string
 }
 
@@ -25,6 +26,9 @@ func (s targetRecorder) Name() string  { return s.name }
 func (s targetRecorder) Run(_ context.Context, job *policy.Job) ([]byte, error) {
 	if s.gotTargets != nil {
 		*s.gotTargets = append([]string(nil), job.Targets...)
+	}
+	if s.gotScope != nil {
+		*s.gotScope = append([]string(nil), job.ScopeTargets...)
 	}
 	return s.raw, nil
 }
@@ -117,5 +121,35 @@ func TestRunWithProgressTargetsDiscoveredServices(t *testing.T) {
 	}
 	if want := []string{"10.0.0.1"}; !slices.Equal(vulnTargets, want) {
 		t.Errorf("non-streaming path also must target discovered services: got %v, want %v", vulnTargets, want)
+	}
+}
+
+func TestServiceAwareStageRetainsOriginalSignedScope(t *testing.T) {
+	var gotTargets, gotScope []string
+	disco := targetRecorder{stage: "discovery", name: "nmap", raw: []byte(twoServiceHostXML)}
+	web := targetRecorder{
+		stage: "web", name: "zap", gotTargets: &gotTargets, gotScope: &gotScope,
+		targetsFor: func(eps []discovery.Endpoint) []string {
+			var urls []string
+			for _, endpoint := range eps {
+				if endpoint.HTTP {
+					urls = append(urls, endpoint.URL())
+				}
+			}
+			return urls
+		},
+	}
+
+	wf := NewWorkflow(disco, web)
+	job := jobWith("nmap", "zap")
+	job.Targets = []string{"10.0.0.0/30"}
+	if _, err := wf.RunWithProgress(context.Background(), job, nil); err != nil {
+		t.Fatalf("RunWithProgress: %v", err)
+	}
+	if want := []string{"https://10.0.0.1:443", "http://10.0.0.1:80"}; !slices.Equal(gotTargets, want) {
+		t.Errorf("web targets = %v, want %v", gotTargets, want)
+	}
+	if !slices.Equal(gotScope, job.Targets) {
+		t.Errorf("web scope = %v, want original signed targets %v", gotScope, job.Targets)
 	}
 }

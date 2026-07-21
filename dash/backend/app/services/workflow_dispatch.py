@@ -31,7 +31,10 @@ from app.services.jobs import JobValidationError, create_scan_job
 _STAGE_JOB_MAP: dict[str, list[str]] = {
     "discovery": ["discovery"],
     "vulnerability_assessment": ["vulnerability"],
-    "web_and_tls": ["tls"],
+    # Re-run bounded discovery with the web/TLS stage so Scout can derive fresh,
+    # in-scope HTTP(S) start URLs for automatic passive ZAP. Workflow stages are
+    # separate jobs, so the earlier discovery job's in-memory endpoints are gone.
+    "web_and_tls": ["discovery", "tls", "web"],
 }
 
 

@@ -162,7 +162,7 @@ func checkScanners(d Deps) Result {
 	if len(missing) > 0 {
 		return Result{name, Warn, "missing: " + join(missing),
 			"Some scanners are not installed; those stages are skipped with an explanation. " +
-				"Install the standard pack (nmap, nuclei, testssl.sh) for full coverage."}
+				"Install the standard pack (nmap, nuclei, testssl.sh, OWASP ZAP) for full coverage."}
 	}
 	return Result{name, OK, "scanner pack present", ""}
 }
