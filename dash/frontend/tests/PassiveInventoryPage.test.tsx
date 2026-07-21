@@ -327,17 +327,14 @@ it('shows scoped analytics and keeps connector secrets one-way', async () => {
 
   fireEvent.change(screen.getByLabelText('Type'), { target: { value: 'unifi' } });
   fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'UniFi inventory' } });
-  fireEvent.change(screen.getByLabelText('UniFi Network API root'), {
-    target: { value: 'https://unifi.internal.test/proxy/network/integration' },
+  expect(screen.getByLabelText('Site Manager API endpoint')).toHaveValue(
+    'https://api.ui.com/v1/devices',
+  );
+  fireEvent.change(screen.getByLabelText('UniFi host IDs (optional)'), {
+    target: { value: 'host-01:region\nhost-02:region' },
   });
-  fireEvent.change(screen.getByLabelText('UniFi site ID'), {
-    target: { value: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' },
-  });
-  fireEvent.change(screen.getByLabelText('UniFi API key'), {
+  fireEvent.change(screen.getByLabelText('UniFi Site Manager API key'), {
     target: { value: 'unifi-api-key' },
-  });
-  fireEvent.change(screen.getByLabelText('Private UniFi controller'), {
-    target: { value: 'yes' },
   });
   fireEvent.click(screen.getByRole('button', { name: 'Save source' }));
   await waitFor(() => {
@@ -349,15 +346,12 @@ it('shows scoped analytics and keeps connector secrets one-way', async () => {
     const payload = JSON.parse(String(unifiCall?.[1]?.body)) as Record<string, unknown>;
     expect(payload).toMatchObject({
       connector_type: 'unifi',
-      base_url: 'https://unifi.internal.test/proxy/network/integration',
       secret: 'unifi-api-key',
       config: {
-        site_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-        allow_private: true,
-        include_devices: true,
-        include_clients: true,
+        host_ids: ['host-01:region', 'host-02:region'],
       },
     });
+    expect(payload).not.toHaveProperty('base_url');
   });
 
   fireEvent.change(screen.getByLabelText('Type'), { target: { value: 'vcenter' } });

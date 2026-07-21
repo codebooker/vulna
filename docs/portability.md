@@ -58,9 +58,9 @@ limits, public CA trust, and `has_secret`, but never the bind password or cipher
 Microsoft Entra connectors export only tenant/app UUIDs, the cloud selector, public
 limits, and `has_secret`; client secrets, temporary bearer tokens, pagination tokens,
 and ciphertext are never portable.
-UniFi connectors export only the public Integration API root, site UUID, resource
-selectors, bounds, private-network opt-in, and `has_secret`; API keys and ciphertext
-are never portable.
+UniFi connectors export only optional Site Manager host filters, bounds, and
+`has_secret`; API keys and ciphertext are never portable. The fixed Site Manager
+API endpoint is code, not portable configuration.
 VMware vCenter connectors export only the public HTTPS origin, username, resource
 selectors, limits, public CA trust, private-network opt-in, and `has_secret`;
 passwords, Basic credentials, ephemeral API sessions, and ciphertext are never

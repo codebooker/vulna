@@ -1,14 +1,13 @@
-"""Read-only UniFi Network device and connected-client inventory adapter."""
+"""Read-only UniFi Site Manager device inventory adapter."""
 
 from __future__ import annotations
 
 import ipaddress
 import re
-import uuid
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any, cast
-from urllib.parse import urlencode, urlsplit, urlunsplit
+from urllib.parse import urlencode
 
 from app.models.passive_inventory import InventoryConnector
 from app.services.passive_inventory import InventoryConnectorError, NormalizedObservation
@@ -16,29 +15,22 @@ from app.services.ticket_adapters.http import JsonResponse, TicketHttpError, req
 
 SendJson = Callable[..., Awaitable[JsonResponse]]
 
-_MAC_RE = re.compile(r"^(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$")
+_DEVICES_URL = "https://api.ui.com/v1/devices"
+_MAC_RE = re.compile(r"^(?:[0-9A-Fa-f]{12}|(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2})$")
 _HOST_LABEL_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
-_REMOTE_ROOT_RE = re.compile(
-    r"^/v1/connector/consoles/[A-Za-z0-9:_-]{1,255}/proxy/network/integration$"
-)
-_ALLOWED_CONFIG_FIELDS = frozenset(
-    {
-        "site_id",
-        "allow_private",
-        "include_devices",
-        "include_clients",
-        "page_size",
-        "timeout_seconds",
-        "record_limit",
-    }
-)
+_HOST_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,254}$")
+_DEVICE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+_ALLOWED_CONFIG_FIELDS = frozenset({"host_ids", "page_size", "timeout_seconds", "record_limit"})
+_MAX_HOST_IDS = 100
 _MAX_PAGE_SIZE = 200
 _MAX_RECORDS = 10_000
 _MAX_PAGES = 1_000
+_MAX_NEXT_TOKEN = 4_096
+_MAX_API_KEY = 4_096
 
 
 class UnifiInventoryAdapter:
-    """Collect two fixed official UniFi Network resources with GET requests only."""
+    """Collect the fixed Site Manager device resource with GET requests only."""
 
     def __init__(self, sender: SendJson = request_json) -> None:
         self._sender = sender
@@ -50,16 +42,18 @@ class UnifiInventoryAdapter:
         *,
         source_data: bytes | None,
     ) -> dict[str, Any]:
-        del source_data
-        observations, received, device_count, client_count = await self._read(
-            connector, secret, cursor={}
+        observations, received, hosts = await self._read(
+            connector,
+            secret,
+            cursor={},
+            source_data=source_data,
         )
         return {
             "records_received": received,
             "records_visible": len(observations),
-            "devices_received": device_count,
-            "connected_clients_received": client_count,
-            "resources": ["adopted devices", "connected clients"],
+            "devices_received": received,
+            "hosts_received": hosts,
+            "resource": "Site Manager devices",
             "read_only": True,
         }
 
@@ -71,8 +65,12 @@ class UnifiInventoryAdapter:
         cursor: dict[str, Any],
         source_data: bytes | None,
     ) -> tuple[list[NormalizedObservation], dict[str, Any]]:
-        del source_data
-        observations, _, _, _ = await self._read(connector, secret, cursor=cursor)
+        observations, _, _ = await self._read(
+            connector,
+            secret,
+            cursor=cursor,
+            source_data=source_data,
+        )
         return observations, {}
 
     async def _read(
@@ -81,247 +79,153 @@ class UnifiInventoryAdapter:
         secret: str | None,
         *,
         cursor: dict[str, Any],
-    ) -> tuple[list[NormalizedObservation], int, int, int]:
+        source_data: bytes | None,
+    ) -> tuple[list[NormalizedObservation], int, int]:
         if not isinstance(cursor, dict) or cursor:
             raise InventoryConnectorError("UniFi connector cursor must be empty")
-        if not connector.base_url:
-            raise InventoryConnectorError("UniFi connector requires a Network Integration API root")
-        api_root = _api_root(connector.base_url)
+        if source_data is not None:
+            raise InventoryConnectorError("UniFi connector does not accept source data")
+        if connector.base_url:
+            raise InventoryConnectorError(
+                "UniFi Site Manager uses the fixed https://api.ui.com endpoint and does not "
+                "accept a base URL"
+            )
         config = connector.config_json
         if not isinstance(config, dict) or set(config) - _ALLOWED_CONFIG_FIELDS:
             raise InventoryConnectorError("UniFi connector config contains unknown fields")
-        site_id = _uuid(config.get("site_id"), "site_id")
-        if not secret:
-            raise InventoryConnectorError("UniFi API key is required")
+        api_key = _api_key(secret)
+        host_ids = _host_ids(config.get("host_ids"))
         page_size = _bounded_int(config.get("page_size", 100), "page_size", 1, _MAX_PAGE_SIZE)
         timeout_seconds = _bounded_int(config.get("timeout_seconds", 15), "timeout_seconds", 1, 60)
         record_limit = _bounded_int(
             config.get("record_limit", _MAX_RECORDS), "record_limit", 1, _MAX_RECORDS
         )
-        allow_private = _boolean(config, "allow_private", default=False)
-        include_devices = _boolean(config, "include_devices", default=True)
-        include_clients = _boolean(config, "include_clients", default=True)
-        if not include_devices and not include_clients:
-            raise InventoryConnectorError("UniFi connector must include devices or clients")
-
-        devices: list[dict[str, Any]] = []
-        clients: list[dict[str, Any]] = []
-        if include_devices:
-            devices = await self._pages(
-                api_root,
-                site_id=site_id,
-                resource="devices",
-                api_key=secret,
-                page_size=page_size,
-                timeout_seconds=timeout_seconds,
-                allow_private=allow_private,
-                record_limit=record_limit,
-                already_received=0,
-            )
-        if include_clients:
-            clients = await self._pages(
-                api_root,
-                site_id=site_id,
-                resource="clients",
-                api_key=secret,
-                page_size=page_size,
-                timeout_seconds=timeout_seconds,
-                allow_private=allow_private,
-                record_limit=record_limit,
-                already_received=len(devices),
-            )
+        records, host_count = await self._pages(
+            api_key=api_key,
+            host_ids=host_ids,
+            page_size=page_size,
+            timeout_seconds=timeout_seconds,
+            record_limit=record_limit,
+        )
         observed_at = datetime.now(UTC)
         observations = [
-            *(
-                _device_observation(item, site_id=site_id, observed_at=observed_at)
-                for item in devices
-            ),
-            *(
-                observation
-                for item in clients
-                if (
-                    observation := _client_observation(
-                        item, site_id=site_id, observed_at=observed_at
-                    )
-                )
-                is not None
-            ),
+            _device_observation(
+                item,
+                host_id=host_id,
+                host_name=host_name,
+                host_updated_at=host_updated_at,
+                observed_at=observed_at,
+            )
+            for item, host_id, host_name, host_updated_at in records
         ]
         source_ids = [item.source_record_id for item in observations]
         if len(source_ids) != len(set(source_ids)):
-            raise InventoryConnectorError("UniFi pagination returned a duplicate source record")
-        return observations, len(devices) + len(clients), len(devices), len(clients)
+            raise InventoryConnectorError("UniFi Site Manager returned a duplicate device")
+        return observations, len(records), host_count
 
     async def _pages(
         self,
-        api_root: str,
         *,
-        site_id: str,
-        resource: str,
         api_key: str,
+        host_ids: list[str],
         page_size: int,
         timeout_seconds: int,
-        allow_private: bool,
         record_limit: int,
-        already_received: int,
-    ) -> list[dict[str, Any]]:
-        records: list[dict[str, Any]] = []
-        offset = 0
+    ) -> tuple[list[tuple[dict[str, Any], str, str | None, str | None]], int]:
+        records: list[tuple[dict[str, Any], str, str | None, str | None]] = []
+        next_token: str | None = None
+        seen_tokens: set[str] = set()
+        host_count = 0
         pages = 0
         while True:
             pages += 1
             if pages > _MAX_PAGES:
-                raise InventoryConnectorError("UniFi pagination exceeded its page limit")
-            query = urlencode({"offset": str(offset), "limit": str(page_size)})
-            url = f"{api_root}/v1/sites/{site_id}/{resource}?{query}"
+                raise InventoryConnectorError("UniFi Site Manager pagination exceeded its limit")
+            query: list[tuple[str, str]] = []
+            if host_ids:
+                query.append(("hostIds[]", ",".join(host_ids)))
+            query.append(("pageSize", str(page_size)))
+            if next_token is not None:
+                query.append(("nextToken", next_token))
+            url = f"{_DEVICES_URL}?{urlencode(query)}"
             try:
                 response = await self._sender(
                     "GET",
                     url,
                     headers={"Accept": "application/json", "X-API-Key": api_key},
                     timeout_seconds=timeout_seconds,
-                    allow_private=allow_private,
-                    user_agent="Vulna-UniFi-Inventory/1",
+                    allow_private=False,
+                    user_agent="Vulna-UniFi-Site-Manager-Inventory/1",
                 )
             except TicketHttpError as exc:
-                safe = str(exc).replace("ticket provider", "UniFi Network provider")
+                safe = str(exc).replace("ticket provider", "UniFi Site Manager provider")
                 safe = safe.replace("Ticket connector", "UniFi connector")
                 raise InventoryConnectorError(safe) from exc
-            page, total_count = _page(
-                response.data,
-                expected_offset=offset,
-                requested_limit=page_size,
-                resource=resource,
-            )
-            if already_received + total_count > record_limit:
-                raise InventoryConnectorError("UniFi collection exceeded the combined record limit")
-            if len(records) + len(page) > total_count:
-                raise InventoryConnectorError("UniFi pagination returned inconsistent totals")
-            records.extend(page)
-            next_offset = offset + len(page)
-            if next_offset >= total_count:
-                return records
-            if not page or next_offset <= offset:
-                raise InventoryConnectorError("UniFi pagination did not advance")
-            offset = next_offset
+            hosts, returned_token = _page(response.data, page_size=page_size)
+            host_count += len(hosts)
+            for host in hosts:
+                host_id, host_name, host_updated_at, devices = _host_devices(host)
+                if len(records) + len(devices) > record_limit:
+                    raise InventoryConnectorError(
+                        "UniFi Site Manager device read exceeded the record limit"
+                    )
+                records.extend((device, host_id, host_name, host_updated_at) for device in devices)
+            if returned_token is None:
+                return records, host_count
+            if returned_token in seen_tokens:
+                raise InventoryConnectorError(
+                    "UniFi Site Manager pagination repeated a continuation token"
+                )
+            seen_tokens.add(returned_token)
+            next_token = returned_token
 
 
-def _api_root(value: str) -> str:
-    parts = urlsplit(value)
-    path = parts.path.rstrip("/")
-    remote = _REMOTE_ROOT_RE.fullmatch(path) is not None
+def _page(value: Any, *, page_size: int) -> tuple[list[dict[str, Any]], str | None]:
     if (
-        parts.scheme != "https"
-        or not parts.hostname
-        or parts.username
-        or parts.password
-        or parts.query
-        or parts.fragment
-        or "%" in path
-        or "//" in path
-        or (path != "/proxy/network/integration" and not remote)
-        or (remote and parts.hostname.lower() != "api.ui.com")
+        not isinstance(value, dict)
+        or value.get("httpStatusCode") != 200
+        or not isinstance(value.get("data"), list)
     ):
-        raise InventoryConnectorError(
-            "UniFi API root must be an HTTPS local or cloud /proxy/network/integration URL"
-        )
-    try:
-        port = parts.port
-    except ValueError as exc:
-        raise InventoryConnectorError("UniFi API root contains an invalid port") from exc
-    netloc = parts.hostname
-    if ":" in netloc and not netloc.startswith("["):
-        netloc = f"[{netloc}]"
-    if port is not None:
-        netloc = f"{netloc}:{port}"
-    return urlunsplit(("https", netloc, path, "", ""))
-
-
-def _page(
-    value: Any,
-    *,
-    expected_offset: int,
-    requested_limit: int,
-    resource: str,
-) -> tuple[list[dict[str, Any]], int]:
-    if not isinstance(value, dict) or not isinstance(value.get("data"), list):
-        raise InventoryConnectorError(f"UniFi {resource} response is invalid")
-    offset = _response_int(value.get("offset"), "offset")
-    limit = _response_int(value.get("limit"), "limit")
-    count = _response_int(value.get("count"), "count")
-    total_count = _response_int(value.get("totalCount"), "totalCount")
+        raise InventoryConnectorError("UniFi Site Manager devices response is invalid")
     raw = value["data"]
-    if (
-        offset != expected_offset
-        or not 1 <= limit <= requested_limit
-        or count != len(raw)
-        or count > limit
-        or total_count < offset + count
-        or not all(isinstance(item, dict) for item in raw)
+    if len(raw) > page_size or not all(isinstance(item, dict) for item in raw):
+        raise InventoryConnectorError("UniFi Site Manager devices page is invalid")
+    token = value.get("nextToken")
+    if token is not None and (
+        not isinstance(token, str)
+        or not 1 <= len(token) <= _MAX_NEXT_TOKEN
+        or any(ord(char) < 32 or ord(char) == 127 for char in token)
     ):
-        raise InventoryConnectorError(f"UniFi {resource} pagination metadata is invalid")
-    return cast(list[dict[str, Any]], raw), total_count
+        raise InventoryConnectorError("UniFi Site Manager continuation token is invalid")
+    return cast(list[dict[str, Any]], raw), token
+
+
+def _host_devices(
+    value: dict[str, Any],
+) -> tuple[str, str | None, str | None, list[dict[str, Any]]]:
+    host_id = _provider_id(value.get("hostId"), "hostId", pattern=_HOST_ID_RE)
+    host_name = _optional_text(value.get("hostName"), "hostName", maximum=256)
+    host_updated_at = _optional_text(value.get("updatedAt"), "updatedAt", maximum=128)
+    devices = value.get("devices")
+    if not isinstance(devices, list) or not all(isinstance(item, dict) for item in devices):
+        raise InventoryConnectorError("UniFi Site Manager host devices must be a list")
+    return host_id, host_name, host_updated_at, cast(list[dict[str, Any]], devices)
 
 
 def _device_observation(
-    value: dict[str, Any], *, site_id: str, observed_at: datetime
+    value: dict[str, Any],
+    *,
+    host_id: str,
+    host_name: str | None,
+    host_updated_at: str | None,
+    observed_at: datetime,
 ) -> NormalizedObservation:
-    device_id = _uuid(value.get("id"), "device id")
-    mac = _mac(value.get("macAddress"), required=True)
-    address = _ip(value.get("ipAddress"), "device ipAddress")
+    device_id = _provider_id(value.get("id"), "device id", pattern=_DEVICE_ID_RE)
+    mac = _mac(value.get("mac"), required=False)
+    if mac is None and re.fullmatch(r"[0-9A-Fa-f]{12}", device_id):
+        mac = _mac(device_id, required=True)
+    address = _ip(value.get("ip"), "device ip")
     name = _optional_text(value.get("name"), "device name", maximum=256)
-    hostname = _hostname(name)
-    identifiers: list[dict[str, Any]] = [{"type": "mac_address", "value": mac}]
-    if address:
-        identifiers.append({"type": "ip_address", "value": address})
-    if hostname:
-        identifiers.append({"type": "fqdn" if "." in hostname else "hostname", "value": hostname})
-        identifiers.append({"type": "smb_name", "value": hostname.split(".", 1)[0]})
-    attributes: dict[str, Any] = {
-        "canonical_name": hostname or name or mac,
-        "asset_type": "network_device",
-        "manufacturer": "Ubiquiti",
-        "unifi_site_id": site_id,
-        "unifi_device_id": device_id,
-    }
-    _copy_optional_text(
-        value,
-        attributes,
-        {
-            "model": "model",
-            "state": "unifi_state",
-            "firmwareVersion": "firmware_version",
-        },
-    )
-    for source, target in {
-        "supported": "unifi_supported",
-        "firmwareUpdatable": "firmware_updatable",
-    }.items():
-        item = _optional_bool(value.get(source), f"device {source}")
-        if item is not None:
-            attributes[target] = item
-    for source, target in {
-        "features": "unifi_features",
-        "interfaces": "unifi_interfaces",
-    }.items():
-        items = _text_list(value.get(source), f"device {source}")
-        if items:
-            attributes[target] = items
-    return NormalizedObservation(
-        source_record_id=f"unifi:device:{site_id}:{device_id}",
-        observed_at=observed_at,
-        identifiers=identifiers,
-        attributes=attributes,
-    )
-
-
-def _client_observation(
-    value: dict[str, Any], *, site_id: str, observed_at: datetime
-) -> NormalizedObservation | None:
-    client_id = _uuid(value.get("id"), "client id")
-    mac = _mac(value.get("macAddress"), required=False)
-    address = _ip(value.get("ipAddress"), "client ipAddress")
-    name = _optional_text(value.get("name"), "client name", maximum=256)
     hostname = _hostname(name)
     identifiers: list[dict[str, Any]] = []
     if mac:
@@ -330,36 +234,42 @@ def _client_observation(
         identifiers.append({"type": "ip_address", "value": address})
     if hostname:
         identifiers.append({"type": "fqdn" if "." in hostname else "hostname", "value": hostname})
-    if not identifiers:
-        return None
+        identifiers.append({"type": "smb_name", "value": hostname.split(".", 1)[0]})
     attributes: dict[str, Any] = {
-        "canonical_name": hostname or name or mac or address or client_id,
-        "unifi_site_id": site_id,
-        "unifi_client_id": client_id,
+        "canonical_name": hostname or name or mac or address or device_id,
+        "asset_type": "network_device",
+        "manufacturer": "Ubiquiti",
+        "unifi_host_id": host_id,
+        "unifi_device_id": device_id,
     }
+    if host_name:
+        attributes["unifi_host_name"] = host_name
+    if host_updated_at:
+        attributes["unifi_host_updated_at"] = host_updated_at
     _copy_optional_text(
         value,
         attributes,
         {
-            "type": "unifi_client_type",
-            "connectedAt": "unifi_connected_at",
+            "model": "model",
+            "shortname": "unifi_shortname",
+            "productLine": "unifi_product_line",
+            "status": "unifi_status",
+            "version": "firmware_version",
+            "firmwareStatus": "unifi_firmware_status",
+            "startupTime": "unifi_startup_time",
+            "adoptionTime": "unifi_adoption_time",
+            "note": "unifi_note",
         },
     )
-    uplink_device_id = value.get("uplinkDeviceId")
-    if uplink_device_id not in (None, ""):
-        attributes["unifi_uplink_device_id"] = _uuid(uplink_device_id, "client uplinkDeviceId")
-    access = value.get("access")
-    if access is not None:
-        if not isinstance(access, dict):
-            raise InventoryConnectorError("UniFi client access must be an object or null")
-        access_type = _optional_text(access.get("type"), "client access type", maximum=64)
-        authorized = _optional_bool(access.get("authorized"), "client access authorized")
-        if access_type:
-            attributes["unifi_access_type"] = access_type
-        if authorized is not None:
-            attributes["unifi_access_authorized"] = authorized
+    for source, target in {
+        "isConsole": "unifi_is_console",
+        "isManaged": "unifi_is_managed",
+    }.items():
+        item = _optional_bool(value.get(source), f"device {source}")
+        if item is not None:
+            attributes[target] = item
     return NormalizedObservation(
-        source_record_id=f"unifi:client:{site_id}:{client_id}",
+        source_record_id=f"unifi:device:{host_id}:{device_id}",
         observed_at=observed_at,
         identifiers=identifiers,
         attributes=attributes,
@@ -375,13 +285,31 @@ def _copy_optional_text(
             target[target_name] = item
 
 
-def _uuid(value: Any, field: str) -> str:
-    if not isinstance(value, str):
-        raise InventoryConnectorError(f"UniFi {field} must be a UUID")
-    try:
-        return str(uuid.UUID(value.strip()))
-    except (ValueError, AttributeError) as exc:
-        raise InventoryConnectorError(f"UniFi {field} must be a UUID") from exc
+def _host_ids(value: Any) -> list[str]:
+    if value in (None, []):
+        return []
+    if not isinstance(value, list) or not 1 <= len(value) <= _MAX_HOST_IDS:
+        raise InventoryConnectorError("UniFi host_ids must be a bounded string list")
+    result = [_provider_id(item, "host_ids entry", pattern=_HOST_ID_RE) for item in value]
+    if len(result) != len(set(result)):
+        raise InventoryConnectorError("UniFi host_ids must not contain duplicates")
+    return result
+
+
+def _api_key(value: str | None) -> str:
+    if (
+        not isinstance(value, str)
+        or not 1 <= len(value) <= _MAX_API_KEY
+        or any(ord(char) < 32 or ord(char) == 127 for char in value)
+    ):
+        raise InventoryConnectorError("UniFi Site Manager API key is required")
+    return value
+
+
+def _provider_id(value: Any, field: str, *, pattern: re.Pattern[str]) -> str:
+    if not isinstance(value, str) or not pattern.fullmatch(value.strip()):
+        raise InventoryConnectorError(f"UniFi {field} is invalid")
+    return value.strip()
 
 
 def _mac(value: Any, *, required: bool) -> str | None:
@@ -389,7 +317,8 @@ def _mac(value: Any, *, required: bool) -> str | None:
         return None
     if not isinstance(value, str) or not _MAC_RE.fullmatch(value.strip()):
         raise InventoryConnectorError("UniFi MAC address is invalid")
-    return value.strip().replace("-", ":").lower()
+    compact = value.strip().replace("-", "").replace(":", "").lower()
+    return ":".join(compact[index : index + 2] for index in range(0, 12, 2))
 
 
 def _ip(value: Any, field: str) -> str | None:
@@ -420,20 +349,13 @@ def _optional_text(value: Any, field: str, *, maximum: int) -> str | None:
     if not isinstance(value, str):
         raise InventoryConnectorError(f"UniFi {field} must be a string or null")
     normalized = value.strip()
-    if not normalized or len(normalized) > maximum or any(ord(char) < 32 for char in normalized):
+    if (
+        not normalized
+        or len(normalized) > maximum
+        or any(ord(char) < 32 or ord(char) == 127 for char in normalized)
+    ):
         raise InventoryConnectorError(f"UniFi {field} is invalid")
     return normalized
-
-
-def _text_list(value: Any, field: str) -> list[str]:
-    if value in (None, []):
-        return []
-    if not isinstance(value, list) or len(value) > 50:
-        raise InventoryConnectorError(f"UniFi {field} must be a bounded string list")
-    result = [_optional_text(item, field, maximum=128) for item in value]
-    if any(item is None for item in result):
-        raise InventoryConnectorError(f"UniFi {field} contains an invalid value")
-    return cast(list[str], result)
 
 
 def _optional_bool(value: Any, field: str) -> bool | None:
@@ -442,12 +364,6 @@ def _optional_bool(value: Any, field: str) -> bool | None:
     if not isinstance(value, bool):
         raise InventoryConnectorError(f"UniFi {field} must be a boolean or null")
     return value
-
-
-def _response_int(value: Any, field: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-        raise InventoryConnectorError(f"UniFi response {field} must be a non-negative integer")
-    return int(value)
 
 
 def _bounded_int(value: Any, field: str, minimum: int, maximum: int) -> int:
@@ -460,10 +376,3 @@ def _bounded_int(value: Any, field: str, minimum: int, maximum: int) -> int:
     if str(parsed) != str(value).strip() or not minimum <= parsed <= maximum:
         raise InventoryConnectorError(f"UniFi {field} must be between {minimum} and {maximum}")
     return parsed
-
-
-def _boolean(config: dict[str, Any], key: str, *, default: bool) -> bool:
-    value = config.get(key, default)
-    if not isinstance(value, bool):
-        raise InventoryConnectorError(f"UniFi {key} must be a boolean")
-    return value

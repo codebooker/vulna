@@ -157,11 +157,12 @@ directly. See also [`threat-model.md`](threat-model.md) and
   validates every internal next link, pins DNS, refuses private destinations and
   redirects, and never retains the client secret, bearer token, or pagination token
   (`tests/test_inventory_entra.py`).
-- [ ] UniFi Network accepts only exact local or Site Manager Integration API roots
-  and one site UUID; issues fixed `GET` requests for adopted devices and connected
-  clients; validates bounded offset paging and record fields; pins DNS; requires
-  private-network opt-in; and never retains its `X-API-Key` value in results,
-  cursors, observations, tasks, logs, or exports (`tests/test_inventory_unifi.py`).
+- [ ] UniFi uses only fixed public `GET https://api.ui.com/v1/devices` requests,
+  accepts at most 100 validated Site Manager host-ID filters, validates bounded
+  continuation-token paging and device/host fields, pins DNS, refuses private
+  destinations, and never retains its `X-API-Key` value or response trace/token in
+  results, cursors, observations, tasks, logs, or exports
+  (`tests/test_inventory_unifi.py`).
 - [ ] VMware vCenter accepts only an HTTPS port-443 origin, verifies system or
   supplied public-CA trust, pins DNS, requires explicit private-network access,
   creates one ephemeral session, reads only the fixed host/VM list resources, and

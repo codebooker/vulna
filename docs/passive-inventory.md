@@ -150,29 +150,30 @@ validated IP/FQDN/hostname/SMB identifiers.
 
 ### UniFi Network importer
 
-The UniFi source reads adopted devices and connected clients through Ubiquiti's
-official [Network Integration API](https://help.ui.com/hc/en-us/articles/30076656117655-Getting-Started-with-the-Official-UniFi-API).
-Configure the exact API root, site UUID, and API key. A local root must end exactly
-in `/proxy/network/integration`; a Site Manager root must use the fixed
-`/v1/connector/consoles/{console}/proxy/network/integration` form. HTTPS is
-mandatory. Arbitrary paths, operations, query parameters, credentials in the URL,
-and redirects are not available.
+The UniFi source reads infrastructure devices through Ubiquiti's official
+[Site Manager API](https://developer.ui.com/site-manager/v1.0.0/gettingstarted).
+Create an API key from the
+[UniFi Site Manager API-key settings](https://unifi.ui.com/settings/api-keys)
+for the UI account that owns or super-administers the required hosts. Vulna always
+calls the fixed
+`https://api.ui.com/v1/devices` endpoint; controller URLs, Network site UUIDs,
+arbitrary paths, credentials in URLs, redirects, and private-network access are not
+part of the connector contract.
 
-The adapter issues only `GET /v1/sites/{siteId}/devices` and
-`GET /v1/sites/{siteId}/clients`, as defined by Ubiquiti's
-[adopted-device](https://developer.ui.com/network/v10.1.84/getadopteddeviceoverviewpage)
-and [connected-client](https://developer.ui.com/network/v10.1.84/getconnectedclientoverviewpage)
-resources. Offset paging stays inside one worker call. Page size is capped at 200,
-the combined run at 10,000 records and 1,000 pages, and each response at 1 MiB.
-Device and client identifiers, uplink UUIDs, IP addresses, MAC addresses, names,
-and bounded context are validated before becoming observations.
+By default the API key's complete authorized device inventory is collected. An
+optional bounded `host_ids` list maps to Site Manager's `hostIds[]` filter. The
+adapter follows only provider-returned `nextToken` values, caps page size at 200,
+each run at 10,000 devices and 1,000 pages, and each JSON response at 1 MiB. Host
+and device IDs, IP addresses, MAC addresses, names, status, model, firmware, and
+bounded host context are validated before becoming observations. The variable
+`uidb` payload is intentionally ignored.
 
-The API key is a one-way connector secret sent only in `X-API-Key`. The API root is
-DNS-pinned on every call; private controllers require `allow_private=true`.
-Configuration can disable either fixed resource but cannot introduce a source
-mutation surface. Provider object IDs remain provenance only: reconciliation uses
-MAC, IP, and valid host names so a UniFi record cannot fabricate another provider's
-immutable cloud identity.
+The API key is a one-way connector secret sent only in `X-API-Key`; requests are
+read-only, DNS-pinned, and restricted to the fixed public API host. Provider object
+IDs remain provenance only: reconciliation uses MAC, IP, and valid host names so a
+UniFi record cannot fabricate another provider's immutable cloud identity. Site
+Manager v1's device resource does not expose Network connected clients, so this
+connector no longer imports client observations.
 
 ### Microsoft Entra importer
 
@@ -399,13 +400,12 @@ For CSV sources this includes only presence, filename, SHA-256, size, and upload
 time. DNS connectors export the server, explicit zones, public TSIG metadata, and
 `has_secret`, but never the TSIG value or ciphertext. Active Directory connectors
 likewise export public server/base/trust configuration and `has_secret`, never the
-bind password or ciphertext. UniFi connectors export only their public API root,
-site UUID, bounds, resource selectors, private-network opt-in, and `has_secret`;
-the API key and ciphertext are excluded. It excludes connector and source
-ciphertext. vCenter connectors export only their public HTTPS origin, username,
-resource selectors, limits, public CA trust, private-network opt-in, and
-`has_secret`; passwords, Basic credentials, API session tokens, and ciphertext are
-excluded. Proxmox and XCP-ng sources export only their public origins, resource
+bind password or ciphertext. UniFi connectors export only optional host filters,
+bounds, and `has_secret`; the API key and ciphertext are excluded. It excludes
+connector and source ciphertext. vCenter connectors export only their public HTTPS
+origin, username, resource selectors, limits, public CA trust, private-network
+opt-in, and `has_secret`; passwords, Basic credentials, API session tokens, and
+ciphertext are excluded. Proxmox and XCP-ng sources export only their public origins, resource
 selectors, bounds, TLS trust, private-network choice, public token ID where
 applicable, and `has_secret`; token secrets and authentication headers are excluded.
 AWS exports partition, explicit regions, optional expected account, bounds, and

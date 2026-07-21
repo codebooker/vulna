@@ -66,7 +66,7 @@ export function PassiveInventoryPage() {
     entraTenantId: '',
     entraClientId: '',
     entraCloud: 'global',
-    unifiSiteId: '',
+    unifiHostIds: '',
     proxmoxTokenId: '',
     awsPartition: 'aws',
     awsRegions: '',
@@ -153,6 +153,10 @@ export function PassiveInventoryPage() {
       .split(/[\n,]/)
       .map((project) => project.trim())
       .filter(Boolean);
+    const unifiHostIds = connectorForm.unifiHostIds
+      .split(/[\n,]/)
+      .map((host) => host.trim())
+      .filter(Boolean);
     if (connectorForm.type === 'csv' && !csvFile) {
       setError('Select a CSV file before saving this source.');
       return;
@@ -194,11 +198,8 @@ export function PassiveInventoryPage() {
       setError('Microsoft Entra sources require a tenant ID, application client ID, and secret.');
       return;
     }
-    if (
-      connectorForm.type === 'unifi' &&
-      (!connectorForm.baseUrl || !connectorForm.unifiSiteId || !connectorForm.secret)
-    ) {
-      setError('UniFi sources require a Network Integration API root, site ID, and API key.');
+    if (connectorForm.type === 'unifi' && !connectorForm.secret) {
+      setError('UniFi sources require a Site Manager API key.');
       return;
     }
     if (
@@ -256,6 +257,7 @@ export function PassiveInventoryPage() {
         connectorForm.type !== 'dns' &&
         connectorForm.type !== 'active_directory' &&
         connectorForm.type !== 'entra' &&
+        connectorForm.type !== 'unifi' &&
         connectorForm.type !== 'aws' &&
         connectorForm.type !== 'azure' &&
         connectorForm.type !== 'google_cloud' &&
@@ -327,10 +329,7 @@ export function PassiveInventoryPage() {
         ...(connectorForm.type === 'unifi'
           ? {
               config: {
-                site_id: connectorForm.unifiSiteId,
-                allow_private: connectorForm.allowPrivate,
-                include_devices: true,
-                include_clients: true,
+                ...(unifiHostIds.length > 0 ? { host_ids: unifiHostIds } : {}),
               },
             }
           : {}),
@@ -419,7 +418,7 @@ export function PassiveInventoryPage() {
         entraTenantId: '',
         entraClientId: '',
         entraCloud: 'global',
-        unifiSiteId: '',
+        unifiHostIds: '',
         proxmoxTokenId: '',
         awsPartition: 'aws',
         awsRegions: '',
@@ -790,7 +789,7 @@ export function PassiveInventoryPage() {
                         entraTenantId: '',
                         entraClientId: '',
                         entraCloud: 'global',
-                        unifiSiteId: '',
+                        unifiHostIds: '',
                         proxmoxTokenId: '',
                         awsPartition: 'aws',
                         awsRegions: '',
@@ -835,22 +834,22 @@ export function PassiveInventoryPage() {
                   </Field>
                 ) : (
                   <>
-                    {!['entra', 'aws', 'azure', 'google_cloud'].includes(connectorForm.type) && (
+                    {!['entra', 'unifi', 'aws', 'azure', 'google_cloud'].includes(
+                      connectorForm.type,
+                    ) && (
                       <Field
                         label={
                           connectorForm.type === 'dns'
                             ? 'Authoritative DNS server'
                             : connectorForm.type === 'active_directory'
                               ? 'Directory server'
-                              : connectorForm.type === 'unifi'
-                                ? 'UniFi Network API root'
-                                : connectorForm.type === 'vcenter'
-                                  ? 'vCenter server URL'
-                                  : connectorForm.type === 'proxmox'
-                                    ? 'Proxmox API origin'
-                                    : connectorForm.type === 'xcp_ng'
-                                      ? 'Xen Orchestra origin'
-                                      : 'HTTPS URL (when required)'
+                              : connectorForm.type === 'vcenter'
+                                ? 'vCenter server URL'
+                                : connectorForm.type === 'proxmox'
+                                  ? 'Proxmox API origin'
+                                  : connectorForm.type === 'xcp_ng'
+                                    ? 'Xen Orchestra origin'
+                                    : 'HTTPS URL (when required)'
                         }
                       >
                         <Input
@@ -859,15 +858,13 @@ export function PassiveInventoryPage() {
                               ? 'Authoritative DNS server'
                               : connectorForm.type === 'active_directory'
                                 ? 'Directory server'
-                                : connectorForm.type === 'unifi'
-                                  ? 'UniFi Network API root'
-                                  : connectorForm.type === 'vcenter'
-                                    ? 'vCenter server URL'
-                                    : connectorForm.type === 'proxmox'
-                                      ? 'Proxmox API origin'
-                                      : connectorForm.type === 'xcp_ng'
-                                        ? 'Xen Orchestra origin'
-                                        : 'HTTPS URL (when required)'
+                                : connectorForm.type === 'vcenter'
+                                  ? 'vCenter server URL'
+                                  : connectorForm.type === 'proxmox'
+                                    ? 'Proxmox API origin'
+                                    : connectorForm.type === 'xcp_ng'
+                                      ? 'Xen Orchestra origin'
+                                      : 'HTTPS URL (when required)'
                           }
                           value={connectorForm.baseUrl}
                           onChange={(event) =>
@@ -958,19 +955,29 @@ export function PassiveInventoryPage() {
                       </>
                     )}
                     {connectorForm.type === 'unifi' && (
-                      <Field label="UniFi site ID">
-                        <Input
-                          aria-label="UniFi site ID"
-                          placeholder="00000000-0000-0000-0000-000000000000"
-                          value={connectorForm.unifiSiteId}
-                          onChange={(event) =>
-                            setConnectorForm((current) => ({
-                              ...current,
-                              unifiSiteId: event.target.value,
-                            }))
-                          }
-                        />
-                      </Field>
+                      <>
+                        <Field label="Site Manager API endpoint">
+                          <Input
+                            aria-label="Site Manager API endpoint"
+                            value="https://api.ui.com/v1/devices"
+                            readOnly
+                            disabled
+                          />
+                        </Field>
+                        <Field label="UniFi host IDs (optional)">
+                          <Textarea
+                            aria-label="UniFi host IDs (optional)"
+                            placeholder="One host ID per line, or leave blank for every authorized host"
+                            value={connectorForm.unifiHostIds}
+                            onChange={(event) =>
+                              setConnectorForm((current) => ({
+                                ...current,
+                                unifiHostIds: event.target.value,
+                              }))
+                            }
+                          />
+                        </Field>
+                      </>
                     )}
                     {connectorForm.type === 'vcenter' && (
                       <>
@@ -1290,7 +1297,6 @@ export function PassiveInventoryPage() {
                     {(connectorForm.type === 'dhcp' ||
                       connectorForm.type === 'dns' ||
                       connectorForm.type === 'active_directory' ||
-                      connectorForm.type === 'unifi' ||
                       connectorForm.type === 'vcenter' ||
                       connectorForm.type === 'proxmox' ||
                       connectorForm.type === 'xcp_ng') && (
@@ -1300,15 +1306,13 @@ export function PassiveInventoryPage() {
                             ? 'Private network server'
                             : connectorForm.type === 'active_directory'
                               ? 'Private directory server'
-                              : connectorForm.type === 'unifi'
-                                ? 'Private UniFi controller'
-                                : connectorForm.type === 'vcenter'
-                                  ? 'Private vCenter server'
-                                  : connectorForm.type === 'proxmox'
-                                    ? 'Private Proxmox server'
-                                    : connectorForm.type === 'xcp_ng'
-                                      ? 'Private Xen Orchestra server'
-                                      : 'Private network URL'
+                              : connectorForm.type === 'vcenter'
+                                ? 'Private vCenter server'
+                                : connectorForm.type === 'proxmox'
+                                  ? 'Private Proxmox server'
+                                  : connectorForm.type === 'xcp_ng'
+                                    ? 'Private Xen Orchestra server'
+                                    : 'Private network URL'
                         }
                       >
                         <Select
@@ -1317,15 +1321,13 @@ export function PassiveInventoryPage() {
                               ? 'Private network server'
                               : connectorForm.type === 'active_directory'
                                 ? 'Private directory server'
-                                : connectorForm.type === 'unifi'
-                                  ? 'Private UniFi controller'
-                                  : connectorForm.type === 'vcenter'
-                                    ? 'Private vCenter server'
-                                    : connectorForm.type === 'proxmox'
-                                      ? 'Private Proxmox server'
-                                      : connectorForm.type === 'xcp_ng'
-                                        ? 'Private Xen Orchestra server'
-                                        : 'Private network URL'
+                                : connectorForm.type === 'vcenter'
+                                  ? 'Private vCenter server'
+                                  : connectorForm.type === 'proxmox'
+                                    ? 'Private Proxmox server'
+                                    : connectorForm.type === 'xcp_ng'
+                                      ? 'Private Xen Orchestra server'
+                                      : 'Private network URL'
                           }
                           value={connectorForm.allowPrivate ? 'yes' : 'no'}
                           onChange={(event) =>
@@ -1397,7 +1399,7 @@ export function PassiveInventoryPage() {
                                 : connectorForm.type === 'entra'
                                   ? 'Application client secret'
                                   : connectorForm.type === 'unifi'
-                                    ? 'UniFi API key'
+                                    ? 'UniFi Site Manager API key'
                                     : connectorForm.type === 'vcenter'
                                       ? 'vCenter password'
                                       : connectorForm.type === 'proxmox'
@@ -1420,7 +1422,7 @@ export function PassiveInventoryPage() {
                                   : connectorForm.type === 'entra'
                                     ? 'Application client secret'
                                     : connectorForm.type === 'unifi'
-                                      ? 'UniFi API key'
+                                      ? 'UniFi Site Manager API key'
                                       : connectorForm.type === 'vcenter'
                                         ? 'vCenter password'
                                         : connectorForm.type === 'proxmox'
@@ -1470,10 +1472,7 @@ export function PassiveInventoryPage() {
                         (!connectorForm.entraTenantId ||
                           !connectorForm.entraClientId ||
                           !connectorForm.secret)) ||
-                      (connectorForm.type === 'unifi' &&
-                        (!connectorForm.baseUrl ||
-                          !connectorForm.unifiSiteId ||
-                          !connectorForm.secret)) ||
+                      (connectorForm.type === 'unifi' && !connectorForm.secret) ||
                       (connectorForm.type === 'vcenter' &&
                         (!connectorForm.baseUrl ||
                           !connectorForm.username ||
