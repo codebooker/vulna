@@ -7,19 +7,75 @@ dispose of the engine over the application lifecycle.
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import AsyncIterator
 
+from sqlalchemy import event, text
+from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
 
 _engine: AsyncEngine | None = None
 _sessionmaker: async_sessionmaker[AsyncSession] | None = None
+
+
+@event.listens_for(Session, "after_begin")
+def _apply_postgres_runtime_context(
+    session: Session, _transaction: object, connection: Connection
+) -> None:
+    """Enter the restricted PostgreSQL role for every ORM transaction.
+
+    The migration owner remains able to perform DDL, but application sessions
+    immediately ``SET LOCAL ROLE`` into a non-owner role. With no tenant in
+    ``session.info`` the RLS policies expose zero rows, making a forgotten
+    request-context assignment fail closed.
+    """
+    if connection.dialect.name != "postgresql":
+        return
+    maintenance = bool(session.info.get("vulna_maintenance"))
+    if maintenance:
+        connection.exec_driver_sql("SET LOCAL ROLE vulna_maintenance")
+    else:
+        connection.exec_driver_sql("SET LOCAL ROLE vulna_runtime")
+    organization_id = session.info.get("vulna_organization_id")
+    if not maintenance and organization_id is not None:
+        connection.execute(
+            text("SELECT set_config('vulna.organization_id', :organization_id, true)"),
+            {"organization_id": str(organization_id)},
+        )
+
+
+async def set_tenant_context(session: AsyncSession, organization_id: uuid.UUID) -> None:
+    """Bind this session to one tenant for its complete lifetime."""
+    existing = session.info.get("vulna_organization_id")
+    if session.info.get("vulna_maintenance"):
+        raise RuntimeError("A maintenance session cannot become tenant-scoped")
+    if existing is not None and existing != organization_id:
+        raise RuntimeError("Database tenant context cannot change within a session")
+    session.info["vulna_organization_id"] = organization_id
+    if session.get_bind().dialect.name == "postgresql":
+        # Authentication normally starts the transaction before the tenant is
+        # known. Apply it now; after a commit, the after_begin hook restores it.
+        await session.execute(
+            text("SELECT set_config('vulna.organization_id', :organization_id, true)"),
+            {"organization_id": str(organization_id)},
+        )
+
+
+async def set_maintenance_context(session: AsyncSession) -> None:
+    """Use the explicit BYPASSRLS role for trusted aggregate maintenance."""
+    if session.info.get("vulna_organization_id") is not None:
+        raise RuntimeError("A tenant-scoped session cannot become maintenance-scoped")
+    session.info["vulna_maintenance"] = True
+    if session.get_bind().dialect.name == "postgresql":
+        await session.execute(text("SET LOCAL ROLE vulna_maintenance"))
 
 
 def _build_engine(settings: Settings) -> AsyncEngine:

@@ -24,7 +24,13 @@ from app.api.scim import router as scim_router
 from app.api.v1 import api_router
 from app.core.config import Settings, get_settings
 from app.db.base import Base
-from app.db.session import dispose_engine, get_engine, get_session, get_sessionmaker
+from app.db.session import (
+    dispose_engine,
+    get_engine,
+    get_session,
+    get_sessionmaker,
+    set_maintenance_context,
+)
 from app.schemas.system import HealthResponse
 from app.services.bootstrap import run_bootstrap
 from app.services.metrics import render_metrics
@@ -105,6 +111,7 @@ def create_app() -> FastAPI:
     ) -> str:
         """Prometheus metrics (aggregate only; no sensitive labels). Scrape this
         on the internal network — do not expose it through the public proxy."""
+        await set_maintenance_context(session)
         return await render_metrics(session, settings_dep, datetime.now(UTC))
 
     return app

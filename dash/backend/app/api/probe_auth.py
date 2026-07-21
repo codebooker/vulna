@@ -20,7 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
-from app.db.session import get_session
+from app.db.session import get_session, set_tenant_context
 from app.models.enums import ProbeStatus
 from app.models.probe import Probe
 
@@ -66,6 +66,7 @@ async def get_current_probe(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Probe is {probe.status.value}",
         )
+    await set_tenant_context(session, probe.organization_id)
     return probe
 
 

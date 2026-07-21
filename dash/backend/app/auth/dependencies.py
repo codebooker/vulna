@@ -17,7 +17,7 @@ from app.api.context import RequestContext, get_request_context
 from app.auth.permission_catalog import validate_permission_keys
 from app.auth.tokens import TokenError, decode_access_token
 from app.core.config import Settings, get_settings
-from app.db.session import get_session
+from app.db.session import get_session, set_tenant_context
 from app.models.authorization import ApiToken
 from app.models.enums import AccountStatus, UserRole
 from app.models.organization import Organization
@@ -89,6 +89,7 @@ async def _resolve_authenticated_identity(
             )
         except authorization.ApiTokenError as exc:
             raise _CREDENTIALS_EXCEPTION from exc
+        await set_tenant_context(session, principal.organization_id)
         return AuthenticatedIdentity(
             # Existing handlers consume a user-shaped principal. ServiceAccount
             # intentionally implements the shared id/org/role surface.
@@ -136,6 +137,7 @@ async def _resolve_authenticated_identity(
         # carry a session id; every non-test environment rejects stateless JWTs.
         if settings.env != "test":
             raise _CREDENTIALS_EXCEPTION
+        await set_tenant_context(session, user.organization_id)
         return AuthenticatedIdentity(user=user, session=None, claims=claims)
     try:
         session_id = uuid.UUID(str(session_id_claim))
@@ -156,6 +158,7 @@ async def _resolve_authenticated_identity(
     ):
         raise _CREDENTIALS_EXCEPTION
     touch_session(user_session)
+    await set_tenant_context(session, user.organization_id)
     return AuthenticatedIdentity(user=user, session=user_session, claims=claims)
 
 

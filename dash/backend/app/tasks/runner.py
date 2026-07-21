@@ -11,7 +11,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
-from app.db.session import get_sessionmaker
+from app.db.session import get_sessionmaker, set_maintenance_context, set_tenant_context
 from app.models.background_task import BackgroundTask
 from app.models.enums import BackgroundTaskStatus
 from app.models.organization import Organization
@@ -85,6 +85,10 @@ async def run_worker_once(settings: Settings, worker_id: str) -> bool:
             lease_stop.set()
             await lease_task
             return True
+        if claimed.organization_id is None:
+            await set_maintenance_context(session)
+        else:
+            await set_tenant_context(session, claimed.organization_id)
         try:
             result = await execute_task(session, claimed, settings)
         except asyncio.CancelledError:
