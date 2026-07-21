@@ -12,6 +12,7 @@ Type=simple
 User=vulna
 Group=vulna
 Environment=VULNA_DATA=/var/lib/vulna
+Environment=VULNA_SCANNER_SANDBOX_HELPER=/opt/vulna/bin/vulnascout
 # /opt/vulna/bin/vulnascout is a symlink managed by update.sh (activate/rollback).
 ExecStart=/opt/vulna/bin/vulnascout run
 Restart=on-failure
@@ -28,6 +29,11 @@ ProtectKernelTunables=true
 ProtectControlGroups=true
 RestrictSUIDSGID=true
 LockPersonality=true
+
+# Bound scanner families and memory even if an upstream scanner misbehaves.
+MemoryMax=4G
+CPUQuota=400%
+TasksMax=512
 
 [Install]
 WantedBy=multi-user.target

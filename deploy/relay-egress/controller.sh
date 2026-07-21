@@ -9,6 +9,7 @@ TOKEN="${VULNA_RELAY_EGRESS_TOKEN:?VULNA_RELAY_EGRESS_TOKEN is required}"
 STATE_DIR="${VULNA_RELAY_STATE_DIR:-/var/lib/vulna/relay}"
 INTERFACE="${VULNA_RELAY_INTERFACE:-vulna-wg0}"
 INTERVAL="${VULNA_RELAY_RECONCILE_SECONDS:-2}"
+ONCE="${VULNA_RELAY_RECONCILE_ONCE:-false}"
 
 mkdir -p "$STATE_DIR"
 umask 077
@@ -93,6 +94,7 @@ apply_config() {
 }
 
 while :; do
+	status=0
 	tmp="$STATE_DIR/config.tmp"
 	if curl -fsS --max-time 10 -H "X-Vulna-Relay-Egress-Token: $TOKEN" \
 		"$API_URL" -o "$tmp"; then
@@ -102,11 +104,14 @@ while :; do
 			echo "relay-egress: configuration apply failed; removing all peers/routes (fail closed)" >&2
 			rm -f "$tmp"
 			fail_closed
+			status=1
 		fi
 	else
 		echo "relay-egress: configuration fetch failed; removing all peers/routes (fail closed)" >&2
 		rm -f "$tmp"
 		fail_closed
+		status=1
 	fi
+	[ "$ONCE" = "true" ] && exit "$status"
 	sleep "$INTERVAL"
 done

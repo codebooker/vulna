@@ -13,6 +13,7 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -157,12 +158,16 @@ func (w *Worker) Run(ctx context.Context, job *policy.Job) ([]byte, error) {
 		}
 	}
 
-	targetFile, err := os.CreateTemp("", "vulnascout-nuclei-targets-*.txt")
+	dir, err := os.MkdirTemp("", "vulnascout-nuclei-*")
+	if err != nil {
+		return nil, fmt.Errorf("create temp workspace: %w", err)
+	}
+	defer func() { _ = os.RemoveAll(dir) }()
+	targetPath := filepath.Join(dir, "targets.txt")
+	targetFile, err := os.Create(targetPath)
 	if err != nil {
 		return nil, fmt.Errorf("create target file: %w", err)
 	}
-	targetPath := targetFile.Name()
-	defer func() { _ = os.Remove(targetPath) }()
 	for _, t := range job.Targets {
 		if _, err := targetFile.WriteString(t + "\n"); err != nil {
 			_ = targetFile.Close()
@@ -171,20 +176,14 @@ func (w *Worker) Run(ctx context.Context, job *policy.Job) ([]byte, error) {
 	}
 	_ = targetFile.Close()
 
-	outFile, err := os.CreateTemp("", "vulnascout-nuclei-*.jsonl")
-	if err != nil {
-		return nil, fmt.Errorf("create output file: %w", err)
-	}
-	outPath := outFile.Name()
-	_ = outFile.Close()
-	defer func() { _ = os.Remove(outPath) }()
+	outPath := filepath.Join(dir, "nuclei.jsonl")
 
 	args := BuildArgs(outPath, targetPath, w.TemplatesDir, w.Severities)
 	// The agent's parent context carries the signed authorization expiry and the
 	// whole-job max duration. Do not reset either limit for every target chunk.
 	runCtx, cancel := w.runContext(ctx)
 	defer cancel()
-	cmd := processutil.CommandContext(runCtx, w.binary(), args...)
+	cmd := processutil.ScannerCommandContext(runCtx, dir, w.binary(), args...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	runErr := cmd.Run()

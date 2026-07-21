@@ -41,7 +41,8 @@ COPY --from=build /out/vulnascout /usr/bin/vulnascout
 COPY --from=tools /opt/zap /opt/zap
 RUN ln -s /opt/zap/zap.sh /usr/local/bin/zap.sh
 USER vulna
-ENV VULNA_DATA=/var/lib/vulna
+ENV VULNA_DATA=/var/lib/vulna \
+    VULNA_SCANNER_SANDBOX_HELPER=/usr/bin/vulnascout
 VOLUME ["/var/lib/vulna"]
 ENTRYPOINT ["/usr/bin/vulnascout"]
 CMD ["run"]

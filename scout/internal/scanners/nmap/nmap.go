@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"net/netip"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -245,13 +246,12 @@ func (w *Worker) Name() string { return "nmap" }
 // packet-rate limit. Targets are assumed already scope-validated by the agent;
 // they are additionally checked here for argument safety.
 func (w *Worker) Run(ctx context.Context, job *policy.Job) ([]byte, error) {
-	outFile, err := os.CreateTemp("", "vulnascout-nmap-*.xml")
+	dir, err := os.MkdirTemp("", "vulnascout-nmap-*")
 	if err != nil {
-		return nil, fmt.Errorf("create temp output: %w", err)
+		return nil, fmt.Errorf("create temp workspace: %w", err)
 	}
-	outPath := outFile.Name()
-	_ = outFile.Close()
-	defer func() { _ = os.Remove(outPath) }()
+	defer func() { _ = os.RemoveAll(dir) }()
+	outPath := filepath.Join(dir, "nmap.xml")
 
 	profile := w.planRun(job)
 	args, err := BuildArgs(profile, outPath, job.Targets)
@@ -260,7 +260,7 @@ func (w *Worker) Run(ctx context.Context, job *policy.Job) ([]byte, error) {
 	}
 	runCtx, cancel := w.runContext(ctx, job)
 	defer cancel()
-	cmd := processutil.CommandContext(runCtx, w.binary(), args...)
+	cmd := processutil.ScannerCommandContext(runCtx, dir, w.binary(), args...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	runErr := cmd.Run()
@@ -358,13 +358,12 @@ func (w *Worker) Stream(
 	sink func([]byte) error,
 	progress func(hostsDone int),
 ) error {
-	outFile, err := os.CreateTemp("", "vulnascout-nmap-*.xml")
+	dir, err := os.MkdirTemp("", "vulnascout-nmap-*")
 	if err != nil {
-		return fmt.Errorf("create temp output: %w", err)
+		return fmt.Errorf("create temp workspace: %w", err)
 	}
-	outPath := outFile.Name()
-	_ = outFile.Close()
-	defer func() { _ = os.Remove(outPath) }()
+	defer func() { _ = os.RemoveAll(dir) }()
+	outPath := filepath.Join(dir, "nmap.xml")
 
 	profile := w.planRun(job)
 	args, err := BuildArgs(profile, outPath, job.Targets)
@@ -373,7 +372,7 @@ func (w *Worker) Stream(
 	}
 	runCtx, cancel := w.runContext(ctx, job)
 	defer cancel()
-	cmd := processutil.CommandContext(runCtx, w.binary(), args...)
+	cmd := processutil.ScannerCommandContext(runCtx, dir, w.binary(), args...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {

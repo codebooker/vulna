@@ -123,6 +123,14 @@ services:
     # their process groups on cancellation; init is a second line of defense so
     # an abnormal tool exit cannot leave zombies in the long-running Scout.
     init: true
+    # Scanner workspaces live only in this bounded tmpfs. The image filesystem is
+    # immutable; Scout identity/queue state remains on the one explicit volume.
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=2g,mode=1777
+    mem_limit: 4g
+    cpus: 4.0
+    pids_limit: 512
     # Share the egress controller's network namespace so scans of relay-backed
     # ranges follow its WireGuard routes. The Scout itself remains capability-free.
     network_mode: service:relay-netns
