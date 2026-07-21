@@ -106,6 +106,11 @@ class Settings(BaseSettings):
     # (e.g. local dev), they are stored in plaintext. Any string is accepted — a
     # Fernet key is derived from it.
     master_key: str | None = None
+    # Dedicated HMAC key for tamper-evident audit records. Keep it outside the
+    # database and retain old keys during rotation. When omitted, master_key is
+    # used so existing deployments upgrade without a new mandatory secret.
+    audit_integrity_key: str | None = None
+    audit_integrity_previous_keys: str = ""
 
     # Dedicated database-backed scheduler/worker services.
     scheduler_enabled: bool = True
@@ -292,6 +297,17 @@ class Settings(BaseSettings):
             return
         _require_strong_value("VULNA_SECRET_KEY", self.secret_key, min_length=32)
         _require_strong_value("VULNA_MASTER_KEY", self.master_key, min_length=32)
+        if self.audit_integrity_key is not None:
+            _require_strong_value(
+                "VULNA_AUDIT_INTEGRITY_KEY", self.audit_integrity_key, min_length=32
+            )
+        for prior_key in self.audit_integrity_previous_keys.split(","):
+            if prior_key.strip():
+                _require_strong_value(
+                    "VULNA_AUDIT_INTEGRITY_PREVIOUS_KEYS",
+                    prior_key.strip(),
+                    min_length=32,
+                )
         _require_strong_value("POSTGRES_PASSWORD", self.postgres_password, min_length=16)
         if self.bootstrap_admin_password is not None:
             _require_strong_value(

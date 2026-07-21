@@ -1,5 +1,22 @@
 # Migration notes
 
+## Audit integrity and complete Rules-of-Engagement grants
+
+- New audit events are HMAC-authenticated and linked in a serialized,
+  organization-local hash chain. PostgreSQL rejects audit updates/deletes.
+- Configure `VULNA_AUDIT_INTEGRITY_KEY` if a dedicated audit key is preferred;
+  otherwise `VULNA_MASTER_KEY` is used. Preserve rotated keys in
+  `VULNA_AUDIT_INTEGRITY_PREVIOUS_KEYS` while historical events are retained.
+- Existing audit rows are linked and labeled `legacy-sha256-v1`; their original
+  contents cannot be retroactively authenticated.
+- Existing Rules-of-Engagement rows are migrated as expired legacy grants and
+  cannot authorize new sessions. Create a replacement grant containing the
+  authorization owner/source/reference, authorization document SHA-256, exact
+  CIDRs or assets, exact modules, and effective dates.
+- Every controlled-pentest request now requires an active complete RoE. The
+  session snapshots its policy digest, exact target/module, selected network and
+  Scout, resulting job, and current fenced job attempt.
+
 User-visible behavior and configuration changes, per release. Vulna is in
 pre-release active development; until the first tagged release, this page tracks
 changes on `main`. Full detail is in the [CHANGELOG](../CHANGELOG.md).

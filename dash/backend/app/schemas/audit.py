@@ -26,4 +26,19 @@ class AuditEventRead(BaseModel):
     source_ip: str | None
     request_id: str | None
     metadata_json: dict[str, Any]
+    integrity_version: int
+    integrity_algorithm: str
+    integrity_key_id: str
+    event_signature: str
+    chain_sequence: int
+    previous_hash: str
+    chain_hash: str
     created_at: datetime
+
+
+class AuditIntegrityRead(BaseModel):
+    valid: bool
+    events_checked: int
+    failure: str | None
+    last_hash: str | None
+    legacy_events: int = 0
