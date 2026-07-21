@@ -150,6 +150,7 @@ from app.models.risk_acceptance import RiskAcceptance
 from app.models.rules_of_engagement import RulesOfEngagement
 from app.models.scan_artifact import ScanArtifact
 from app.models.scan_job import ScanJob
+from app.models.scan_job_attempt import ScanJobAttempt
 from app.models.scan_schedule import ScanSchedule
 from app.models.scim import (
     ScimGroup,
@@ -314,6 +315,7 @@ __all__ = [
     "RulesOfEngagement",
     "ScanArtifact",
     "ScanJob",
+    "ScanJobAttempt",
     "ScanSchedule",
     "SamlReplayRecord",
     "Service",

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useState } from 'react';
 import { api } from './api/client';
 import { useAuth } from './auth/useAuth';
 import { Sidebar, type NavSectionDef } from './components/layout/sidebar';
@@ -190,7 +190,9 @@ export function App() {
           />
           <main className="mx-auto w-full max-w-[1400px] flex-1 px-4 py-4 sm:px-6 sm:py-5">
             <div key={`${active.id}`} className="vd-fade-in">
-              <ActivePage />
+              <Suspense fallback={<p className="text-sm text-muted">Loading page…</p>}>
+                <ActivePage />
+              </Suspense>
             </div>
           </main>
         </div>

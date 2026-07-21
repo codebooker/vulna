@@ -25,11 +25,15 @@ import (
 // Orchestrator is the subset of the API client the agent needs.
 type Orchestrator interface {
 	FetchPolicy(ctx context.Context) ([]byte, error)
-	PollJob(ctx context.Context) ([]byte, bool, error)
-	ReportJobStatus(ctx context.Context, jobID string, report api.JobStatusReport) error
-	UploadResults(
-		ctx context.Context, jobID string, raw []byte, stage, scanner string, complete ...bool,
+	PollJob(ctx context.Context) (api.JobOffer, bool, error)
+	ReportJobStatus(
+		ctx context.Context, jobID string, attempt api.AttemptRef, report api.JobStatusReport,
 	) error
+	UploadResults(
+		ctx context.Context, jobID string, attempt api.AttemptRef, raw []byte, stage, scanner string,
+		complete ...bool,
+	) error
+	RenewJobLease(ctx context.Context, jobID string, attempt api.AttemptRef) error
 }
 
 // Agent processes jobs for a single probe.
@@ -66,7 +70,18 @@ func (a *Agent) SetCredentialPrivateKey(key []byte) {
 
 // uploadItem uploads one queued result batch.
 func (a *Agent) uploadItem(ctx context.Context, it queue.Item) error {
-	return a.client.UploadResults(ctx, it.JobID, it.Raw, it.Stage, it.Scanner, it.Complete)
+	err := a.client.UploadResults(
+		ctx, it.JobID,
+		api.AttemptRef{
+			AttemptID: it.AttemptID, LeaseID: it.LeaseID, FencingToken: it.FencingToken,
+		},
+		it.Raw, it.Stage, it.Scanner, it.Complete,
+	)
+	var stale api.ErrStaleAttempt
+	if errors.As(err, &stale) {
+		return nil // fenced evidence must not block later durable queue entries
+	}
+	return err
 }
 
 // DrainQueue flushes any durably-queued results, returning how many uploaded.
@@ -89,17 +104,46 @@ func (a *Agent) QueueBacklog() (count int, bytes int64) {
 
 // RunningJob is a job currently executing in the test worker.
 type RunningJob struct {
-	JobID          string
-	cancel         context.CancelCauseFunc
-	done           chan executor.Result
-	terminalReport *api.JobStatusReport
+	JobID            string
+	Attempt          api.AttemptRef
+	cancel           context.CancelCauseFunc
+	done             chan executor.Result
+	terminalReport   *api.JobStatusReport
+	lastLeaseRenewal time.Time
 }
+
+const (
+	leaseRenewEvery   = 30 * time.Second
+	leaseFailureLimit = 2*time.Minute + 30*time.Second
+)
 
 // Cancel stops the running worker.
 func (r *RunningJob) Cancel() { r.cancel(errCancellationRequested) }
 
 // Done returns a channel that receives the worker result when it finishes.
 func (r *RunningJob) Done() <-chan executor.Result { return r.done }
+
+// RenewLease extends a running attempt at most every 30 seconds. The CLI calls
+// this from its responsive one-second loop while a scanner may otherwise be
+// silent for minutes.
+func (a *Agent) RenewLease(ctx context.Context, running *RunningJob) error {
+	sinceRenewal := time.Since(running.lastLeaseRenewal)
+	if sinceRenewal < leaseRenewEvery {
+		return nil
+	}
+	if err := a.client.RenewJobLease(ctx, running.JobID, running.Attempt); err != nil {
+		var stale api.ErrStaleAttempt
+		if errors.As(err, &stale) || sinceRenewal >= leaseFailureLimit {
+			// A partitioned Scout must stop before the three-minute server lease
+			// can be reassigned. Otherwise two executions could overlap even
+			// though stale uploads are fenced later.
+			running.Cancel()
+		}
+		return err
+	}
+	running.lastLeaseRenewal = time.Now()
+	return nil
+}
 
 var (
 	errCancellationRequested = errors.New("scan cancellation requested")
@@ -178,14 +222,14 @@ func (a *Agent) PolicyHash() string { return a.policyHash }
 // out-of-scope job is rejected (reported as rejected_by_probe) and nil is
 // returned. nil is also returned when no job is available.
 func (a *Agent) PollAndStart(ctx context.Context) (*RunningJob, error) {
-	raw, ok, err := a.client.PollJob(ctx)
+	offer, ok, err := a.client.PollJob(ctx)
 	if err != nil || !ok {
 		return nil, err
 	}
 
-	job, verr := policy.VerifyJob(raw, a.pubkey, a.policy, time.Now().UTC())
+	job, verr := policy.VerifyJob(offer.Envelope, a.pubkey, a.policy, time.Now().UTC())
 	if verr != nil {
-		_ = a.client.ReportJobStatus(ctx, extractJobID(raw), api.JobStatusReport{
+		_ = a.client.ReportJobStatus(ctx, extractJobID(offer.Envelope), offer.Attempt, api.JobStatusReport{
 			Status:       "rejected_by_probe",
 			ErrorCode:    "verification_failed",
 			ErrorMessage: verr.Error(),
@@ -193,7 +237,7 @@ func (a *Agent) PollAndStart(ctx context.Context) (*RunningJob, error) {
 		return nil, nil
 	}
 	if err := policy.DecryptCredentialEnvelope(job, a.credentialPrivateKey); err != nil {
-		_ = a.client.ReportJobStatus(ctx, job.JobID, api.JobStatusReport{
+		_ = a.client.ReportJobStatus(ctx, job.JobID, offer.Attempt, api.JobStatusReport{
 			Status:       "rejected_by_probe",
 			ErrorCode:    "credential_envelope_failed",
 			ErrorMessage: err.Error(),
@@ -201,18 +245,22 @@ func (a *Agent) PollAndStart(ctx context.Context) (*RunningJob, error) {
 		return nil, nil
 	}
 
-	if err := a.client.ReportJobStatus(ctx, job.JobID, api.JobStatusReport{Status: "accepted"}); err != nil {
+	if err := a.client.ReportJobStatus(
+		ctx, job.JobID, offer.Attempt, api.JobStatusReport{Status: "accepted"},
+	); err != nil {
 		return nil, err
 	}
 	deadline, deadlineCause := jobDeadlineCause(job, time.Now().UTC())
 	deadlineCtx, stopDeadline := context.WithDeadlineCause(ctx, deadline, deadlineCause)
 	jobCtx, cancel := context.WithCancelCause(deadlineCtx)
 	done := make(chan executor.Result, 1)
-	_ = a.client.ReportJobStatus(ctx, job.JobID, api.JobStatusReport{Status: "running"})
+	_ = a.client.ReportJobStatus(
+		ctx, job.JobID, offer.Attempt, api.JobStatusReport{Status: "running"},
+	)
 	go func() {
 		defer stopDeadline()
 		defer job.ClearCredentials()
-		res, _ := a.runWithProgress(jobCtx, job)
+		res, _ := a.runWithProgress(jobCtx, job, offer.Attempt)
 		if res.Cancelled {
 			switch cause := context.Cause(jobCtx); {
 			case errors.Is(cause, errMaxDurationExceeded):
@@ -227,7 +275,10 @@ func (a *Agent) PollAndStart(ctx context.Context) (*RunningJob, error) {
 		}
 		done <- res
 	}()
-	return &RunningJob{JobID: job.JobID, cancel: cancel, done: done}, nil
+	return &RunningJob{
+		JobID: job.JobID, Attempt: offer.Attempt, cancel: cancel, done: done,
+		lastLeaseRenewal: time.Now(),
+	}, nil
 }
 
 // jobDeadline is the hard authorization boundary for a running job. The signed
@@ -255,9 +306,11 @@ func jobDeadlineCause(job *policy.Job, started time.Time) (time.Time, error) {
 	return deadline, cause
 }
 
-func (a *Agent) runWithProgress(ctx context.Context, job *policy.Job) (executor.Result, error) {
+func (a *Agent) runWithProgress(
+	ctx context.Context, job *policy.Job, attempt api.AttemptRef,
+) (executor.Result, error) {
 	reportProgress := func(progress executor.Progress) {
-		_ = a.client.ReportJobStatus(ctx, job.JobID, api.JobStatusReport{
+		_ = a.client.ReportJobStatus(ctx, job.JobID, attempt, api.JobStatusReport{
 			Status: "running",
 			Progress: &api.JobProgressReport{
 				Percent: progress.Percent, CurrentStage: progress.CurrentStage,
@@ -277,7 +330,9 @@ func (a *Agent) runWithProgress(ctx context.Context, job *policy.Job) (executor.
 	if streamer, ok := a.worker.(executor.StreamingJobRunner); ok && a.queue != nil {
 		return streamer.RunStreaming(ctx, job, reportProgress, func(out executor.StageOutput) error {
 			return a.queue.Enqueue(queue.Item{
-				JobID: job.JobID, Stage: out.Stage, Scanner: out.Scanner, Raw: out.Raw,
+				JobID: job.JobID, AttemptID: attempt.AttemptID, LeaseID: attempt.LeaseID,
+				FencingToken: attempt.FencingToken,
+				Stage:        out.Stage, Scanner: out.Scanner, Raw: out.Raw,
 				Complete: out.Complete,
 			})
 		})
@@ -299,7 +354,9 @@ func (a *Agent) Finalize(ctx context.Context, running *RunningJob, res executor.
 	// acknowledges its terminal state. On retries, send the exact same bounded
 	// report without uploading or enqueueing scanner output a second time.
 	if running.terminalReport != nil {
-		return a.client.ReportJobStatus(ctx, running.JobID, *running.terminalReport)
+		return a.client.ReportJobStatus(
+			ctx, running.JobID, running.Attempt, *running.terminalReport,
+		)
 	}
 
 	if !res.Cancelled {
@@ -309,7 +366,10 @@ func (a *Agent) Finalize(ctx context.Context, running *RunningJob, res executor.
 			}
 			if a.queue != nil {
 				if err := a.queue.Enqueue(queue.Item{
-					JobID: running.JobID, Stage: out.Stage, Scanner: out.Scanner, Raw: out.Raw,
+					JobID:     running.JobID,
+					AttemptID: running.Attempt.AttemptID, LeaseID: running.Attempt.LeaseID,
+					FencingToken: running.Attempt.FencingToken,
+					Stage:        out.Stage, Scanner: out.Scanner, Raw: out.Raw,
 					Complete: out.Complete,
 				}); err != nil {
 					return a.reportTerminal(ctx, running, api.JobStatusReport{
@@ -321,7 +381,8 @@ func (a *Agent) Finalize(ctx context.Context, running *RunningJob, res executor.
 				continue
 			}
 			if err := a.client.UploadResults(
-				ctx, running.JobID, out.Raw, out.Stage, out.Scanner, out.Complete,
+				ctx, running.JobID, running.Attempt,
+				out.Raw, out.Stage, out.Scanner, out.Complete,
 			); err != nil {
 				return a.reportTerminal(ctx, running, api.JobStatusReport{
 					Status:       "failed",
@@ -403,7 +464,7 @@ func (a *Agent) reportTerminal(
 ) error {
 	report = boundTerminalReport(report)
 	running.terminalReport = &report
-	return a.client.ReportJobStatus(ctx, running.JobID, report)
+	return a.client.ReportJobStatus(ctx, running.JobID, running.Attempt, report)
 }
 
 func boundTerminalReport(report api.JobStatusReport) api.JobStatusReport {

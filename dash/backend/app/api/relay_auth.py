@@ -8,10 +8,11 @@ untrusted peer reaching the API directly cannot spoof a relay identity.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, status
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
@@ -42,7 +43,16 @@ async def get_current_relay(
 
     relay = (
         await session.execute(
-            select(Relay).where(Relay.certificate_fingerprint == fingerprint)
+            select(Relay).where(
+                or_(
+                    Relay.certificate_fingerprint == fingerprint,
+                    and_(
+                        Relay.previous_certificate_fingerprint == fingerprint,
+                        Relay.previous_certificate_valid_until.is_not(None),
+                        Relay.previous_certificate_valid_until > datetime.now(UTC),
+                    ),
+                )
+            )
         )
     ).scalar_one_or_none()
     if relay is None:

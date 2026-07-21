@@ -11,13 +11,14 @@ from app.models.scan_job import ScanJob
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tests.conftest import probe_cert_headers
+from tests.conftest import probe_cert_headers, start_job_attempt
 
 EnrollFactory = Callable[..., Awaitable[dict[str, str]]]
 
 
-async def _ready_probe(client: AsyncClient, admin_headers: dict[str, str],
-                       enroll_probe: EnrollFactory) -> dict[str, str]:
+async def _ready_probe(
+    client: AsyncClient, admin_headers: dict[str, str], enroll_probe: EnrollFactory
+) -> dict[str, str]:
     probe = await enroll_probe(site_code="RP", probe_name="rp")
     await client.post(f"/api/v1/probes/{probe['probe_id']}/approve", headers=admin_headers)
     await client.post(
@@ -67,9 +68,7 @@ async def test_reap_endpoint_expires_overdue_job_and_fails_workflow(
     stages = {s["name"]: s["status"] for s in detail["stages_json"]}
     assert stages["discovery"] == "failed"
     active = {"running", "awaiting_approval"}
-    current = next(
-        (s["name"] for s in detail["stages_json"] if s["status"] in active), None
-    )
+    current = next((s["name"] for s in detail["stages_json"] if s["status"] in active), None)
     assert current == "verification_scan"
 
 
@@ -103,6 +102,10 @@ async def test_reap_uses_signed_execution_limit_and_acknowledges_late_terminal_r
     )
     job = await db_session.get(ScanJob, uuid.UUID(created.json()["id"]))
     assert job is not None
+    offered_job_id, attempt_headers = await start_job_attempt(
+        client, probe["probe_id"], probe["fingerprint"]
+    )
+    assert offered_job_id == str(job.id)
 
     now = datetime.now(UTC)
     job.status = JobStatus.RUNNING
@@ -133,7 +136,7 @@ async def test_reap_uses_signed_execution_limit_and_acknowledges_late_terminal_r
     late = await client.post(
         f"/api/v1/probes/{probe['probe_id']}/jobs/{job.id}/status",
         json={"status": "cancelled", "error_code": "max_duration_exceeded"},
-        headers=probe_cert_headers(probe["fingerprint"]),
+        headers={**probe_cert_headers(probe["fingerprint"]), **attempt_headers},
     )
     assert late.status_code == 204
     await db_session.refresh(job)

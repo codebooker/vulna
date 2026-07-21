@@ -1,6 +1,8 @@
 package policy
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
 	"strings"
 	"testing"
 	"time"
@@ -9,9 +11,9 @@ import (
 // Cross-language vectors: one Python key signs both a policy and a job whose
 // target is within the policy's scope (see dash/backend/app/services/signing.py).
 const (
-	jobVectorPub    = "blvaFuR83ZFZ+AxnSh49WCQWagd2LnnMKaIdZldONJ0="
-	jobVectorPolicy = `{"policy_version": 4, "probe_id": "p1", "site_id": "s1", "approved_cidrs": ["10.20.0.0/24"], "denied_cidrs": [], "allow_public_addresses": false, "allowed_modes": ["vulnerability_assessment"], "allowed_plugins": ["nmap"], "limits": {"max_hosts": 256, "max_parallel_hosts": 8, "max_packets_per_second": 1000, "max_duration_seconds": 10800}, "signature": "Roi9CK9tIdbT2emeUi1S7HQu+/j1Vxh6mjCbZciPlgsCgefulC1RXCH2LNKb0yZHZDOoh2tRlLjFANaqfVhLAA=="}`
-	jobVectorJob    = `{"job_id": "job-123", "probe_id": "p1", "site_id": "s1", "mode": "vulnerability_assessment", "policy_version": 4, "not_before": "2020-01-01T00:00:00+00:00", "expires_at": "2030-01-01T00:00:00+00:00", "targets": ["10.20.0.5/32"], "workflow": [{"stage": "discovery", "plugin": "nmap", "config": {}}], "limits": {"max_hosts": 256, "max_parallel_hosts": 8, "max_packets_per_second": 1000, "max_duration_seconds": 10800}, "signature": "XXQ96+bIc576ZxinQFEpmstjEUF7DKTKPsKphVjVwfJj05xOyV0Ze+977nTS7noPHUVHXM3x2/RzNfDIdO6NAQ=="}`
+	jobVectorPub    = "A6EHv/POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg="
+	jobVectorPolicy = `{"schema_version": 1, "policy_version": 4, "probe_id": "p1", "site_id": "s1", "approved_cidrs": ["10.20.0.0/24"], "denied_cidrs": [], "allow_public_addresses": false, "allowed_modes": ["vulnerability_assessment"], "allowed_plugins": ["nmap"], "active_web_scans_allowed": false, "credentialed_scans_allowed": false, "limits": {"max_hosts": 256, "max_parallel_hosts": 8, "max_packets_per_second": 1000, "max_duration_seconds": 10800}, "signature": "mirXEAyswKQuI7n8tcKGFYiaZaqn1VpxtUSg3XMKJhG9i0MgqZBxFJj1pNIPVCTxpCWJNiMnqUZEytLIE8mDBw=="}`
+	jobVectorJob    = `{"schema_version": 1, "job_id": "job-123", "probe_id": "p1", "site_id": "s1", "mode": "vulnerability_assessment", "profile_version": 1, "policy_version": 4, "not_before": "2020-01-01T00:00:00+00:00", "expires_at": "2030-01-01T00:00:00+00:00", "targets": ["10.20.0.5/32"], "workflow": [{"stage": "discovery", "plugin": "nmap", "config": {}}], "limits": {"max_hosts": 256, "max_parallel_hosts": 8, "max_packets_per_second": 1000, "max_duration_seconds": 10800}, "signature": "A07Uz317F18t8r1Tnk/sjrvkvGQ+pnbJch/RS6phrlKoxKsLHYrW5gmFU2i+CT0R2DFmAXzMvAFW8N04/2P4Dg=="}`
 )
 
 var withinWindow = time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -113,7 +115,7 @@ func TestEnforceLimitsRejectsOverrun(t *testing.T) {
 
 func TestVerifyJobRejectsWrongKey(t *testing.T) {
 	// A different (valid) key must not verify this job.
-	otherPub, err := ParsePublicKey(vectorPubKeyB64)
+	otherPub, _, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}

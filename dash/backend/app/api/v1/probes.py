@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import base64
 import contextlib
+import hashlib
 import json
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -46,6 +47,7 @@ from app.models.enums import (
 from app.models.probe import Probe
 from app.models.probe_result_upload import ProbeResultUpload
 from app.models.scan_job import ScanJob
+from app.models.scan_job_attempt import ScanJobAttempt
 from app.models.user import User
 from app.schemas.common import Page
 from app.schemas.enrollment import (
@@ -56,7 +58,7 @@ from app.schemas.enrollment import (
     EnrollRequest,
     EnrollResponse,
 )
-from app.schemas.job import JobStatusUpdate, ResultIngestSummary
+from app.schemas.job import JobStatusUpdate, ResultIngestSummary, ResultUploadEnvelope
 from app.schemas.probe import (
     CertificateStatus,
     CredentialedScanToggle,
@@ -96,12 +98,168 @@ from app.services.zap_parser import ZapParseError, parse_zap_json
 
 # Upper bound on a single result upload (defense against oversized payloads).
 _MAX_RESULT_BYTES = 25 * 1024 * 1024
+_MAX_RESULT_ENVELOPE_BYTES = (_MAX_RESULT_BYTES * 4 // 3) + 16 * 1024
+_RESULT_ENVELOPE_CONTENT_TYPE = "application/vnd.vulna.result+json"
+_RESULT_FORMATS_BY_SCANNER = {
+    "nmap": "nmap_xml",
+    "nuclei": "nuclei_jsonl",
+    "testssl": "testssl_json",
+    "zap": "zap_json",
+    "metasploit": "metasploit_json",
+    "ssh_inventory": "software_inventory_json",
+    "winrm_inventory": "software_inventory_json",
+}
 
 router = APIRouter(prefix="/probes", tags=["probes"])
 
 # A suggested client heartbeat cadence; also used for the "expiring soon" window.
 _HEARTBEAT_INTERVAL_SECONDS = 60
 _CERT_EXPIRING_SOON = timedelta(days=14)
+_JOB_LEASE_DURATION = timedelta(minutes=3)
+_ACTIVE_ATTEMPT_STATUSES = {"offered", "accepted", "running"}
+_TERMINAL_ATTEMPT_STATUSES = {
+    "completed",
+    "failed",
+    "cancelled",
+    "expired",
+    "rejected_by_probe",
+}
+
+
+def _attempt_response_headers(attempt: ScanJobAttempt) -> dict[str, str]:
+    return {
+        "X-Vulna-Attempt-ID": str(attempt.id),
+        "X-Vulna-Lease-ID": str(attempt.lease_id),
+        "X-Vulna-Fencing-Token": str(attempt.fencing_token),
+        "X-Vulna-Lease-Expires-At": attempt.lease_expires_at.isoformat(),
+    }
+
+
+def _result_idempotency_key(
+    job_id: uuid.UUID, stage: str, scanner: str, raw: bytes, *, complete: bool
+) -> str:
+    digest = hashlib.sha256()
+    digest.update(f"{job_id}\0{stage}\0{scanner}\0".encode())
+    digest.update(b"1\0" if complete else b"0\0")
+    digest.update(raw)
+    return digest.hexdigest()
+
+
+def _parse_attempt_headers(
+    attempt_id: str | None, lease_id: str | None, fencing_token: str | None
+) -> tuple[uuid.UUID, uuid.UUID, int]:
+    if not attempt_id or not lease_id or not fencing_token:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Job attempt, lease, and fencing headers are required",
+        )
+    try:
+        parsed_attempt = uuid.UUID(attempt_id)
+        parsed_lease = uuid.UUID(lease_id)
+        parsed_fence = int(fencing_token)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Job attempt headers are invalid",
+        ) from exc
+    if parsed_fence < 1:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Job fencing token is invalid",
+        )
+    return parsed_attempt, parsed_lease, parsed_fence
+
+
+async def _require_current_attempt(
+    session: AsyncSession,
+    *,
+    job: ScanJob,
+    probe: Probe,
+    attempt_id: str | None,
+    lease_id: str | None,
+    fencing_token: str | None,
+    now: datetime,
+    allow_terminal: bool = False,
+) -> ScanJobAttempt:
+    parsed_attempt, parsed_lease, parsed_fence = _parse_attempt_headers(
+        attempt_id, lease_id, fencing_token
+    )
+    attempt = await session.scalar(
+        select(ScanJobAttempt)
+        .where(
+            ScanJobAttempt.id == parsed_attempt,
+            ScanJobAttempt.scan_job_id == job.id,
+            ScanJobAttempt.probe_id == probe.id,
+            ScanJobAttempt.lease_id == parsed_lease,
+            ScanJobAttempt.fencing_token == parsed_fence,
+        )
+        .with_for_update()
+    )
+    latest_fence = await session.scalar(
+        select(func.max(ScanJobAttempt.fencing_token)).where(ScanJobAttempt.scan_job_id == job.id)
+    )
+    if attempt is None or latest_fence != parsed_fence:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This job attempt has been fenced by a newer execution",
+        )
+    attempt_expiry = (
+        attempt.lease_expires_at
+        if attempt.lease_expires_at.tzinfo
+        else attempt.lease_expires_at.replace(tzinfo=UTC)
+    )
+    if attempt.status in _ACTIVE_ATTEMPT_STATUSES and attempt_expiry <= now:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This job attempt lease has expired",
+        )
+    if attempt.status in _TERMINAL_ATTEMPT_STATUSES and not allow_terminal:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This job attempt is already terminal",
+        )
+    return attempt
+
+
+async def _reclaim_expired_attempts(session: AsyncSession, probe: Probe, now: datetime) -> None:
+    rows = (
+        await session.execute(
+            select(ScanJobAttempt, ScanJob)
+            .join(ScanJob, ScanJob.id == ScanJobAttempt.scan_job_id)
+            .where(
+                ScanJobAttempt.probe_id == probe.id,
+                ScanJobAttempt.status.in_(_ACTIVE_ATTEMPT_STATUSES),
+                ScanJobAttempt.lease_expires_at <= now,
+                ScanJob.status.in_([JobStatus.OFFERED, JobStatus.ACCEPTED, JobStatus.RUNNING]),
+            )
+            .with_for_update(skip_locked=True)
+        )
+    ).all()
+    for attempt, job in rows:
+        latest_fence = await session.scalar(
+            select(func.max(ScanJobAttempt.fencing_token)).where(
+                ScanJobAttempt.scan_job_id == job.id
+            )
+        )
+        if latest_fence != attempt.fencing_token:
+            continue
+        attempt.status = "expired"
+        attempt.finished_at = now
+        expires = job.expires_at if job.expires_at.tzinfo else job.expires_at.replace(tzinfo=UTC)
+        if expires <= now:
+            job.status = JobStatus.EXPIRED
+            job.finished_at = now
+        elif job.cancel_requested_at is not None:
+            job.status = JobStatus.CANCELLED
+            job.finished_at = now
+        else:
+            job.status = JobStatus.QUEUED
+            job.offered_at = None
+            job.accepted_at = None
+    # The API session intentionally disables autoflush. Make reclaimed jobs
+    # visible to the immediately following queued-job selection in this poll.
+    if rows:
+        await session.flush()
 
 
 # ---------------------------------------------------------------------------
@@ -811,6 +969,7 @@ async def poll_next_job(
         )
 
     now = datetime.now(UTC)
+    await _reclaim_expired_attempts(session, probe, now)
     result = await session.execute(
         select(ScanJob)
         .where(
@@ -819,6 +978,8 @@ async def poll_next_job(
             ScanJob.cancel_requested_at.is_(None),
         )
         .order_by(ScanJob.created_at.asc())
+        .limit(32)
+        .with_for_update(skip_locked=True)
     )
     for job in result.scalars():
         expires = job.expires_at if job.expires_at.tzinfo else job.expires_at.replace(tzinfo=UTC)
@@ -829,11 +990,86 @@ async def poll_next_job(
             continue
         if not_before > now:
             continue  # not yet eligible; leave queued
+        if "schema_version" not in job.envelope_json:
+            # Rolling-upgrade bridge for jobs queued before the v1 wire
+            # contract became explicit. Re-sign only work that has never been
+            # offered; historical/active envelopes remain immutable.
+            unsigned = dict(job.envelope_json)
+            unsigned.pop("signature", None)
+            unsigned["schema_version"] = 1
+            unsigned["profile_version"] = 1
+            job.envelope_json = get_signer().sign_document(unsigned)
         job.status = JobStatus.OFFERED
         job.offered_at = now
-        return JSONResponse(content=job.envelope_json)
+        previous_fence = await session.scalar(
+            select(func.max(ScanJobAttempt.fencing_token)).where(
+                ScanJobAttempt.scan_job_id == job.id
+            )
+        )
+        fencing_token = (previous_fence or 0) + 1
+        attempt = ScanJobAttempt(
+            scan_job_id=job.id,
+            probe_id=probe.id,
+            attempt_number=fencing_token,
+            fencing_token=fencing_token,
+            lease_id=uuid.uuid4(),
+            status="offered",
+            offered_at=now,
+            lease_expires_at=now + _JOB_LEASE_DURATION,
+        )
+        session.add(attempt)
+        await session.flush()
+        return JSONResponse(content=job.envelope_json, headers=_attempt_response_headers(attempt))
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/{probe_id}/jobs/{job_id}/lease",
+    response_model=None,
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Renew an active job-attempt lease",
+)
+async def renew_job_lease(
+    probe_id: uuid.UUID,
+    job_id: uuid.UUID,
+    probe: CurrentProbe,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    attempt_id: Annotated[str | None, Header(alias="X-Vulna-Attempt-ID", max_length=36)] = None,
+    lease_id: Annotated[str | None, Header(alias="X-Vulna-Lease-ID", max_length=36)] = None,
+    fencing_token: Annotated[
+        str | None, Header(alias="X-Vulna-Fencing-Token", max_length=20)
+    ] = None,
+) -> Response:
+    if probe.id != probe_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Certificate does not match the requested probe",
+        )
+    job = await session.get(ScanJob, job_id)
+    if job is None or job.probe_id != probe.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+    now = datetime.now(UTC)
+    attempt = await _require_current_attempt(
+        session,
+        job=job,
+        probe=probe,
+        attempt_id=attempt_id,
+        lease_id=lease_id,
+        fencing_token=fencing_token,
+        now=now,
+    )
+    if job.cancel_requested_at is not None:
+        # A non-success response is the cancellation signal consumed by current
+        # Scouts. They stop the worker and report the attempt as cancelled; the
+        # existing attempt headers remain valid for that terminal report.
+        return Response(status_code=status.HTTP_409_CONFLICT)
+    attempt.last_renewed_at = now
+    attempt.lease_expires_at = now + _JOB_LEASE_DURATION
+    return Response(
+        status_code=status.HTTP_204_NO_CONTENT,
+        headers={"X-Vulna-Lease-Expires-At": attempt.lease_expires_at.isoformat()},
+    )
 
 
 @router.post(
@@ -849,6 +1085,11 @@ async def report_job_status(
     probe: CurrentProbe,
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
+    attempt_id: Annotated[str | None, Header(alias="X-Vulna-Attempt-ID", max_length=36)] = None,
+    lease_id: Annotated[str | None, Header(alias="X-Vulna-Lease-ID", max_length=36)] = None,
+    fencing_token: Annotated[
+        str | None, Header(alias="X-Vulna-Fencing-Token", max_length=20)
+    ] = None,
 ) -> Response:
     """A probe reports progress/outcome for a job it was offered."""
     if probe.id != probe_id:
@@ -859,6 +1100,17 @@ async def report_job_status(
     job = await session.get(ScanJob, job_id)
     if job is None or job.probe_id != probe.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+    now = datetime.now(UTC)
+    attempt = await _require_current_attempt(
+        session,
+        job=job,
+        probe=probe,
+        attempt_id=attempt_id,
+        lease_id=lease_id,
+        fencing_token=fencing_token,
+        now=now,
+        allow_terminal=True,
+    )
     terminal_statuses = {
         JobStatus.COMPLETED,
         JobStatus.FAILED,
@@ -879,17 +1131,33 @@ async def report_job_status(
             detail="A terminal scan job cannot return to an active state",
         )
 
-    now = datetime.now(UTC)
+    allowed_attempt_transitions = {
+        "offered": {"accepted", "rejected_by_probe"},
+        "accepted": {"accepted", "running", "failed", "cancelled", "rejected_by_probe"},
+        "running": {"running", "completed", "failed", "cancelled", "rejected_by_probe"},
+    }
+    requested_status = payload.status.value
+    if requested_status not in allowed_attempt_transitions.get(attempt.status, set()):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Invalid job-attempt transition from {attempt.status} to {requested_status}",
+        )
     if payload.progress is not None:
         try:
             apply_progress(job, payload.progress, now)
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     job.status = payload.status
+    attempt.status = requested_status
+    if requested_status in _ACTIVE_ATTEMPT_STATUSES:
+        attempt.last_renewed_at = now
+        attempt.lease_expires_at = now + _JOB_LEASE_DURATION
     if payload.status == JobStatus.ACCEPTED:
         job.accepted_at = now
+        attempt.accepted_at = attempt.accepted_at or now
     elif payload.status == JobStatus.RUNNING:
         job.started_at = job.started_at or now
+        attempt.started_at = attempt.started_at or now
     elif payload.status in (
         JobStatus.COMPLETED,
         JobStatus.FAILED,
@@ -897,6 +1165,7 @@ async def report_job_status(
         JobStatus.REJECTED_BY_PROBE,
     ):
         job.finished_at = now
+        attempt.finished_at = now
         job.estimated_completion_at = None
         if payload.status == JobStatus.COMPLETED:
             job.progress_percent = 100
@@ -945,7 +1214,8 @@ async def report_job_status(
         )
         for usage in usage_rows:
             usage.status = usage_status
-            usage.detail = payload.error_code
+            if payload.error_code is not None:
+                usage.detail = payload.error_code
         tests = list(
             (
                 await session.execute(
@@ -1023,6 +1293,11 @@ async def upload_job_results(
     scanner: Annotated[str, Query(max_length=64)] = "nmap",
     complete: Annotated[bool, Query()] = False,
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key", max_length=64)] = None,
+    attempt_id: Annotated[str | None, Header(alias="X-Vulna-Attempt-ID", max_length=36)] = None,
+    lease_id: Annotated[str | None, Header(alias="X-Vulna-Lease-ID", max_length=36)] = None,
+    fencing_token: Annotated[
+        str | None, Header(alias="X-Vulna-Fencing-Token", max_length=20)
+    ] = None,
 ) -> ResultIngestSummary:
     """Ingest a probe's raw scanner output for a job.
 
@@ -1030,9 +1305,10 @@ async def upload_job_results(
     normalized findings. Raw output is retained verbatim and parsed defensively.
 
     A Scout on an intermittent link may re-upload a result after a lost
-    acknowledgement. When it supplies a stable ``Idempotency-Key`` we record the
-    processed keys per job and treat a repeat as a no-op, so resuming an upload
-    never produces duplicate observations.
+    acknowledgement. Every upload therefore requires a stable ``Idempotency-Key``;
+    processed keys are recorded per job and repeats are no-ops. The reported
+    stage/scanner pair must also be present in the signed workflow, binding raw
+    evidence to the exact work the Scout was authorized to perform.
     """
     if probe.id != probe_id:
         raise HTTPException(
@@ -1042,55 +1318,131 @@ async def upload_job_results(
     job = await session.get(ScanJob, job_id)
     if job is None or job.probe_id != probe.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
-
-    if complete:
-        expected_stage = any(
-            value.get("stage") == stage and value.get("plugin") == scanner
-            for value in (job.workflow_json or [])
-        )
-        if not expected_stage:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Scanner completion does not match the signed job workflow",
-            )
-        if not idempotency_key:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Scanner completion requires an Idempotency-Key",
-            )
-
-    if idempotency_key:
-        already = await session.scalar(
-            select(ProbeResultUpload.id).where(
-                ProbeResultUpload.scan_job_id == job.id,
-                ProbeResultUpload.idempotency_key == idempotency_key,
-            )
-        )
-        if already is not None:
-            response.status_code = status.HTTP_200_OK
-            return ResultIngestSummary(duplicate=True)
-
     now = datetime.now(UTC)
-    if complete:
-        await finalize_scanner_verification(session, job=job, scanner=scanner, now=now)
-        session.add(ProbeResultUpload(scan_job_id=job.id, idempotency_key=idempotency_key))
-        return ResultIngestSummary()
+    attempt = await _require_current_attempt(
+        session,
+        job=job,
+        probe=probe,
+        attempt_id=attempt_id,
+        lease_id=lease_id,
+        fencing_token=fencing_token,
+        now=now,
+        allow_terminal=True,
+    )
+    if attempt.status not in {"accepted", "running", *_TERMINAL_ATTEMPT_STATUSES}:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Results cannot be uploaded before the job attempt is accepted",
+        )
 
-    # Bound the payload size before reading it.
+    expected_stage = any(
+        value.get("stage") == stage and value.get("plugin") == scanner
+        for value in (job.workflow_json or [])
+    )
+    if not expected_stage:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Result stage and scanner do not match the signed job workflow",
+        )
+    # Bound the request before reading it. A versioned JSON envelope carries a
+    # base64 payload and therefore receives only the corresponding 4/3 overhead.
+    envelope_request = request.headers.get("content-type", "").split(";", 1)[0].strip() == (
+        _RESULT_ENVELOPE_CONTENT_TYPE
+    )
+    request_limit = _MAX_RESULT_ENVELOPE_BYTES if envelope_request else _MAX_RESULT_BYTES
     content_length = request.headers.get("content-length")
     if (
         content_length is not None
         and content_length.isdigit()
-        and int(content_length) > _MAX_RESULT_BYTES
+        and int(content_length) > request_limit
     ):
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Result upload too large"
         )
     body = await request.body()
-    if len(body) > _MAX_RESULT_BYTES:
+    if len(body) > request_limit:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Result upload too large"
         )
+
+    if envelope_request:
+        try:
+            envelope = ResultUploadEnvelope.model_validate_json(body)
+            raw = base64.b64decode(envelope.payload, validate=True)
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Result envelope is invalid",
+            ) from exc
+        if (
+            envelope.job_id != job.id
+            or envelope.probe_id != probe.id
+            or envelope.stage != stage
+            or envelope.scanner != scanner
+            or envelope.complete != complete
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Result envelope identity does not match its authenticated upload",
+            )
+        expected_format = _RESULT_FORMATS_BY_SCANNER.get(scanner)
+        if expected_format is None or envelope.result_format != expected_format:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Result envelope format does not match its scanner",
+            )
+        if len(raw) != envelope.byte_length or len(raw) > _MAX_RESULT_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Result envelope byte length is invalid",
+            )
+        digest = "sha256:" + hashlib.sha256(raw).hexdigest()
+        if digest != envelope.content_hash:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Result envelope content hash does not match its payload",
+            )
+        body = raw
+
+    # Current Scouts must explicitly bind their versioned envelope to the same
+    # stable key they will reuse after a lost acknowledgement. For rolling
+    # compatibility with raw-body Scouts, the server derives that exact key
+    # instead of permitting a non-idempotent upload.
+    if not idempotency_key:
+        if envelope_request:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Versioned result uploads require an Idempotency-Key",
+            )
+        idempotency_key = _result_idempotency_key(job.id, stage, scanner, body, complete=complete)
+    elif envelope_request and idempotency_key != _result_idempotency_key(
+        job.id, stage, scanner, body, complete=complete
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Result Idempotency-Key does not match the authenticated envelope",
+        )
+
+    already = await session.scalar(
+        select(ProbeResultUpload.id).where(
+            ProbeResultUpload.scan_job_id == job.id,
+            ProbeResultUpload.idempotency_key == idempotency_key,
+        )
+    )
+    if already is not None:
+        response.status_code = status.HTTP_200_OK
+        return ResultIngestSummary(duplicate=True)
+
+    if complete:
+        await finalize_scanner_verification(session, job=job, scanner=scanner, now=now)
+        session.add(
+            ProbeResultUpload(
+                scan_job_id=job.id,
+                scan_job_attempt_id=attempt.id,
+                idempotency_key=idempotency_key,
+            )
+        )
+        return ResultIngestSummary()
 
     try:
         if scanner == "nmap":
@@ -1196,6 +1548,11 @@ async def upload_job_results(
 
     if job.started_at is None:
         job.started_at = now
-    if idempotency_key:
-        session.add(ProbeResultUpload(scan_job_id=job.id, idempotency_key=idempotency_key))
+    session.add(
+        ProbeResultUpload(
+            scan_job_id=job.id,
+            scan_job_attempt_id=attempt.id,
+            idempotency_key=idempotency_key,
+        )
+    )
     return result

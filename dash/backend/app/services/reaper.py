@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings
 from app.models.enums import JobMode, JobStatus
 from app.models.scan_job import ScanJob
+from app.models.scan_job_attempt import ScanJobAttempt
 from app.services import pentest as pentest_service
 from app.services import workflow_dispatch
 
@@ -54,8 +55,7 @@ def _effective_deadline(job: ScanJob) -> tuple[datetime, str, str]:
             deadline = execution_deadline
             code = "max_duration_exceeded"
             message = (
-                "job exceeded its signed maximum duration before the Scout "
-                "reported completion"
+                "job exceeded its signed maximum duration before the Scout reported completion"
             )
     return deadline, code, message
 
@@ -96,6 +96,19 @@ async def reap_stale_jobs(
         job.estimated_completion_at = None
         job.error_code = job.error_code or error_code
         job.error_message = job.error_message or error_message
+        attempts = list(
+            (
+                await session.execute(
+                    select(ScanJobAttempt).where(
+                        ScanJobAttempt.scan_job_id == job.id,
+                        ScanJobAttempt.status.in_(("offered", "accepted", "running")),
+                    )
+                )
+            ).scalars()
+        )
+        for attempt in attempts:
+            attempt.status = "expired"
+            attempt.finished_at = now
         # Fail the scanning stage of any workflow waiting on this job.
         await workflow_dispatch.on_scan_job_terminal(session, settings, job, JobStatus.EXPIRED)
         # A pentest job whose scout went silent: close the session cleanup-pending

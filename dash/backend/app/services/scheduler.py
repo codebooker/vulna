@@ -61,11 +61,15 @@ async def fire_schedule(
         return None
     try:
         job = await create_scan_job(
-            session, probe, settings,
+            session,
+            probe,
+            settings,
             targets=targets,
             mode=JobMode.VULNERABILITY_ASSESSMENT,
             created_by=schedule.created_by,
             network_id=schedule.network_id,
+            preset_key=schedule.preset_key,
+            preset_version=schedule.preset_version,
         )
     except JobValidationError as exc:
         schedule.last_error = f"Could not dispatch scan: {exc}"

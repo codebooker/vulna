@@ -10,7 +10,7 @@ from app.models.workflow_run import WorkflowRun
 from app.services import workflow as engine
 from httpx import AsyncClient
 
-from tests.conftest import UserFactory, auth_headers, probe_cert_headers
+from tests.conftest import UserFactory, auth_headers, probe_cert_headers, start_job_attempt
 
 NOW = datetime(2026, 7, 10, 12, 0, tzinfo=UTC)
 
@@ -158,10 +158,14 @@ async def _ready_probe(
 async def _report_job(
     client: AsyncClient, probe: dict[str, str], job_id: str, job_status: str
 ) -> int:
+    offered_job_id, attempt_headers = await start_job_attempt(
+        client, probe["probe_id"], probe["fingerprint"]
+    )
+    assert offered_job_id == job_id
     resp = await client.post(
         f"/api/v1/probes/{probe['probe_id']}/jobs/{job_id}/status",
         json={"status": job_status},
-        headers=probe_cert_headers(probe["fingerprint"]),
+        headers={**probe_cert_headers(probe["fingerprint"]), **attempt_headers},
     )
     return resp.status_code
 

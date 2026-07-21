@@ -25,7 +25,7 @@ from app.models.network import Network
 from app.models.scan_schedule import ScanSchedule
 from app.models.user import User
 from app.schemas.schedule import ScanScheduleCreate, ScanScheduleRead, ScanScheduleUpdate
-from app.services import authorization, scheduler
+from app.services import authorization, presets, scheduler
 from app.services.audit import record_audit
 
 router = APIRouter(
@@ -37,9 +37,7 @@ router = APIRouter(
 _require_operator = require_permission("schedules.manage")
 
 
-async def _owned(
-    session: AsyncSession, schedule_id: uuid.UUID, current_user: User
-) -> ScanSchedule:
+async def _owned(session: AsyncSession, schedule_id: uuid.UUID, current_user: User) -> ScanSchedule:
     sched = await session.scalar(
         select(ScanSchedule)
         .join(Network, Network.id == ScanSchedule.network_id)
@@ -54,8 +52,12 @@ async def _owned(
     return sched
 
 
-@router.post("", response_model=ScanScheduleRead, status_code=status.HTTP_201_CREATED,
-             summary="Create a scan schedule")
+@router.post(
+    "",
+    response_model=ScanScheduleRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a scan schedule",
+)
 async def create_schedule(
     payload: ScanScheduleCreate,
     operator: Annotated[User, Depends(_require_operator)],
@@ -71,6 +73,12 @@ async def create_schedule(
     )
     if net is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Network not found")
+    try:
+        preset = presets.get_preset(payload.preset_key)
+    except presets.PresetError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
     now = datetime.now(UTC)
     first = payload.first_run_at or (now + timedelta(minutes=payload.interval_minutes))
     sched = ScanSchedule(
@@ -79,18 +87,28 @@ async def create_schedule(
         name=payload.name,
         mode=JobMode.VULNERABILITY_ASSESSMENT,
         interval_minutes=payload.interval_minutes,
+        preset_key=preset.key,
+        preset_version=preset.version,
         enabled=payload.enabled,
         next_run_at=first,
         created_by=authorization.user_actor_id(operator),
     )
     session.add(sched)
     record_audit(
-        session, action="schedule.created", actor=operator,
-        organization_id=operator.organization_id, target_type="scan_schedule", target_id=sched.id,
-        source_ip=context.source_ip, user_agent=context.user_agent, request_id=context.request_id,
+        session,
+        action="schedule.created",
+        actor=operator,
+        organization_id=operator.organization_id,
+        target_type="scan_schedule",
+        target_id=sched.id,
+        source_ip=context.source_ip,
+        user_agent=context.user_agent,
+        request_id=context.request_id,
         metadata={
             "network_id": str(payload.network_id),
             "interval_minutes": payload.interval_minutes,
+            "preset_key": preset.key,
+            "preset_version": preset.version,
         },
     )
     await session.flush()
@@ -103,16 +121,22 @@ async def list_schedules(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> list[ScanScheduleRead]:
     rows = (
-        await session.execute(
-            select(ScanSchedule)
-            .join(Network, Network.id == ScanSchedule.network_id)
-            .where(
-                ScanSchedule.organization_id == current_user.organization_id,
-                site_scope_clause(current_user, Network.site_id, permission_key="schedules.read"),
+        (
+            await session.execute(
+                select(ScanSchedule)
+                .join(Network, Network.id == ScanSchedule.network_id)
+                .where(
+                    ScanSchedule.organization_id == current_user.organization_id,
+                    site_scope_clause(
+                        current_user, Network.site_id, permission_key="schedules.read"
+                    ),
+                )
+                .order_by(ScanSchedule.next_run_at)
             )
-            .order_by(ScanSchedule.next_run_at)
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return [ScanScheduleRead.model_validate(r) for r in rows]
 
 
@@ -128,6 +152,15 @@ async def update_schedule(
         sched.name = payload.name
     if payload.interval_minutes is not None:
         sched.interval_minutes = payload.interval_minutes
+    if payload.preset_key is not None:
+        try:
+            preset = presets.get_preset(payload.preset_key)
+        except presets.PresetError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+            ) from exc
+        sched.preset_key = preset.key
+        sched.preset_version = preset.version
     if payload.enabled is not None:
         sched.enabled = payload.enabled
     if payload.next_run_at is not None:
@@ -135,8 +168,9 @@ async def update_schedule(
     return ScanScheduleRead.model_validate(sched)
 
 
-@router.delete("/{schedule_id}", status_code=status.HTTP_204_NO_CONTENT,
-               summary="Delete a scan schedule")
+@router.delete(
+    "/{schedule_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete a scan schedule"
+)
 async def delete_schedule(
     schedule_id: uuid.UUID,
     operator: Annotated[User, Depends(_require_operator)],

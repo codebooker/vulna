@@ -102,17 +102,13 @@ async def build_policy_document(
             except ValueError:
                 continue
         if relay_ids:
-            relays = (
-                await session.execute(select(Relay).where(Relay.id.in_(relay_ids)))
-            ).scalars()
+            relays = (await session.execute(select(Relay).where(Relay.id.in_(relay_ids)))).scalars()
             denied = sorted({cidr for relay in relays for cidr in relay.denied_cidrs_json})
     allow_public = any(s.allow_public_addresses for s in scopes)
     # The policy version tracks the latest scope change for the probe's site.
     policy_version = max((s.policy_version for s in scopes), default=0)
 
-    max_hosts = _int_or_default(
-        [s.maximum_hosts for s in scopes], _DEFAULT_LIMITS["max_hosts"]
-    )
+    max_hosts = _int_or_default([s.maximum_hosts for s in scopes], _DEFAULT_LIMITS["max_hosts"])
     limits = {
         "max_hosts": max_hosts,
         "max_parallel_hosts": _int_or_default(
@@ -144,6 +140,7 @@ async def build_policy_document(
     # The document is deterministic given the probe's scopes/limits so its hash
     # is stable across fetches; the probe uses that hash for change detection.
     return {
+        "schema_version": 1,
         "policy_version": policy_version,
         "probe_id": str(probe.id),
         "site_id": str(probe.site_id),

@@ -37,7 +37,10 @@ run it.
   the relay **never** receives job-signing private keys or scanner credentials. It
   carries traffic, nothing more.
 - **mTLS control channel.** The relay enrolls with a single-use token and a CSR,
-  reusing the same enrollment + mutual-TLS machinery as Scouts.
+  reusing the same enrollment + mutual-TLS machinery as Scouts. Enrollment
+  tokens expire, and the Relay renews its client certificate automatically
+  before expiry; the previous certificate has a bounded recovery window so a
+  lost renewal response does not strand the site.
 - **Central-scanner binding.** Saving Relay scope makes the configured central
   scanner the primary Scout for that network. Other Scouts do not receive the
   Relay-managed ranges in their signed policy, and explicitly selecting another
@@ -129,6 +132,8 @@ authoritative retirement action.
 - **Tunnel never comes up:** verify the generated control URL, system time, CA
   trust, outbound UDP reachability, and the appliance's published Relay endpoint.
 - **Approved scope will not save:** Relay scope is IPv4-only; remove overlaps with
-  another Relay and confirm the central scanner exists.
+  any Relay on the appliance (including another organization) and confirm the
+  central scanner exists. The current shared WireGuard data plane requires
+  globally unique routed ranges.
 - **Targets are rejected:** check the approved and denied ranges, public-address
   setting, organization switch, per-Relay kill switch, and tunnel status.

@@ -3,6 +3,7 @@ package nmap
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"slices"
@@ -146,17 +147,32 @@ func TestBuildArgsRejectsInvalidHostTimeout(t *testing.T) {
 
 func TestNewWorkerInheritsWholeJobDeadline(t *testing.T) {
 	w := NewWorker()
-	runCtx, cancel := w.runContext(context.Background())
+	job := &policy.Job{}
+	runCtx, cancel := w.runContext(context.Background(), job)
 	defer cancel()
 	if deadline, ok := runCtx.Deadline(); ok {
 		t.Fatalf("default Nmap worker imposed a hidden invocation deadline: %s", deadline)
 	}
 
 	w.Timeout = 50 * time.Millisecond
-	runCtx, cancel = w.runContext(context.Background())
+	runCtx, cancel = w.runContext(context.Background(), job)
 	defer cancel()
 	if _, ok := runCtx.Deadline(); !ok {
 		t.Fatal("explicit Nmap timeout override was not applied")
+	}
+}
+
+func TestRunContextAppliesSignedStageDeadline(t *testing.T) {
+	w := NewWorker()
+	job := &policy.Job{Workflow: []map[string]any{{
+		"stage": "discovery", "plugin": "nmap",
+		"config": map[string]any{"max_duration_seconds": json.Number("60")},
+	}}}
+	runCtx, cancel := w.runContext(context.Background(), job)
+	defer cancel()
+	deadline, ok := runCtx.Deadline()
+	if !ok || time.Until(deadline) > 61*time.Second {
+		t.Fatalf("signed Nmap deadline was not applied: deadline=%v ok=%v", deadline, ok)
 	}
 }
 

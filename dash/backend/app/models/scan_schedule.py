@@ -38,6 +38,12 @@ class ScanSchedule(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         default=JobMode.VULNERABILITY_ASSESSMENT,
     )
     interval_minutes: Mapped[int] = mapped_column(Integer, nullable=False)
+    preset_key: Mapped[str] = mapped_column(
+        String(128), nullable=False, default="standard", server_default="standard"
+    )
+    preset_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=2, server_default="2"
+    )
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     next_run_at: Mapped[datetime] = mapped_column(

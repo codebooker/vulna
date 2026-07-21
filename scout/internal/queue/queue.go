@@ -32,11 +32,24 @@ var ErrFull = errors.New("queue: durable backlog is full")
 type Item struct {
 	Key               string `json:"key"`
 	JobID             string `json:"job_id"`
+	AttemptID         string `json:"attempt_id,omitempty"`
+	LeaseID           string `json:"lease_id,omitempty"`
+	FencingToken      int64  `json:"fencing_token,omitempty"`
 	Stage             string `json:"stage"`
 	Scanner           string `json:"scanner"`
 	Raw               []byte `json:"raw"`
 	Complete          bool   `json:"complete,omitempty"`
 	CreatedAtUnixNano int64  `json:"created_at_unix_nano,omitempty"`
+}
+
+func itemKey(it Item) string {
+	h := sha256.New()
+	if it.AttemptID != "" {
+		h.Write([]byte(it.AttemptID + "\x00"))
+		h.Write([]byte(fmt.Sprintf("%d\x00", it.FencingToken)))
+	}
+	h.Write([]byte(Key(it.JobID, it.Stage, it.Scanner, it.Raw, it.Complete)))
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // Key derives the stable idempotency key for a batch from its content, so the
@@ -45,7 +58,9 @@ func Key(jobID, stage, scanner string, raw []byte, complete ...bool) string {
 	h := sha256.New()
 	h.Write([]byte(jobID + "\x00" + stage + "\x00" + scanner + "\x00"))
 	if len(complete) > 0 && complete[0] {
-		h.Write([]byte("complete\x00"))
+		h.Write([]byte("1\x00"))
+	} else {
+		h.Write([]byte("0\x00"))
 	}
 	h.Write(raw)
 	return hex.EncodeToString(h.Sum(nil))
@@ -90,7 +105,7 @@ func (q *Queue) Enqueue(it Item) error {
 	defer q.mu.Unlock()
 
 	if it.Key == "" {
-		it.Key = Key(it.JobID, it.Stage, it.Scanner, it.Raw, it.Complete)
+		it.Key = itemKey(it)
 	}
 	if _, err := os.Stat(q.file(it.Key)); err == nil {
 		return nil // already queued

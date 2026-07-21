@@ -12,6 +12,7 @@ class ScanScheduleCreate(BaseModel):
     network_id: uuid.UUID
     name: str = Field(min_length=1, max_length=255)
     interval_minutes: int = Field(ge=5, description="Minimum 5 minutes between runs")
+    preset_key: str = Field(default="standard", min_length=1, max_length=128)
     enabled: bool = True
     # Optional first run; defaults to now + interval.
     first_run_at: datetime | None = None
@@ -20,6 +21,7 @@ class ScanScheduleCreate(BaseModel):
 class ScanScheduleUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     interval_minutes: int | None = Field(default=None, ge=5)
+    preset_key: str | None = Field(default=None, min_length=1, max_length=128)
     enabled: bool | None = None
     next_run_at: datetime | None = None
 
@@ -33,6 +35,8 @@ class ScanScheduleRead(BaseModel):
     name: str
     mode: str
     interval_minutes: int
+    preset_key: str
+    preset_version: int
     enabled: bool
     next_run_at: datetime
     last_run_at: datetime | None

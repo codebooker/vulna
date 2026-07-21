@@ -260,7 +260,7 @@ func TestRunStreamingCompletesDiscoveryAcrossAllChunksFirst(t *testing.T) {
 	}
 	want := []string{
 		"nmap:10.0.0.0/24", "nmap:10.0.1.0/24",
-		"nuclei:10.0.0.0/24", "nuclei:10.0.1.0/24",
+		"nuclei:10.0.0.0/23",
 	}
 	if !slices.Equal(order, want) {
 		t.Fatalf("workflow order = %v, want discovery-first %v", order, want)
@@ -270,8 +270,8 @@ func TestRunStreamingCompletesDiscoveryAcrossAllChunksFirst(t *testing.T) {
 	}
 	var sawChunkProgress bool
 	for _, progress := range reports {
-		if progress.Percent == 25 && progress.StagesCompleted == 0 &&
-			progress.WorkUnitsDone == 1 && progress.WorkUnitsTotal == 4 {
+		if progress.Percent == 33 && progress.StagesCompleted == 0 &&
+			progress.WorkUnitsDone == 1 && progress.WorkUnitsTotal == 3 {
 			sawChunkProgress = true
 		}
 	}
@@ -279,7 +279,7 @@ func TestRunStreamingCompletesDiscoveryAcrossAllChunksFirst(t *testing.T) {
 		t.Fatalf("did not report honest chunk progress: %+v", reports)
 	}
 	last := reports[len(reports)-1]
-	if last.Percent != 99 || last.StagesCompleted != 2 || last.WorkUnitsDone != 4 {
+	if last.Percent != 99 || last.StagesCompleted != 2 || last.WorkUnitsDone != 3 {
 		t.Fatalf("unexpected final progress: %+v", last)
 	}
 }

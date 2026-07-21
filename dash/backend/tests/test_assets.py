@@ -12,7 +12,7 @@ from app.models.site import Site
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tests.conftest import probe_cert_headers
+from tests.conftest import probe_cert_headers, start_job_attempt
 from tests.test_jobs import _ready_probe
 
 EnrollFactory = Callable[..., Awaitable[dict[str, str]]]
@@ -72,22 +72,27 @@ _XML_HEADERS = {"Content-Type": "application/xml"}
 
 async def _create_job(
     client: AsyncClient, admin_headers: dict[str, str], probe: dict[str, str]
-) -> str:
+) -> tuple[str, dict[str, str]]:
     resp = await client.post(
         "/api/v1/jobs",
         json={"probe_id": probe["probe_id"], "targets": ["10.20.0.0/24"]},
         headers=admin_headers,
     )
     assert resp.status_code == 201
-    return resp.json()["id"]
+    job_id = resp.json()["id"]
+    offered_job_id, attempt_headers = await start_job_attempt(
+        client, probe["probe_id"], probe["fingerprint"]
+    )
+    assert offered_job_id == job_id
+    return job_id, attempt_headers
 
 
 async def test_upload_discovers_assets_and_services(
     client: AsyncClient, admin_headers: dict[str, str], enroll_probe: EnrollFactory
 ) -> None:
     probe = await _ready_probe(client, admin_headers, enroll_probe)
-    job_id = await _create_job(client, admin_headers, probe)
-    headers = {**probe_cert_headers(probe["fingerprint"]), **_XML_HEADERS}
+    job_id, attempt_headers = await _create_job(client, admin_headers, probe)
+    headers = {**probe_cert_headers(probe["fingerprint"]), **attempt_headers, **_XML_HEADERS}
 
     resp = await client.post(
         f"/api/v1/probes/{probe['probe_id']}/jobs/{job_id}/results",
@@ -120,8 +125,8 @@ async def test_empty_address_does_not_create_phantom_asset(
     client: AsyncClient, admin_headers: dict[str, str], enroll_probe: EnrollFactory
 ) -> None:
     probe = await _ready_probe(client, admin_headers, enroll_probe)
-    job_id = await _create_job(client, admin_headers, probe)
-    headers = {**probe_cert_headers(probe["fingerprint"]), **_XML_HEADERS}
+    job_id, attempt_headers = await _create_job(client, admin_headers, probe)
+    headers = {**probe_cert_headers(probe["fingerprint"]), **attempt_headers, **_XML_HEADERS}
 
     resp = await client.post(
         f"/api/v1/probes/{probe['probe_id']}/jobs/{job_id}/results",
@@ -141,15 +146,17 @@ async def test_reupload_updates_not_duplicates(
     client: AsyncClient, admin_headers: dict[str, str], enroll_probe: EnrollFactory
 ) -> None:
     probe = await _ready_probe(client, admin_headers, enroll_probe)
-    job_id = await _create_job(client, admin_headers, probe)
-    headers = {**probe_cert_headers(probe["fingerprint"]), **_XML_HEADERS}
+    job_id, attempt_headers = await _create_job(client, admin_headers, probe)
+    headers = {**probe_cert_headers(probe["fingerprint"]), **attempt_headers, **_XML_HEADERS}
     url = f"/api/v1/probes/{probe['probe_id']}/jobs/{job_id}/results"
 
     first = await client.post(url, content=SAMPLE_XML, headers=headers)
     assert first.json()["assets_created"] == 1
     second = await client.post(url, content=SAMPLE_XML, headers=headers)
+    assert second.status_code == 200
+    assert second.json()["duplicate"] is True
     assert second.json()["assets_created"] == 0
-    assert second.json()["assets_updated"] == 1
+    assert second.json()["assets_updated"] == 0
 
     # Still exactly one asset — repeated scans update rather than duplicate.
     listed = await client.get("/api/v1/assets", headers=admin_headers)
@@ -160,8 +167,8 @@ async def test_reupload_promotes_ip_name_and_lists_identifiers(
     client: AsyncClient, admin_headers: dict[str, str], enroll_probe: EnrollFactory
 ) -> None:
     probe = await _ready_probe(client, admin_headers, enroll_probe)
-    job_id = await _create_job(client, admin_headers, probe)
-    headers = {**probe_cert_headers(probe["fingerprint"]), **_XML_HEADERS}
+    job_id, attempt_headers = await _create_job(client, admin_headers, probe)
+    headers = {**probe_cert_headers(probe["fingerprint"]), **attempt_headers, **_XML_HEADERS}
     url = f"/api/v1/probes/{probe['probe_id']}/jobs/{job_id}/results"
 
     first = await client.post(url, content=IP_ONLY_XML, headers=headers)
@@ -181,8 +188,8 @@ async def test_upload_rejects_malformed_xml(
     client: AsyncClient, admin_headers: dict[str, str], enroll_probe: EnrollFactory
 ) -> None:
     probe = await _ready_probe(client, admin_headers, enroll_probe)
-    job_id = await _create_job(client, admin_headers, probe)
-    headers = {**probe_cert_headers(probe["fingerprint"]), **_XML_HEADERS}
+    job_id, attempt_headers = await _create_job(client, admin_headers, probe)
+    headers = {**probe_cert_headers(probe["fingerprint"]), **attempt_headers, **_XML_HEADERS}
     resp = await client.post(
         f"/api/v1/probes/{probe['probe_id']}/jobs/{job_id}/results",
         content=b"<not-nmap/>",
@@ -195,7 +202,7 @@ async def test_upload_requires_client_cert(
     client: AsyncClient, admin_headers: dict[str, str], enroll_probe: EnrollFactory
 ) -> None:
     probe = await _ready_probe(client, admin_headers, enroll_probe)
-    job_id = await _create_job(client, admin_headers, probe)
+    job_id, _ = await _create_job(client, admin_headers, probe)
     resp = await client.post(
         f"/api/v1/probes/{probe['probe_id']}/jobs/{job_id}/results",
         content=SAMPLE_XML,
@@ -205,12 +212,14 @@ async def test_upload_requires_client_cert(
 
 
 async def test_assets_are_org_scoped(
-    client: AsyncClient, admin_headers: dict[str, str], viewer_headers: dict[str, str],
+    client: AsyncClient,
+    admin_headers: dict[str, str],
+    viewer_headers: dict[str, str],
     enroll_probe: EnrollFactory,
 ) -> None:
     probe = await _ready_probe(client, admin_headers, enroll_probe)
-    job_id = await _create_job(client, admin_headers, probe)
-    headers = {**probe_cert_headers(probe["fingerprint"]), **_XML_HEADERS}
+    job_id, attempt_headers = await _create_job(client, admin_headers, probe)
+    headers = {**probe_cert_headers(probe["fingerprint"]), **attempt_headers, **_XML_HEADERS}
     await client.post(
         f"/api/v1/probes/{probe['probe_id']}/jobs/{job_id}/results",
         content=SAMPLE_XML,

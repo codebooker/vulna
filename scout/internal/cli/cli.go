@@ -358,6 +358,14 @@ func runRun(args []string, stdout, stderr io.Writer) int {
 			}
 			break
 		}
+		// Lease renewal is independent of heartbeat success. During a network
+		// partition the Agent uses repeated renewal failures to stop the worker
+		// before the server can fence and reassign the attempt.
+		if running != nil {
+			if err := scout.RenewLease(ctx, running); err != nil {
+				fmt.Fprintln(stderr, "vulnascout: job lease renewal failed:", err)
+			}
+		}
 		hb.PolicyHash = scout.PolicyHash()
 		// Surface the durable upload backlog so the operator can see accumulated
 		// work and its storage footprint during a WAN outage.

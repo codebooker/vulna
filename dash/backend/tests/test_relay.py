@@ -5,21 +5,28 @@ from __future__ import annotations
 import json
 import uuid
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
 # Release-blocking: security-critical regression (Phase 32).
 pytestmark = pytest.mark.release_gate
 
-from app.models.enums import RelayStatus
+from app.auth.password import hash_password
+from app.models.enums import RelayStatus, UserRole
 from app.models.network import NetworkScout
 from app.models.network_scope import NetworkScope
+from app.models.organization import Organization
+from app.models.relay import Relay
+from app.models.site import Site
+from app.models.user import User
+from app.services import relay as relay_svc
 from app.services.relay import egress_decision, validate_egress_cidrs
 from httpx import AsyncClient
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tests.conftest import generate_csr_pem, probe_cert_headers
+from tests.conftest import auth_headers, generate_csr_pem, probe_cert_headers
 
 EnrollFactory = Callable[..., Awaitable[dict[str, str]]]
 
@@ -106,16 +113,12 @@ async def test_relay_mode_is_off_by_default(
     assert cmd.status_code == 409
 
 
-async def test_enable_requires_admin(
-    client: AsyncClient, viewer_headers: dict[str, str]
-) -> None:
+async def test_enable_requires_admin(client: AsyncClient, viewer_headers: dict[str, str]) -> None:
     r = await client.post("/api/v1/relays/settings", json={"enabled": True}, headers=viewer_headers)
     assert r.status_code == 403
 
 
-async def _enable_and_enroll(
-    client: AsyncClient, admin_headers: dict[str, str]
-) -> str:
+async def _enable_and_enroll(client: AsyncClient, admin_headers: dict[str, str]) -> str:
     await client.post("/api/v1/relays/settings", json={"enabled": True}, headers=admin_headers)
     site = (
         await client.post(
@@ -141,6 +144,135 @@ async def _enable_and_enroll(
     for banned in ("signing", "private_key", "scanner_credential", "job_signing"):
         assert banned not in text
     return cmd.json()["relay_id"]
+
+
+async def test_expired_relay_enrollment_token_is_consumed(
+    client: AsyncClient,
+    admin_headers: dict[str, str],
+    db_session: AsyncSession,
+) -> None:
+    await client.post("/api/v1/relays/settings", json={"enabled": True}, headers=admin_headers)
+    site = (
+        await client.post(
+            "/api/v1/sites",
+            json={"name": "Expired relay site", "code": "RELAY-EXPIRED"},
+            headers=admin_headers,
+        )
+    ).json()
+    command = await client.post(
+        "/api/v1/relays/enrollment-command",
+        json={"name": "expired-relay", "site_id": site["id"]},
+        headers=admin_headers,
+    )
+    relay = await db_session.get(Relay, uuid.UUID(command.json()["relay_id"]))
+    assert relay is not None
+    relay.enrollment_token_expires_at = datetime.now(UTC) - timedelta(seconds=1)
+    await db_session.commit()
+
+    registration = await client.post(
+        "/api/v1/relays/register",
+        json={
+            "token": command.json()["token"],
+            "csr_pem": generate_csr_pem(),
+            "tunnel_public_key": "expired-wg-key",
+        },
+    )
+    assert registration.status_code == 400
+    await db_session.refresh(relay)
+    assert relay.enrollment_token_hash is None
+    assert relay.enrollment_token_expires_at is None
+
+
+async def test_relay_certificate_renewal_keeps_bounded_recovery_identity(
+    client: AsyncClient,
+    admin_headers: dict[str, str],
+    db_session: AsyncSession,
+) -> None:
+    relay_id = await _enable_and_enroll(client, admin_headers)
+    relay = await db_session.get(Relay, uuid.UUID(relay_id))
+    assert relay is not None and relay.certificate_fingerprint is not None
+    old_fingerprint = relay.certificate_fingerprint
+
+    renewed = await client.post(
+        "/api/v1/relays/renew",
+        json={"csr_pem": generate_csr_pem()},
+        headers=probe_cert_headers(old_fingerprint),
+    )
+    assert renewed.status_code == 200, renewed.text
+    await db_session.refresh(relay)
+    assert relay.certificate_fingerprint != old_fingerprint
+    assert relay.previous_certificate_fingerprint == old_fingerprint
+    assert relay.previous_certificate_valid_until is not None
+    assert relay.certificate_expires_at is not None
+
+    recovery = await client.get(
+        "/api/v1/relays/config", headers=probe_cert_headers(old_fingerprint)
+    )
+    assert recovery.status_code == 200
+    relay.previous_certificate_valid_until = datetime.now(UTC) - timedelta(seconds=1)
+    await db_session.commit()
+    expired = await client.get("/api/v1/relays/config", headers=probe_cert_headers(old_fingerprint))
+    assert expired.status_code == 401
+
+
+async def test_relay_routes_cannot_overlap_across_organizations(
+    client: AsyncClient,
+    admin_headers: dict[str, str],
+    db_session: AsyncSession,
+    enroll_probe: EnrollFactory,
+) -> None:
+    central = await enroll_probe(site_code="OVERLAP-CENTRAL", probe_name="local-scout")
+    approved = await client.post(
+        f"/api/v1/probes/{central['probe_id']}/approve", headers=admin_headers
+    )
+    assert approved.status_code == 200
+    first_relay_id = await _enable_and_enroll(client, admin_headers)
+    first_scope = await client.post(
+        f"/api/v1/relays/{first_relay_id}/scope",
+        json={"approved_cidrs": ["10.44.0.0/16"]},
+        headers=admin_headers,
+    )
+    assert first_scope.status_code == 200, first_scope.text
+
+    other_org = Organization(name="Other Relay Org", slug=f"relay-{uuid.uuid4().hex[:8]}")
+    db_session.add(other_org)
+    await db_session.flush()
+    relay_svc.set_relay_enabled(other_org, True)
+    other_admin = User(
+        organization_id=other_org.id,
+        email=f"relay-admin-{uuid.uuid4().hex[:8]}@example.com",
+        hashed_password=hash_password("other-relay-admin-password"),
+        role=UserRole.ADMINISTRATOR,
+    )
+    other_site = Site(
+        organization_id=other_org.id,
+        name="Other Relay Site",
+        code="OTHER-RELAY",
+        timezone="UTC",
+    )
+    db_session.add_all([other_admin, other_site])
+    await db_session.flush()
+    other_relay = Relay(
+        organization_id=other_org.id,
+        site_id=other_site.id,
+        name="tenant-secret-relay-name",
+        status=RelayStatus.ENROLLED,
+        certificate_fingerprint=uuid.uuid4().hex + uuid.uuid4().hex,
+        tunnel_public_key="other-wg-key",
+        tunnel_address="10.254.0.250/32",
+        enrolled_at=datetime.now(UTC),
+    )
+    db_session.add(other_relay)
+    await db_session.commit()
+
+    overlap = await client.post(
+        f"/api/v1/relays/{other_relay.id}/scope",
+        json={"approved_cidrs": ["10.44.1.0/24"]},
+        headers=auth_headers(other_admin),
+    )
+    assert overlap.status_code == 409, overlap.text
+    assert "another Relay tenant" in overlap.json()["detail"]
+    assert "site-b" not in overlap.text
 
 
 async def test_enroll_scope_and_egress_and_killswitch(
@@ -170,9 +302,9 @@ async def test_enroll_scope_and_egress_and_killswitch(
     scope_count = await db_session.scalar(select(func.count()).select_from(NetworkScope))
     assert scope_count == 1  # Relay scope is materialized for normal job policy/dispatch.
     binding_count = await db_session.scalar(
-        select(func.count()).select_from(NetworkScout).where(
-            NetworkScout.probe_id == uuid.UUID(central["probe_id"])
-        )
+        select(func.count())
+        .select_from(NetworkScout)
+        .where(NetworkScout.probe_id == uuid.UUID(central["probe_id"]))
     )
     assert binding_count == 1  # central Scout is dispatched through this relay network
     primary = await db_session.scalar(
@@ -221,9 +353,7 @@ async def test_enroll_scope_and_egress_and_killswitch(
         json={"token": enrollment.json()["token"], "csr_pem": generate_csr_pem()},
     )
     branch_body = branch.json()
-    await client.post(
-        f"/api/v1/probes/{branch_body['probe_id']}/approve", headers=admin_headers
-    )
+    await client.post(f"/api/v1/probes/{branch_body['probe_id']}/approve", headers=admin_headers)
     branch_policy = await client.get(
         f"/api/v1/probes/{branch_body['probe_id']}/policy",
         headers=probe_cert_headers(branch_body["certificate_fingerprint"]),
@@ -253,9 +383,7 @@ async def test_enroll_scope_and_egress_and_killswitch(
     )
     assert hb.status_code == 200 and hb.json()["tunnel_up"] is True
 
-    config = await client.get(
-        "/api/v1/relays/config", headers=probe_cert_headers(fp)
-    )
+    config = await client.get("/api/v1/relays/config", headers=probe_cert_headers(fp))
     assert config.status_code == 200
     assert config.json()["endpoint"] == "relay.test:51820"
     assert config.json()["tunnel_address"].startswith("10.254.0.")

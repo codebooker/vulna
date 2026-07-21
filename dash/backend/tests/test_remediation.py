@@ -11,7 +11,7 @@ from app.models.finding import Finding
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tests.conftest import UserFactory, auth_headers, probe_cert_headers
+from tests.conftest import UserFactory, auth_headers, probe_cert_headers, start_job_attempt
 from tests.test_findings import NMAP_XML, NUCLEI_JSONL
 from tests.test_jobs import _ready_probe
 
@@ -37,14 +37,19 @@ async def _finding(
         headers=admin_headers,
     )
     job_id = job.json()["id"]
-    headers = probe_cert_headers(probe["fingerprint"])
+    offered_job_id, attempt_headers = await start_job_attempt(
+        client, probe["probe_id"], probe["fingerprint"]
+    )
+    assert offered_job_id == job_id
+    headers = {**probe_cert_headers(probe["fingerprint"]), **attempt_headers}
     await client.post(
-        f"/api/v1/probes/{probe['probe_id']}/jobs/{job_id}/results?scanner=nmap",
+        f"/api/v1/probes/{probe['probe_id']}/jobs/{job_id}/results?stage=discovery&scanner=nmap",
         content=NMAP_XML,
         headers={**headers, "Content-Type": "application/xml"},
     )
     await client.post(
-        f"/api/v1/probes/{probe['probe_id']}/jobs/{job_id}/results?scanner=nuclei",
+        f"/api/v1/probes/{probe['probe_id']}/jobs/{job_id}/results"
+        "?stage=vulnerability&scanner=nuclei",
         content=NUCLEI_JSONL,
         headers={**headers, "Content-Type": "application/json"},
     )
@@ -122,9 +127,14 @@ async def test_verification_rescan_resolves_fixed_finding(
     verify_job = rescan.json()["id"]
 
     # The rescan observes a different finding but not the original -> it is fixed.
-    headers = probe_cert_headers(probe["fingerprint"])
+    offered_job_id, attempt_headers = await start_job_attempt(
+        client, probe["probe_id"], probe["fingerprint"]
+    )
+    assert offered_job_id == verify_job
+    headers = {**probe_cert_headers(probe["fingerprint"]), **attempt_headers}
     up = await client.post(
-        f"/api/v1/probes/{probe['probe_id']}/jobs/{verify_job}/results?scanner=nuclei",
+        f"/api/v1/probes/{probe['probe_id']}/jobs/{verify_job}/results"
+        "?stage=vulnerability&scanner=nuclei",
         content=OTHER_NUCLEI,
         headers={**headers, "Content-Type": "application/json"},
     )
@@ -160,7 +170,11 @@ async def test_clean_verification_completion_resolves_without_a_result_payload(
     )
     rescan = await client.post(f"/api/v1/findings/{fid}/rescan", headers=admin_headers)
     verify_job = rescan.json()["id"]
-    headers = probe_cert_headers(probe["fingerprint"])
+    offered_job_id, attempt_headers = await start_job_attempt(
+        client, probe["probe_id"], probe["fingerprint"]
+    )
+    assert offered_job_id == verify_job
+    headers = {**probe_cert_headers(probe["fingerprint"]), **attempt_headers}
 
     complete = await client.post(
         f"/api/v1/probes/{probe['probe_id']}/jobs/{verify_job}/results"
@@ -185,12 +199,17 @@ async def test_concurrent_scan_observation_prevents_false_verification_resolutio
     verify_job = (
         await client.post(f"/api/v1/findings/{fid}/rescan", headers=admin_headers)
     ).json()["id"]
-    probe_headers = probe_cert_headers(probe["fingerprint"])
+    offered_job_id, attempt_headers = await start_job_attempt(
+        client, probe["probe_id"], probe["fingerprint"]
+    )
+    assert offered_job_id == verify_job
+    probe_headers = {**probe_cert_headers(probe["fingerprint"]), **attempt_headers}
 
     # The verification scan sees the issue, then another scan sees it too and
     # becomes the Finding's most recent scan_job_id before completion arrives.
     observed = await client.post(
-        f"/api/v1/probes/{probe['probe_id']}/jobs/{verify_job}/results?scanner=nuclei",
+        f"/api/v1/probes/{probe['probe_id']}/jobs/{verify_job}/results"
+        "?stage=vulnerability&scanner=nuclei",
         content=NUCLEI_JSONL,
         headers={**probe_headers, "Content-Type": "application/json"},
     )
@@ -200,11 +219,20 @@ async def test_concurrent_scan_observation_prevents_false_verification_resolutio
         json={"probe_id": probe["probe_id"], "targets": ["10.20.0.0/24"]},
         headers=admin_headers,
     )
+    concurrent_job_id = concurrent_job.json()["id"]
+    offered_job_id, concurrent_attempt_headers = await start_job_attempt(
+        client, probe["probe_id"], probe["fingerprint"]
+    )
+    assert offered_job_id == concurrent_job_id
     concurrent_observation = await client.post(
-        f"/api/v1/probes/{probe['probe_id']}/jobs/{concurrent_job.json()['id']}"
-        "/results?scanner=nuclei",
+        f"/api/v1/probes/{probe['probe_id']}/jobs/{concurrent_job_id}/results"
+        "?stage=vulnerability&scanner=nuclei",
         content=NUCLEI_JSONL,
-        headers={**probe_headers, "Content-Type": "application/json"},
+        headers={
+            **probe_cert_headers(probe["fingerprint"]),
+            **concurrent_attempt_headers,
+            "Content-Type": "application/json",
+        },
     )
     assert concurrent_observation.status_code == 201, concurrent_observation.text
 
@@ -236,10 +264,15 @@ async def test_discovery_completion_verifies_correlation_findings(
         headers=admin_headers,
     )
     rescan = await client.post(f"/api/v1/findings/{fid}/rescan", headers=admin_headers)
-    headers = probe_cert_headers(probe["fingerprint"])
+    rescan_id = rescan.json()["id"]
+    offered_job_id, attempt_headers = await start_job_attempt(
+        client, probe["probe_id"], probe["fingerprint"]
+    )
+    assert offered_job_id == rescan_id
+    headers = {**probe_cert_headers(probe["fingerprint"]), **attempt_headers}
 
     complete = await client.post(
-        f"/api/v1/probes/{probe['probe_id']}/jobs/{rescan.json()['id']}/results"
+        f"/api/v1/probes/{probe['probe_id']}/jobs/{rescan_id}/results"
         "?stage=discovery&scanner=nmap&complete=true",
         headers={**headers, "Idempotency-Key": "clean-nmap-complete"},
     )
@@ -263,9 +296,15 @@ async def test_reintroduced_finding_reopens(
         json={"probe_id": probe["probe_id"], "targets": ["10.20.0.0/24"]},
         headers=admin_headers,
     )
-    headers = probe_cert_headers(probe["fingerprint"])
+    job_id = job.json()["id"]
+    offered_job_id, attempt_headers = await start_job_attempt(
+        client, probe["probe_id"], probe["fingerprint"]
+    )
+    assert offered_job_id == job_id
+    headers = {**probe_cert_headers(probe["fingerprint"]), **attempt_headers}
     await client.post(
-        f"/api/v1/probes/{probe['probe_id']}/jobs/{job.json()['id']}/results?scanner=nuclei",
+        f"/api/v1/probes/{probe['probe_id']}/jobs/{job_id}/results"
+        "?stage=vulnerability&scanner=nuclei",
         content=NUCLEI_JSONL,
         headers={**headers, "Content-Type": "application/json"},
     )

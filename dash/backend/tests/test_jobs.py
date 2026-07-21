@@ -16,13 +16,14 @@ from app.models.audit import AuditEvent
 from app.models.enums import JobStatus, SiteAccessMode, UserRole
 from app.models.organization import Organization
 from app.models.scan_job import ScanJob
+from app.models.scan_job_attempt import ScanJobAttempt
 from app.models.user import User
 from app.services.signing import get_signer
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tests.conftest import UserFactory, auth_headers, probe_cert_headers
+from tests.conftest import UserFactory, auth_headers, job_attempt_headers, probe_cert_headers
 
 EnrollFactory = Callable[..., Awaitable[dict[str, str]]]
 
@@ -316,6 +317,95 @@ async def test_jobs_next_delivers_signed_envelope(
     assert again.status_code == 204
 
 
+async def test_legacy_queued_job_is_upgraded_to_versioned_envelope(
+    client: AsyncClient,
+    admin_headers: dict[str, str],
+    enroll_probe: EnrollFactory,
+    db_session: AsyncSession,
+) -> None:
+    probe = await _ready_probe(client, admin_headers, enroll_probe, site_code="LEGACY-JOB")
+    created = await client.post(
+        "/api/v1/jobs",
+        json={"probe_id": probe["probe_id"], "targets": ["10.20.0.5"]},
+        headers=admin_headers,
+    )
+    job = await db_session.get(ScanJob, uuid.UUID(created.json()["id"]))
+    assert job is not None
+    legacy = dict(job.envelope_json)
+    legacy.pop("schema_version")
+    legacy.pop("profile_version")
+    legacy.pop("signature")
+    job.envelope_json = get_signer().sign_document(legacy)
+    await db_session.commit()
+
+    offered = await client.post(
+        f"/api/v1/probes/{probe['probe_id']}/jobs/next",
+        headers=probe_cert_headers(probe["fingerprint"]),
+    )
+    assert offered.status_code == 200
+    envelope = offered.json()
+    assert envelope["schema_version"] == 1
+    assert envelope["profile_version"] == 1
+    assert get_signer().verify_document(envelope) is True
+
+
+async def test_job_attempt_lease_reoffer_fences_stale_scout(
+    client: AsyncClient,
+    admin_headers: dict[str, str],
+    enroll_probe: EnrollFactory,
+    db_session: AsyncSession,
+) -> None:
+    probe = await _ready_probe(client, admin_headers, enroll_probe)
+    created = await client.post(
+        "/api/v1/jobs",
+        json={"probe_id": probe["probe_id"], "targets": ["10.20.0.5"]},
+        headers=admin_headers,
+    )
+    job_id = created.json()["id"]
+    cert_headers = probe_cert_headers(probe["fingerprint"])
+
+    first = await client.post(f"/api/v1/probes/{probe['probe_id']}/jobs/next", headers=cert_headers)
+    assert first.status_code == 200
+    assert first.headers["X-Vulna-Fencing-Token"] == "1"
+    assert first.headers["X-Vulna-Lease-Expires-At"]
+    first_headers = {**cert_headers, **job_attempt_headers(first)}
+
+    missing_fence = await client.post(
+        f"/api/v1/probes/{probe['probe_id']}/jobs/{job_id}/status",
+        json={"status": "accepted"},
+        headers=cert_headers,
+    )
+    assert missing_fence.status_code == 422
+
+    attempt = await db_session.scalar(
+        select(ScanJobAttempt).where(ScanJobAttempt.scan_job_id == uuid.UUID(job_id))
+    )
+    assert attempt is not None
+    attempt.lease_expires_at = datetime.now(UTC) - timedelta(seconds=1)
+    await db_session.commit()
+
+    second = await client.post(
+        f"/api/v1/probes/{probe['probe_id']}/jobs/next", headers=cert_headers
+    )
+    assert second.status_code == 200, second.text
+    assert second.json()["job_id"] == job_id
+    assert second.headers["X-Vulna-Fencing-Token"] == "2"
+    second_headers = {**cert_headers, **job_attempt_headers(second)}
+
+    stale = await client.post(
+        f"/api/v1/probes/{probe['probe_id']}/jobs/{job_id}/status",
+        json={"status": "accepted"},
+        headers=first_headers,
+    )
+    assert stale.status_code == 409
+    current = await client.post(
+        f"/api/v1/probes/{probe['probe_id']}/jobs/{job_id}/status",
+        json={"status": "accepted"},
+        headers=second_headers,
+    )
+    assert current.status_code == 204, current.text
+
+
 async def test_expired_job_is_not_delivered(
     client: AsyncClient,
     admin_headers: dict[str, str],
@@ -376,7 +466,8 @@ async def test_cancellation_appears_in_heartbeat(
     job_id = created.json()["id"]
     headers = probe_cert_headers(probe["fingerprint"])
     # Deliver the job (queued -> offered), then cancel it.
-    await client.post(f"/api/v1/probes/{probe['probe_id']}/jobs/next", headers=headers)
+    offered = await client.post(f"/api/v1/probes/{probe['probe_id']}/jobs/next", headers=headers)
+    headers.update(job_attempt_headers(offered))
     await client.post(f"/api/v1/jobs/{job_id}/cancel", headers=admin_headers)
 
     hb = await client.post(
@@ -397,7 +488,8 @@ async def test_report_job_status(
     )
     job_id = created.json()["id"]
     headers = probe_cert_headers(probe["fingerprint"])
-    await client.post(f"/api/v1/probes/{probe['probe_id']}/jobs/next", headers=headers)
+    offered = await client.post(f"/api/v1/probes/{probe['probe_id']}/jobs/next", headers=headers)
+    headers.update(job_attempt_headers(offered))
 
     for state in ("accepted", "running", "completed"):
         resp = await client.post(
@@ -427,7 +519,8 @@ async def test_scan_progress_eta_and_sanitized_operator_failure_log(
     )
     job_id = created.json()["id"]
     headers = probe_cert_headers(probe["fingerprint"])
-    await client.post(f"/api/v1/probes/{probe['probe_id']}/jobs/next", headers=headers)
+    offered = await client.post(f"/api/v1/probes/{probe['probe_id']}/jobs/next", headers=headers)
+    headers.update(job_attempt_headers(offered))
     await client.post(
         f"/api/v1/probes/{probe['probe_id']}/jobs/{job_id}/status",
         json={"status": "accepted"},
@@ -528,9 +621,7 @@ async def test_scan_progress_eta_and_sanitized_operator_failure_log(
     denied = await client.get(f"/api/v1/jobs/{job_id}/diagnostics", headers=viewer_headers)
     assert denied.status_code == 403
 
-    diagnostics = await client.get(
-        f"/api/v1/jobs/{job_id}/diagnostics", headers=admin_headers
-    )
+    diagnostics = await client.get(f"/api/v1/jobs/{job_id}/diagnostics", headers=admin_headers)
     assert diagnostics.status_code == 200
     diagnostic_text = diagnostics.text
     assert "very-secret" not in diagnostic_text
@@ -568,7 +659,8 @@ async def test_cancelled_job_retains_sanitized_deadline_diagnostics(
     )
     job_id = created.json()["id"]
     headers = probe_cert_headers(probe["fingerprint"])
-    await client.post(f"/api/v1/probes/{probe['probe_id']}/jobs/next", headers=headers)
+    offered = await client.post(f"/api/v1/probes/{probe['probe_id']}/jobs/next", headers=headers)
+    headers.update(job_attempt_headers(offered))
     await client.post(
         f"/api/v1/probes/{probe['probe_id']}/jobs/{job_id}/status",
         json={"status": "accepted"},

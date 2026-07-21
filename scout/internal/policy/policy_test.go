@@ -13,8 +13,8 @@ import (
 // dash/backend/app/services/signing.py). Verifying it here proves the Go and
 // Python canonicalizations are byte-identical.
 const (
-	vectorPubKeyB64 = "qeuFHUglCrQqa3muPqvIxaFBa42B8ml3sOFuRAwU06g="
-	vectorDoc       = `{"policy_version": 7, "probe_id": "11111111-1111-1111-1111-111111111111", "site_id": "22222222-2222-2222-2222-222222222222", "approved_cidrs": ["10.20.0.0/24", "192.168.5.0/24"], "denied_cidrs": ["10.20.0.128/25"], "allow_public_addresses": false, "allowed_modes": ["vulnerability_assessment"], "allowed_plugins": ["nmap"], "limits": {"max_hosts": 256, "max_parallel_hosts": 8, "max_packets_per_second": 1000, "max_duration_seconds": 10800}, "signature": "G2aRixi5QVnCS8RSmxhdJLjknWQH3LrfI66TLI2bb3Ov6e2BmKVL7zpUsli50PS+4td2qnaMzKrkoK4UWbu6DA=="}`
+	vectorPubKeyB64 = "A6EHv/POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg="
+	vectorDoc       = `{"schema_version": 1, "policy_version": 7, "probe_id": "11111111-1111-1111-1111-111111111111", "site_id": "22222222-2222-2222-2222-222222222222", "approved_cidrs": ["10.20.0.0/24", "192.168.5.0/24"], "denied_cidrs": ["10.20.0.128/25"], "allow_public_addresses": false, "allowed_modes": ["vulnerability_assessment"], "allowed_plugins": ["nmap"], "active_web_scans_allowed": false, "credentialed_scans_allowed": false, "limits": {"max_hosts": 256, "max_parallel_hosts": 8, "max_packets_per_second": 1000, "max_duration_seconds": 10800}, "signature": "jUv4IkqknxozQTc+/KDk4OitCIgVKV6ndBb7HB+AkPqemqHvJnJ/MS/QDRgwistkrVWHtS8E55jIIJnhm4rqBw=="}`
 )
 
 func vectorKey(t *testing.T) ed25519.PublicKey {
@@ -120,6 +120,7 @@ func TestGoNativeSignRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	payload := map[string]any{
+		"schema_version":         json.Number("1"),
 		"policy_version":         json.Number("1"),
 		"approved_cidrs":         []any{"10.0.0.0/8"},
 		"denied_cidrs":           []any{},

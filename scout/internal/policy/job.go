@@ -31,10 +31,12 @@ const hostSaturation = 1 << 30
 
 // Job is a verified job envelope (build plan Section 11.3).
 type Job struct {
+	SchemaVersion      int                 `json:"schema_version"`
 	JobID              string              `json:"job_id"`
 	ProbeID            string              `json:"probe_id"`
 	SiteID             string              `json:"site_id"`
 	Mode               string              `json:"mode"`
+	ProfileVersion     int                 `json:"profile_version"`
 	PolicyVersion      int                 `json:"policy_version"`
 	NotBefore          string              `json:"not_before"`
 	ExpiresAt          string              `json:"expires_at"`
@@ -89,6 +91,12 @@ func VerifyJob(raw []byte, pub ed25519.PublicKey, p *Policy, now time.Time) (*Jo
 	var job Job
 	if err := json.Unmarshal(b, &job); err != nil {
 		return nil, fmt.Errorf("parse job fields: %w", err)
+	}
+	if job.SchemaVersion != 1 {
+		return nil, fmt.Errorf("unsupported job schema_version %d", job.SchemaVersion)
+	}
+	if job.ProfileVersion < 1 {
+		return nil, fmt.Errorf("invalid job profile_version %d", job.ProfileVersion)
 	}
 
 	notBefore, err := time.Parse(time.RFC3339, job.NotBefore)

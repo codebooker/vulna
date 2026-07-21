@@ -11,7 +11,7 @@ Everything here is pure and unit-testable: no database, no scanner invocation.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 # --------------------------------------------------------------------------- #
 # Stage catalogue
@@ -152,6 +152,39 @@ BUILTIN_PRESETS: tuple[Preset, ...] = (
     ),
 )
 
+# Version 2 makes the advertised tuning executable. The v1 definitions remain
+# available for pinned historical schedules/reports; new jobs resolve the latest
+# version. LAN-oriented presets use the existing signed 1,000 pps ceiling, while
+# the fragile profile remains deliberately conservative.
+BUILTIN_PRESETS += (
+    replace(
+        BUILTIN_PRESETS[0],
+        version=2,
+        rate=RateProfile(packets_per_second=1000, concurrency=8),
+    ),
+    replace(
+        BUILTIN_PRESETS[1],
+        version=2,
+        stage_keys=("discovery", "service_detection", "vuln", "tls", "web_passive"),
+        rate=RateProfile(packets_per_second=1000, concurrency=8),
+    ),
+    replace(
+        BUILTIN_PRESETS[2],
+        version=2,
+        rate=RateProfile(packets_per_second=50, concurrency=1),
+    ),
+    replace(
+        BUILTIN_PRESETS[3],
+        version=2,
+        rate=RateProfile(packets_per_second=500, concurrency=4),
+    ),
+    replace(
+        BUILTIN_PRESETS[4],
+        version=2,
+        rate=RateProfile(packets_per_second=1000, concurrency=8),
+    ),
+)
+
 
 class PresetError(ValueError):
     """Raised when a preset lookup or custom-preset validation fails."""
@@ -196,9 +229,7 @@ class Resolution:
     blocked: bool = False  # True when a required scanner is missing and downgrade is off
 
 
-def resolve_stages(
-    preset: Preset, available: set[str], *, allow_downgrade: bool
-) -> Resolution:
+def resolve_stages(preset: Preset, available: set[str], *, allow_downgrade: bool) -> Resolution:
     """Decide which stages run given the installed scanners.
 
     A stage whose scanner is unavailable is skipped with a plain-language reason.
@@ -333,9 +364,7 @@ def validate_custom(spec: dict[str, object]) -> Preset:
         stage_keys.append(str(key))
 
     pps = _bounded_int(spec.get("packets_per_second", 100), 1, CUSTOM_MAX_PPS, "packets_per_second")
-    concurrency = _bounded_int(
-        spec.get("concurrency", 2), 1, CUSTOM_MAX_CONCURRENCY, "concurrency"
-    )
+    concurrency = _bounded_int(spec.get("concurrency", 2), 1, CUSTOM_MAX_CONCURRENCY, "concurrency")
 
     severities = spec.get("severities", list(ALLOWED_SEVERITIES))
     if not isinstance(severities, list) or any(s not in ALLOWED_SEVERITIES for s in severities):

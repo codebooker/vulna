@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -185,3 +185,31 @@ class ResultIngestSummary(BaseModel):
     packages_updated: int = 0
     packages_removed: int = 0
     duplicate: bool = False
+
+
+class ResultUploadEnvelope(BaseModel):
+    """Versioned Scout result wire envelope.
+
+    The HTTP endpoint retains a raw-body compatibility path for rolling upgrades,
+    but current Scouts send this contract so stage identity, payload integrity,
+    and protocol evolution are explicit and cross-language testable.
+    """
+
+    schema_version: Literal[1]
+    job_id: uuid.UUID
+    probe_id: uuid.UUID
+    stage: str = Field(min_length=1, max_length=64)
+    scanner: str = Field(min_length=1, max_length=64)
+    complete: bool = False
+    content_hash: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    payload_encoding: Literal["base64"] = "base64"
+    result_format: Literal[
+        "nmap_xml",
+        "nuclei_jsonl",
+        "testssl_json",
+        "zap_json",
+        "metasploit_json",
+        "software_inventory_json",
+    ]
+    byte_length: int = Field(ge=0, le=25 * 1024 * 1024)
+    payload: str

@@ -41,9 +41,25 @@ class Relay(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     # Single-use enrollment token hash (cleared after registration).
     enrollment_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    enrollment_token_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     # mTLS control-channel client-certificate fingerprint (set at registration).
     certificate_fingerprint: Mapped[str | None] = mapped_column(
         String(64), nullable=True, index=True
+    )
+    # Renewal keeps the previously-presented certificate valid briefly. This
+    # prevents a lost renewal response from permanently stranding a remote
+    # Relay after the server has already committed the new fingerprint.
+    previous_certificate_fingerprint: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, index=True
+    )
+    previous_certificate_valid_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    certificate_serial: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    certificate_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
     # WireGuard public key of the relay (non-secret). The relay keeps its private key.
     tunnel_public_key: Mapped[str | None] = mapped_column(String(128), nullable=True)

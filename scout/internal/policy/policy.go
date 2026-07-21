@@ -18,6 +18,7 @@ type Limits struct {
 
 // Policy is a verified local policy document.
 type Policy struct {
+	SchemaVersion            int      `json:"schema_version"`
 	PolicyVersion            int      `json:"policy_version"`
 	ProbeID                  string   `json:"probe_id"`
 	SiteID                   string   `json:"site_id"`
@@ -57,6 +58,9 @@ func Parse(raw []byte, pub ed25519.PublicKey) (*Policy, error) {
 }
 
 func (p *Policy) compile() error {
+	if p.SchemaVersion != 1 {
+		return fmt.Errorf("unsupported policy schema_version %d", p.SchemaVersion)
+	}
 	for _, c := range p.ApprovedCIDRs {
 		pfx, err := netip.ParsePrefix(c)
 		if err != nil {

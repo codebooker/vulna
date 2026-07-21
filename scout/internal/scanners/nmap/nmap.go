@@ -9,6 +9,7 @@ package nmap
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/netip"
 	"os"
@@ -49,6 +50,15 @@ const ImportantPorts = "1-1024,1099,1433,1434,1521,1723,2049,2082,2083,2181," +
 	"8161,8180,8443,8500,8530,8531,8686,8888,9000,9001,9042,9060,9090,9092,9160," +
 	"9200,9300,9418,9443,9999,10000,10250,10255,11211,15672,27017,27018,27019," +
 	"28017,50000,50070"
+
+// QuickPorts is a compact inventory sweep for frequent checks. It retains
+// common infrastructure, remote-management, database, container, and web ports
+// without paying the cost of the complete well-known range on every address.
+const QuickPorts = "21-23,25,53,80,88,110,111,123,135,137-139,143,161,389,443,445," +
+	"465,500,514,515,548,554,587,631,636,873,902,993,995,1080,1099,1433,1521,2049," +
+	"2375,2376,3000,3128,3268,3306,3389,4444,5000,5432,5601,5672,5900,5985,5986," +
+	"6379,6443,7000,8000-8010,8080-8091,8161,8180,8443,8500,8888,9000,9042,9090," +
+	"9092,9200,9300,9443,10000,10250,11211,15672,27017,50000"
 
 // Profile is a curated, non-intrusive discovery configuration.
 type Profile struct {
@@ -211,9 +221,15 @@ func (w *Worker) binary() string {
 	return defaultBinary
 }
 
-func (w *Worker) runContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	if w.Timeout > 0 {
-		return context.WithTimeout(ctx, w.Timeout)
+func (w *Worker) runContext(
+	ctx context.Context, job *policy.Job,
+) (context.Context, context.CancelFunc) {
+	timeout := w.Timeout
+	if configured := configInt(stageConfig(job), "max_duration_seconds"); configured > 0 {
+		timeout = time.Duration(configured) * time.Second
+	}
+	if timeout > 0 {
+		return context.WithTimeout(ctx, timeout)
 	}
 	return context.WithCancel(ctx)
 }
@@ -242,7 +258,7 @@ func (w *Worker) Run(ctx context.Context, job *policy.Job) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	runCtx, cancel := w.runContext(ctx)
+	runCtx, cancel := w.runContext(ctx, job)
 	defer cancel()
 	cmd := processutil.CommandContext(runCtx, w.binary(), args...)
 	var stderr bytes.Buffer
@@ -273,6 +289,19 @@ func (w *Worker) Run(ctx context.Context, job *policy.Job) ([]byte, error) {
 // incorrectly fail slow but healthy target groups.
 func (w *Worker) planRun(job *policy.Job) Profile {
 	profile := w.Profile
+	config := stageConfig(job)
+	if value, _ := config["port_profile"].(string); value == "quick" {
+		profile.Ports = QuickPorts
+	}
+	if timing := configInt(config, "timing"); timing > 0 {
+		profile.Timing = timing
+	}
+	if retries := configInt(config, "max_retries"); retries > 0 {
+		profile.MaxRetries = retries
+	}
+	if value, _ := config["host_timeout"].(string); value != "" {
+		profile.HostTimeout = value
+	}
 	if job.Limits.MaxPacketsPerSecond > 0 {
 		profile.MaxRate = job.Limits.MaxPacketsPerSecond
 		// Hold a floor at half the operator-approved ceiling so the scan never
@@ -280,6 +309,33 @@ func (w *Worker) planRun(job *policy.Job) Profile {
 		profile.MinRate = profile.MaxRate / 2
 	}
 	return profile
+}
+
+func stageConfig(job *policy.Job) map[string]any {
+	for _, stage := range job.Workflow {
+		plugin, _ := stage["plugin"].(string)
+		if plugin != "nmap" {
+			continue
+		}
+		if config, ok := stage["config"].(map[string]any); ok {
+			return config
+		}
+	}
+	return nil
+}
+
+func configInt(config map[string]any, key string) int {
+	switch value := config[key].(type) {
+	case int:
+		return value
+	case float64:
+		return int(value)
+	case json.Number:
+		parsed, _ := strconv.Atoi(value.String())
+		return parsed
+	default:
+		return 0
+	}
 }
 
 // streamFlushInterval is how often Stream harvests newly-completed hosts from
@@ -315,7 +371,7 @@ func (w *Worker) Stream(
 	if err != nil {
 		return err
 	}
-	runCtx, cancel := w.runContext(ctx)
+	runCtx, cancel := w.runContext(ctx, job)
 	defer cancel()
 	cmd := processutil.CommandContext(runCtx, w.binary(), args...)
 	var stderr bytes.Buffer

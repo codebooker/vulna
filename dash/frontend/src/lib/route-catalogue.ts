@@ -1,4 +1,4 @@
-import type { ComponentType } from 'react';
+import { lazy, type ComponentType } from 'react';
 import {
   Activity as ActivityIcon,
   Building2,
@@ -29,35 +29,102 @@ import {
   Webhook,
   type LucideIcon,
 } from 'lucide-react';
-import { AppliancesPage } from '../pages/AppliancesPage';
-import { AssetsPage } from '../pages/AssetsPage';
-import { ChangesPage } from '../pages/ChangesPage';
-import { FeedsPage } from '../pages/FeedsPage';
-import { FindingsPage } from '../pages/FindingsPage';
-import { GettingStartedPage } from '../pages/GettingStartedPage';
-import { HomeDashboard } from '../pages/HomeDashboard';
-import { NetworksPage } from '../pages/NetworksPage';
-import { NotificationsPage } from '../pages/NotificationsPage';
-import { PentestPage } from '../pages/PentestPage';
-import { PresetsPage } from '../pages/PresetsPage';
-import { RemediationPage } from '../pages/RemediationPage';
-import { ReportsPage } from '../pages/ReportsPage';
-import { ScansPage } from '../pages/SchedulesPage';
-import { SessionManagementPage } from '../pages/SessionManagementPage';
-import { SecurityPage } from '../pages/SecurityPage';
-import { SettingsPage } from '../pages/SettingsPage';
-import { SitesPage } from '../pages/SitesPage';
-import { SystemHealthPage } from '../pages/SystemHealthPage';
-import { UsersPage } from '../pages/UsersPage';
-import { IdentityProvidersPage } from '../pages/IdentityProvidersPage';
-import { ScimProvisioningPage } from '../pages/ScimProvisioningPage';
-import { AuthorizationPage } from '../pages/AuthorizationPage';
-import { TaskOperationsPage } from '../pages/TaskOperationsPage';
-import { AuthenticatedInventoryPage } from '../pages/AuthenticatedInventoryPage';
-import { SlaTicketingPage } from '../pages/SlaTicketingPage';
-import { PassiveInventoryPage } from '../pages/PassiveInventoryPage';
-import { HelpPage } from '../pages/HelpPage';
 import type { Role } from '../types/auth';
+
+const AppliancesPage = lazy(() =>
+  import('../pages/AppliancesPage').then((module) => ({ default: module.AppliancesPage })),
+);
+const AssetsPage = lazy(() =>
+  import('../pages/AssetsPage').then((module) => ({ default: module.AssetsPage })),
+);
+const ChangesPage = lazy(() =>
+  import('../pages/ChangesPage').then((module) => ({ default: module.ChangesPage })),
+);
+const FeedsPage = lazy(() =>
+  import('../pages/FeedsPage').then((module) => ({ default: module.FeedsPage })),
+);
+const FindingsPage = lazy(() =>
+  import('../pages/FindingsPage').then((module) => ({ default: module.FindingsPage })),
+);
+const GettingStartedPage = lazy(() =>
+  import('../pages/GettingStartedPage').then((module) => ({ default: module.GettingStartedPage })),
+);
+const HomeDashboard = lazy(() =>
+  import('../pages/HomeDashboard').then((module) => ({ default: module.HomeDashboard })),
+);
+const NetworksPage = lazy(() =>
+  import('../pages/NetworksPage').then((module) => ({ default: module.NetworksPage })),
+);
+const NotificationsPage = lazy(() =>
+  import('../pages/NotificationsPage').then((module) => ({ default: module.NotificationsPage })),
+);
+const PentestPage = lazy(() =>
+  import('../pages/PentestPage').then((module) => ({ default: module.PentestPage })),
+);
+const PresetsPage = lazy(() =>
+  import('../pages/PresetsPage').then((module) => ({ default: module.PresetsPage })),
+);
+const RemediationPage = lazy(() =>
+  import('../pages/RemediationPage').then((module) => ({ default: module.RemediationPage })),
+);
+const ReportsPage = lazy(() =>
+  import('../pages/ReportsPage').then((module) => ({ default: module.ReportsPage })),
+);
+const ScansPage = lazy(() =>
+  import('../pages/SchedulesPage').then((module) => ({ default: module.ScansPage })),
+);
+const SessionManagementPage = lazy(() =>
+  import('../pages/SessionManagementPage').then((module) => ({
+    default: module.SessionManagementPage,
+  })),
+);
+const SecurityPage = lazy(() =>
+  import('../pages/SecurityPage').then((module) => ({ default: module.SecurityPage })),
+);
+const SettingsPage = lazy(() =>
+  import('../pages/SettingsPage').then((module) => ({ default: module.SettingsPage })),
+);
+const SitesPage = lazy(() =>
+  import('../pages/SitesPage').then((module) => ({ default: module.SitesPage })),
+);
+const SystemHealthPage = lazy(() =>
+  import('../pages/SystemHealthPage').then((module) => ({ default: module.SystemHealthPage })),
+);
+const UsersPage = lazy(() =>
+  import('../pages/UsersPage').then((module) => ({ default: module.UsersPage })),
+);
+const IdentityProvidersPage = lazy(() =>
+  import('../pages/IdentityProvidersPage').then((module) => ({
+    default: module.IdentityProvidersPage,
+  })),
+);
+const ScimProvisioningPage = lazy(() =>
+  import('../pages/ScimProvisioningPage').then((module) => ({
+    default: module.ScimProvisioningPage,
+  })),
+);
+const AuthorizationPage = lazy(() =>
+  import('../pages/AuthorizationPage').then((module) => ({ default: module.AuthorizationPage })),
+);
+const TaskOperationsPage = lazy(() =>
+  import('../pages/TaskOperationsPage').then((module) => ({ default: module.TaskOperationsPage })),
+);
+const AuthenticatedInventoryPage = lazy(() =>
+  import('../pages/AuthenticatedInventoryPage').then((module) => ({
+    default: module.AuthenticatedInventoryPage,
+  })),
+);
+const SlaTicketingPage = lazy(() =>
+  import('../pages/SlaTicketingPage').then((module) => ({ default: module.SlaTicketingPage })),
+);
+const PassiveInventoryPage = lazy(() =>
+  import('../pages/PassiveInventoryPage').then((module) => ({
+    default: module.PassiveInventoryPage,
+  })),
+);
+const HelpPage = lazy(() =>
+  import('../pages/HelpPage').then((module) => ({ default: module.HelpPage })),
+);
 
 export interface RouteDef {
   id: string;
