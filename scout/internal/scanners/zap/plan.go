@@ -179,6 +179,17 @@ func BuildAutomationPlan(scope ScopeConfig, reportDir, reportFile string) ([]byt
 		},
 		"risks": []any{"info", "low", "medium", "high"},
 	})
+	// Automation Framework warnings normally produce process exit code 2 even
+	// when failOnWarning is false. Findings and non-fatal spider warnings must not
+	// turn an otherwise completed assessment into a failed Vulna scan; genuine
+	// framework errors retain exit code 1.
+	jobs = append(jobs, map[string]any{
+		"type": "exitStatus",
+		"parameters": map[string]any{
+			"okExitValue": 0, "warnExitValue": 0, "errorExitValue": 1,
+		},
+		"alwaysRun": true,
+	})
 
 	plan := map[string]any{"env": env, "jobs": jobs}
 	return json.MarshalIndent(plan, "", "  ")

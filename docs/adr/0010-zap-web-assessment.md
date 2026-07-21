@@ -30,27 +30,30 @@ in-scope hosts (with IP dots escaped, so only the exact host matches). ZAP only
 crawls and attacks in-context URLs, so a redirect to an out-of-scope host is not
 followed — the redirect-restriction requirement falls out of the context scope
 rather than a separate setting. Start URLs are validated against the scope in two
-places: the backend rejects an out-of-scope start URL at job creation (defense in
-depth), and the probe re-validates every IP-literal start-URL host against the
-signed job's approved targets before ZAP is ever launched.
+places: the backend rejects an out-of-scope explicitly requested start URL at job
+creation (defense in depth), and the probe re-validates every IP-literal start-URL
+host against the signed job's approved targets before ZAP is ever launched. In an
+ordinary assessment, the Scout automatically derives exact HTTP(S) start URLs
+from Nmap's discovered services; it never hands ZAP a raw CIDR.
 
 ### 3. Profiles: passive by default, active is opt-in and allowlisted
 
-The passive profile runs `spider` + `passiveScan-wait` only — no active-scan job
-is emitted, so it performs no attacks. The limited-active profile adds an
+The passive profile runs automatically after discovery and executes `spider` +
+`passiveScan-wait` only — no active-scan job is emitted, so it performs no
+attacks. The limited-active profile adds an
 `activeScan` whose `policyDefinition` sets `defaultThreshold: off` and enables
 only a small allowlist of conservative injection/traversal rules; intrusive and
 DoS rules are never enabled. This mirrors the Nuclei safe-template policy: the
 adapter owns the allowlist, so a job cannot widen it.
 
-### 4. Active assessment requires approval via role, not a free flag
+### 4. Active assessment requires Scout opt-in and explicit approval
 
-An active web assessment is intrusive, so the build plan requires approval. Job
-creation admits administrators, operators, and pentest approvers; the handler
-then enforces that only an administrator or pentest approver may request the
-limited-active profile (an operator is limited to regular scans and passive web
-assessments). This satisfies "active profile requires approval" with the existing
-RBAC, and dovetails with the fuller approval workflow arriving in Phase 11.
+An active web assessment is intrusive. The limited-active profile therefore
+requires both the per-Scout pentest toggle and an administrator or pentest
+approver creating that specific job. The toggle becomes a separate signed local
+policy flag, and the Scout rejects limited-active ZAP locally when it is false;
+possessing the ZAP binary or naming the allowed `zap` plugin cannot bypass that
+boundary. Operators remain limited to ordinary scans and passive web assessment.
 
 ### 5. ZAP output is normalized like every other scanner
 
@@ -66,8 +69,9 @@ change-event machinery as Nmap/Nuclei/testssl findings. The upload endpoint rout
   casing downstream.
 - The passive/active split and the approval gate keep the default safe and make
   intrusive scanning a deliberate, authorized action.
-- Adding ZAP required no change to the scanner interface: the web worker locates
-  its own stage config within the signed job workflow.
+- The service-aware scanner target interface hands ZAP only HTTP(S) endpoints
+  observed during discovery while retaining the original signed CIDR scope for
+  local re-validation.
 
 ## Alternatives considered
 

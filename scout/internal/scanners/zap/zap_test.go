@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/codebooker/vulna/scout/internal/discovery"
 	"github.com/codebooker/vulna/scout/internal/policy"
 )
 
@@ -44,6 +45,21 @@ func TestBuildArgs(t *testing.T) {
 	args := BuildArgs("/tmp/plan.yaml")
 	if !slices.Equal(args, []string{"-cmd", "-autorun", "/tmp/plan.yaml"}) {
 		t.Errorf("unexpected args: %v", args)
+	}
+}
+
+func TestTargetsForUsesOnlyDiscoveredHTTPServices(t *testing.T) {
+	w := NewWorker()
+	got := w.TargetsFor([]discovery.Endpoint{
+		{IP: "10.20.0.5", Port: 80, Transport: "tcp", HTTP: true},
+		{IP: "10.20.0.5", Port: 443, Transport: "tcp", HTTP: true, TLS: true},
+		{IP: "10.20.0.5", Port: 443, Transport: "tcp", HTTP: true, TLS: true},
+		{IP: "10.20.0.6", Port: 22, Transport: "tcp", Service: "ssh"},
+		{IP: "10.20.0.7", Port: 80, Transport: "udp", HTTP: true},
+	})
+	want := []string{"http://10.20.0.5:80", "https://10.20.0.5:443"}
+	if !slices.Equal(got, want) {
+		t.Errorf("TargetsFor = %v, want %v", got, want)
 	}
 }
 
@@ -101,6 +117,30 @@ func TestRunNoZapStageIsNoOp(t *testing.T) {
 	}
 	if out != nil {
 		t.Errorf("expected no output, got %d bytes", len(out))
+	}
+}
+
+func TestRunAutoDiscoveryWithNoWebEndpointsIsNoOp(t *testing.T) {
+	w := &Worker{Binary: "definitely-not-a-real-binary-xyz"}
+	job := zapJob(
+		map[string]any{"profile": "passive_baseline", "auto_discover": true},
+		[]string{"10.20.0.0/24"},
+	)
+	out, err := w.Run(context.Background(), job)
+	if err != nil || out != nil {
+		t.Fatalf("empty automatic web stage should be a no-op, got output=%q err=%v", out, err)
+	}
+}
+
+func TestRunAutoDiscoveryValidatesDerivedURLAgainstSignedScope(t *testing.T) {
+	w := &Worker{Binary: "definitely-not-a-real-binary-xyz"}
+	job := zapJob(
+		map[string]any{"profile": "passive_baseline", "auto_discover": true},
+		[]string{"http://10.99.0.5:80"},
+	)
+	job.ScopeTargets = []string{"10.20.0.0/24"}
+	if _, err := w.Run(context.Background(), job); err == nil {
+		t.Fatal("an automatically derived out-of-scope URL must be rejected before running ZAP")
 	}
 }
 

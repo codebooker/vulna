@@ -21,7 +21,7 @@ from app.models.probe import Probe
 from app.models.relay import Relay
 
 # Modes and plugins permitted for non-intrusive assessment: Nmap discovery,
-# Nuclei vulnerability checks, and testssl.sh TLS analysis.
+# Nuclei vulnerability checks, testssl.sh TLS analysis, and passive ZAP.
 _DEFAULT_ALLOWED_MODES = ["vulnerability_assessment"]
 _DEFAULT_ALLOWED_PLUGINS = ["nmap", "nuclei", "testssl", "zap"]
 
@@ -125,9 +125,10 @@ async def build_policy_document(
         "max_duration_seconds": duration_limit_for_hosts(max_hosts),
     }
 
-    # Controlled-pentest mode + the metasploit plugin are permitted only for a
-    # scout an operator has explicitly enabled, so a non-enabled scout fails closed
-    # on any pentest job (both the mode and the plugin are rejected).
+    # Controlled-pentest mode, Metasploit, and active ZAP are permitted only for a
+    # scout an operator has explicitly enabled. Passive ZAP remains part of the
+    # ordinary assessment policy; the Scout independently rejects a limited-active
+    # ZAP profile unless this signed flag is true.
     allowed_modes = list(_DEFAULT_ALLOWED_MODES)
     allowed_plugins = list(_DEFAULT_ALLOWED_PLUGINS)
     if getattr(probe, "pentest_enabled", False):
@@ -151,6 +152,7 @@ async def build_policy_document(
         "allow_public_addresses": allow_public,
         "allowed_modes": allowed_modes,
         "allowed_plugins": allowed_plugins,
+        "active_web_scans_allowed": bool(getattr(probe, "pentest_enabled", False)),
         "credentialed_scans_allowed": credentialed_scans_allowed,
         "limits": limits,
     }

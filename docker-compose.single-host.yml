@@ -18,7 +18,7 @@
 #              token directory with the Scout.
 #   * caddy  — swaps in a Caddyfile with probe mTLS ENABLED (same security
 #              boundary as a remote Scout) and a stable internal name.
-#   * local-scout — new: the probe binary + nmap/nuclei/testssl, auto-enrolling.
+#   * local-scout — the probe binary + nmap/nuclei/testssl/passive ZAP, auto-enrolling.
 
 name: vulna
 

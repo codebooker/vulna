@@ -9,7 +9,7 @@
   "denied_cidrs": ["10.20.0.1/32"],
   "allow_public_addresses": false,
   "allowed_modes": ["vulnerability_assessment"],
-  "allowed_plugins": ["nmap", "nuclei", "testssl"],
+  "allowed_plugins": ["nmap", "nuclei", "testssl", "zap"],
   "allowed_web_domains": ["intranet.example.internal"],
   "limits": {
     "max_hosts": 512,
@@ -20,6 +20,7 @@
   "redirect_behavior": "deny_out_of_scope",
   "dns_resolution": "revalidate_at_execution",
   "credentialed_scans_allowed": false,
+  "active_web_scans_allowed": false,
   "exploit_validation_allowed": false,
   "signature": "BASE64_ED25519_SIGNATURE_PLACEHOLDER"
 }

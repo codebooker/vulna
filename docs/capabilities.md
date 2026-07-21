@@ -17,7 +17,7 @@ Some capabilities are deliberately disabled until an administrator opts in.
 | VulnaRelay | Available, opt-in | Scanner-free WireGuard endpoint with central egress policy and kill switches. |
 | Asset and service discovery | Available | Nmap-based, scope-controlled discovery and change tracking. |
 | Vulnerability and TLS assessment | Available | Nuclei and testssl.sh stages with bounded, signed workflows. |
-| Web assessment | Available, gated | ZAP workflows remain subject to scope and active-scan approval. |
+| Web assessment | Available | Passive ZAP runs automatically on discovered HTTP(S) services; active rules require Scout pentest enablement and explicit approval. |
 | Controlled pentest | Available, gated | Requires per-Scout enablement and explicit session approval. |
 | Scheduling, cancellation, and live diagnostics | Available | Includes progress, stage state, failure codes, and retry context. |
 

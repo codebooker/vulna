@@ -434,20 +434,20 @@ async def test_scan_progress_eta_and_sanitized_operator_failure_log(
         headers=headers,
     )
     progress = {
-        "percent": 33,
+        "percent": 25,
         "current_stage": "discovery",
         "current_plugin": "nmap",
-        "stages_total": 3,
+        "stages_total": 4,
         "stages_completed": 0,
         "stages_run": 0,
         "stages_failed": 0,
         "stages_skipped": 0,
-        "work_units_total": 3,
+        "work_units_total": 4,
         "work_units_done": 1,
         "target_groups": 1,
         "target_addresses": 1,
         "elapsed_seconds": 15,
-        "eta_seconds": 30,
+        "eta_seconds": 45,
     }
     reported = await client.post(
         f"/api/v1/probes/{probe['probe_id']}/jobs/{job_id}/status",
@@ -459,7 +459,7 @@ async def test_scan_progress_eta_and_sanitized_operator_failure_log(
     got = await client.get(f"/api/v1/jobs/{job_id}", headers=viewer_headers)
     assert got.status_code == 200
     body = got.json()
-    assert body["progress_percent"] == 33
+    assert body["progress_percent"] == 25
     assert body["progress_json"]["stages_completed"] == 0
     assert body["progress_json"]["work_units_done"] == 1
     assert body["estimated_completion_at"] is not None
@@ -488,6 +488,7 @@ async def test_scan_progress_eta_and_sanitized_operator_failure_log(
             "status": "running",
             "progress": {
                 **progress,
+                "percent": 33,
                 "work_units_total": 6,
                 "work_units_done": 2,
                 "elapsed_seconds": 16,
@@ -527,7 +528,9 @@ async def test_scan_progress_eta_and_sanitized_operator_failure_log(
     denied = await client.get(f"/api/v1/jobs/{job_id}/diagnostics", headers=viewer_headers)
     assert denied.status_code == 403
 
-    diagnostics = await client.get(f"/api/v1/jobs/{job_id}/diagnostics", headers=admin_headers)
+    diagnostics = await client.get(
+        f"/api/v1/jobs/{job_id}/diagnostics", headers=admin_headers
+    )
     assert diagnostics.status_code == 200
     diagnostic_text = diagnostics.text
     assert "very-secret" not in diagnostic_text
@@ -588,9 +591,7 @@ async def test_cancelled_job_retains_sanitized_deadline_diagnostics(
     )
     assert cancelled.status_code == 204
 
-    diagnostics = await client.get(
-        f"/api/v1/jobs/{job_id}/diagnostics", headers=admin_headers
-    )
+    diagnostics = await client.get(f"/api/v1/jobs/{job_id}/diagnostics", headers=admin_headers)
     assert diagnostics.status_code == 200
     body = diagnostics.json()
     assert body["status"] == "cancelled"

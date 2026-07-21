@@ -53,14 +53,19 @@ async def _job_site_id(
     return probe.site_id
 
 
-# The non-intrusive assessment workflow: discovery, then vulnerability and TLS
-# stages. A probe skips any stage whose scanner it does not have installed.
+# The non-intrusive assessment workflow starts with discovery, then runs the
+# network vulnerability and TLS stages. A bounded passive ZAP stage is added
+# dynamically below so it can use this job's signed limits and automatically
+# consume the HTTP(S) endpoints Nmap discovers at runtime.
 _SUPPORTED_MODES = {JobMode.VULNERABILITY_ASSESSMENT}
 _DEFAULT_WORKFLOW: list[dict[str, Any]] = [
     {"stage": "discovery", "plugin": "nmap", "config": {}},
     {"stage": "vulnerability", "plugin": "nuclei", "config": {}},
     {"stage": "tls", "plugin": "testssl", "config": {}},
 ]
+
+_AUTO_ZAP_MAX_DURATION_MINUTES = 10
+_AUTO_ZAP_MAX_REQUESTS_PER_SECOND = 10
 
 
 def _validate_web_start_urls(start_urls: list[str], approved: list[str]) -> list[str]:
@@ -88,19 +93,32 @@ def _validate_web_start_urls(start_urls: list[str], approved: list[str]) -> list
 
 
 def _build_web_stage(
-    profile: WebScanProfile, start_urls: list[str], limits: dict[str, Any]
+    profile: WebScanProfile,
+    start_urls: list[str],
+    limits: dict[str, Any],
+    *,
+    auto_discover: bool = False,
 ) -> dict[str, Any]:
     duration_s = int(limits.get("max_duration_seconds", 600) or 600)
     rps = int(limits.get("max_packets_per_second", 10) or 10)
+    duration_minutes = max(1, duration_s // 60)
+    max_rps = 20
+    if auto_discover:
+        duration_minutes = min(duration_minutes, _AUTO_ZAP_MAX_DURATION_MINUTES)
+        max_rps = _AUTO_ZAP_MAX_REQUESTS_PER_SECOND
+    config: dict[str, Any] = {
+        "profile": profile.value,
+        "max_duration_minutes": duration_minutes,
+        "requests_per_second": min(max(1, rps), max_rps),
+    }
+    if auto_discover:
+        config["auto_discover"] = True
+    else:
+        config["start_urls"] = start_urls
     return {
         "stage": "web",
         "plugin": "zap",
-        "config": {
-            "profile": profile.value,
-            "start_urls": start_urls,
-            "max_duration_minutes": max(1, duration_s // 60),
-            "requests_per_second": min(max(1, rps), 20),
-        },
+        "config": config,
     }
 
 
@@ -316,6 +334,10 @@ async def create_scan_job(
     """
     if mode not in _SUPPORTED_MODES:
         raise JobValidationError(f"Mode '{mode.value}' is not supported yet")
+    if web_profile == WebScanProfile.LIMITED_ACTIVE and not probe.pentest_enabled:
+        raise JobValidationError(
+            "Active ZAP is not enabled on this Scout; an administrator must enable pentesting"
+        )
 
     policy = await build_policy_document(session, probe, settings)
     approved = list(policy["approved_cidrs"])
@@ -393,14 +415,25 @@ async def create_scan_job(
             raise JobValidationError(str(exc)) from exc
 
     workflow = list(_DEFAULT_WORKFLOW) if include_default_workflow else []
+    if web_profile is not None:
+        if not web_start_urls:
+            raise JobValidationError("An explicit web assessment requires at least one start URL")
+        validated_urls = _validate_web_start_urls(web_start_urls, approved)
+        workflow.append(_build_web_stage(web_profile, validated_urls, limits))
+    elif include_default_workflow:
+        workflow.append(
+            _build_web_stage(
+                WebScanProfile.PASSIVE_BASELINE,
+                [],
+                limits,
+                auto_discover=True,
+            )
+        )
     if stages is not None:
         wanted = set(stages)
         workflow = [s for s in workflow if s["stage"] in wanted]
         if not workflow:
             raise JobValidationError(f"No known scanner stages in {stages}")
-    if web_profile is not None and web_start_urls:
-        validated_urls = _validate_web_start_urls(web_start_urls, approved)
-        workflow.append(_build_web_stage(web_profile, validated_urls, limits))
     for protocol in protocols:
         workflow.append(
             {

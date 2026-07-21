@@ -37,6 +37,31 @@ async def _web_body(profile: str) -> dict[str, object]:
     }
 
 
+async def test_standard_scan_adds_automatic_passive_zap_stage(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    admin_headers: dict[str, str],
+    enroll_probe: EnrollFactory,
+) -> None:
+    probe = await _ready_probe(client, admin_headers, enroll_probe)
+    resp = await client.post(
+        "/api/v1/jobs",
+        json={"probe_id": probe["probe_id"], "targets": ["10.20.0.0/24"]},
+        headers=admin_headers,
+    )
+    assert resp.status_code == 201, resp.text
+    job = await db_session.get(ScanJob, uuid.UUID(resp.json()["id"]))
+    assert job is not None
+    web = [s for s in job.workflow_json if s.get("plugin") == "zap"]
+    assert len(web) == 1
+    assert web[0]["config"] == {
+        "profile": "passive_baseline",
+        "auto_discover": True,
+        "max_duration_minutes": 10,
+        "requests_per_second": 10,
+    }
+
+
 async def test_passive_web_scan_adds_zap_stage(
     client: AsyncClient,
     db_session: AsyncSession,
@@ -91,6 +116,20 @@ async def test_approver_can_request_active(
 ) -> None:
     probe = await _ready_probe(client, admin_headers, enroll_probe)
     approver = await make_user(UserRole.PENTEST_APPROVER)
+
+    disabled = await client.post(
+        "/api/v1/jobs",
+        json={"probe_id": probe["probe_id"], **await _web_body("limited_active")},
+        headers=auth_headers(approver),
+    )
+    assert disabled.status_code == 409
+
+    toggle = await client.post(
+        f"/api/v1/probes/{probe['probe_id']}/pentest",
+        json={"enabled": True},
+        headers=admin_headers,
+    )
+    assert toggle.status_code == 200, toggle.text
     resp = await client.post(
         "/api/v1/jobs",
         json={"probe_id": probe["probe_id"], **await _web_body("limited_active")},

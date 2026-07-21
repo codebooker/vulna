@@ -207,6 +207,13 @@ async def _create_job_impl(
                     "An active web assessment requires administrator or pentest-approver approval"
                 ),
             )
+        if not probe.pentest_enabled:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Active ZAP is disabled on this Scout; an administrator must enable pentesting"
+                ),
+            )
     elif not await authorization.has_permission(
         session,
         operator,

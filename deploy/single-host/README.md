@@ -49,9 +49,10 @@ docker compose -f docker-compose.yml -f docker-compose.single-host.yml up -d
 ```
 
 The first start builds the images (including the local-Scout image with the
-standard scanner pack — Nmap, Nuclei, testssl.sh — plus Metasploit for controlled
-pentests, which stays inert until you enable pentest on the scout and approve a
-session) and then, in order:
+standard scanner pack — Nmap, Nuclei, testssl.sh, and OWASP ZAP for automatic
+passive web review — plus Metasploit for controlled pentests. ZAP's active rules
+and Metasploit stay inert until you enable pentest on the Scout and explicitly
+approve the active work) and then, in order:
 
 1. applies database migrations automatically;
 2. seeds the default organization, a **Local Site**, the admin, and a one-time,

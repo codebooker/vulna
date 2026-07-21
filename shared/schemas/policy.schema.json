@@ -72,6 +72,11 @@
       "default": "revalidate_at_execution"
     },
     "credentialed_scans_allowed": { "type": "boolean", "default": false },
+    "active_web_scans_allowed": {
+      "type": "boolean",
+      "default": false,
+      "description": "Signed per-Scout opt-in required for ZAP limited-active profiles."
+    },
     "exploit_validation_allowed": { "type": "boolean", "default": false },
     "signature": { "type": "string", "description": "Base64 Ed25519 signature over the canonical policy" }
   }

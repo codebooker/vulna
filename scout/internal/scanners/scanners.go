@@ -82,6 +82,16 @@ func stageTargets(scanner Scanner, endpoints []discovery.Endpoint, fallback []st
 	return fallback
 }
 
+// signedScopeTargets returns the original verified address scope. A stage clone
+// may already carry it when helpers are composed; otherwise the job's current
+// targets are the signed originals.
+func signedScopeTargets(job *policy.Job) []string {
+	if len(job.ScopeTargets) > 0 {
+		return job.ScopeTargets
+	}
+	return job.Targets
+}
+
 // Workflow runs a job's workflow by dispatching each stage's plugin to the
 // registered scanner. It satisfies executor.JobRunner.
 type Workflow struct {
@@ -138,6 +148,7 @@ func (w *Workflow) RunWithProgress(
 			return res, ctx.Err()
 		}
 		stageJob := *job
+		stageJob.ScopeTargets = append([]string(nil), signedScopeTargets(job)...)
 		stageJob.Targets = stageTargets(scanner, endpoints, job.Targets)
 		raw, err := scanner.Run(ctx, &stageJob)
 		if ctx.Err() != nil {
@@ -238,6 +249,7 @@ func (w *Workflow) RunStreaming(
 			}
 
 			stageJob := *job
+			stageJob.ScopeTargets = append([]string(nil), signedScopeTargets(job)...)
 			stageJob.Targets = stageTargets(st.scanner, endpointsByChunk[ci], chunk)
 			isDiscovery := st.scanner.Stage() == discoveryStage
 			var discovered [][]byte

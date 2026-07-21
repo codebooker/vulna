@@ -26,6 +26,7 @@ type Policy struct {
 	AllowPublicAddresses     bool     `json:"allow_public_addresses"`
 	AllowedModes             []string `json:"allowed_modes"`
 	AllowedPlugins           []string `json:"allowed_plugins"`
+	ActiveWebScansAllowed    bool     `json:"active_web_scans_allowed"`
 	CredentialedScansAllowed bool     `json:"credentialed_scans_allowed"`
 	Limits                   Limits   `json:"limits"`
 
@@ -92,6 +93,28 @@ func (p *Policy) AllowsPlugins(workflow []map[string]any) error {
 		}
 		if !slices.Contains(p.AllowedPlugins, name) {
 			return fmt.Errorf("plugin %q is not permitted by local policy", name)
+		}
+	}
+	return nil
+}
+
+// AllowsWorkflow enforces plugin admission plus profile-specific safety gates.
+// ZAP is installed and permitted for passive assessment by default, so checking
+// only its plugin name would also admit active attacks. The signed policy carries
+// a separate opt-in, tied by VulnaDash to the Scout's pentest-enabled setting.
+func (p *Policy) AllowsWorkflow(workflow []map[string]any) error {
+	if err := p.AllowsPlugins(workflow); err != nil {
+		return err
+	}
+	for _, stage := range workflow {
+		name, _ := stage["plugin"].(string)
+		if name != "zap" {
+			continue
+		}
+		config, _ := stage["config"].(map[string]any)
+		profile, _ := config["profile"].(string)
+		if profile == "limited_active" && !p.ActiveWebScansAllowed {
+			return fmt.Errorf("active ZAP is not permitted by local policy")
 		}
 	}
 	return nil

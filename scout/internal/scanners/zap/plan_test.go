@@ -64,7 +64,7 @@ func TestPassivePlanHasNoActiveScan(t *testing.T) {
 		t.Fatal("passive profile must not contain an activeScan job")
 	}
 	types := jobTypes(t, unmarshalPlan(t, data))
-	want := []string{"spider", "passiveScan-wait", "report"}
+	want := []string{"spider", "passiveScan-wait", "report", "exitStatus"}
 	if len(types) != len(want) {
 		t.Fatalf("unexpected jobs %v, want %v", types, want)
 	}
@@ -72,6 +72,11 @@ func TestPassivePlanHasNoActiveScan(t *testing.T) {
 		if types[i] != want[i] {
 			t.Errorf("job[%d]=%q, want %q", i, types[i], want[i])
 		}
+	}
+	exitStatus := findJob(t, unmarshalPlan(t, data), "exitStatus")
+	params := exitStatus["parameters"].(map[string]any)
+	if params["warnExitValue"] != float64(0) || params["errorExitValue"] != float64(1) {
+		t.Errorf("exitStatus must ignore warnings but retain errors: %v", params)
 	}
 }
 
