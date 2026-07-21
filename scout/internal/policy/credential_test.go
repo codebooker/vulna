@@ -145,14 +145,16 @@ func TestVerifyJobRequiresLocalCredentialedScanOptIn(t *testing.T) {
 		t.Fatal(err)
 	}
 	payload := map[string]any{
-		"job_id":         "job-credentialed",
-		"probe_id":       "p1",
-		"site_id":        "s1",
-		"mode":           "vulnerability_assessment",
-		"policy_version": 4,
-		"not_before":     "2020-01-01T00:00:00Z",
-		"expires_at":     "2030-01-01T00:00:00Z",
-		"targets":        []any{"10.20.0.5/32"},
+		"schema_version":  1,
+		"job_id":          "job-credentialed",
+		"probe_id":        "p1",
+		"site_id":         "s1",
+		"mode":            "vulnerability_assessment",
+		"profile_version": 1,
+		"policy_version":  4,
+		"not_before":      "2020-01-01T00:00:00Z",
+		"expires_at":      "2030-01-01T00:00:00Z",
+		"targets":         []any{"10.20.0.5/32"},
 		"workflow": []any{map[string]any{
 			"stage": "inventory", "plugin": "ssh_inventory", "config": map[string]any{},
 		}},

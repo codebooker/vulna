@@ -23,12 +23,13 @@ class ProbeResultUpload(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
 
     __tablename__ = "probe_result_uploads"
     __table_args__ = (
-        UniqueConstraint(
-            "scan_job_id", "idempotency_key", name="uq_probe_result_uploads_job_key"
-        ),
+        UniqueConstraint("scan_job_id", "idempotency_key", name="uq_probe_result_uploads_job_key"),
     )
 
     scan_job_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("scan_jobs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    scan_job_attempt_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("scan_job_attempts.id", ondelete="SET NULL"), nullable=True, index=True
     )
     idempotency_key: Mapped[str] = mapped_column(String(64), nullable=False)

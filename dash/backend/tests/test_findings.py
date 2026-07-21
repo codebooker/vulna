@@ -13,7 +13,7 @@ from app.models.site import Site
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tests.conftest import probe_cert_headers
+from tests.conftest import probe_cert_headers, start_job_attempt
 from tests.test_jobs import _ready_probe
 
 EnrollFactory = Callable[..., Awaitable[dict[str, str]]]
@@ -49,24 +49,35 @@ async def _setup(
         headers=admin_headers,
     )
     job_id = job.json()["id"]
-    headers = probe_cert_headers(probe["fingerprint"])
+    offered_job_id, attempt_headers = await start_job_attempt(
+        client, probe["probe_id"], probe["fingerprint"]
+    )
+    assert offered_job_id == job_id
+    headers = {**probe_cert_headers(probe["fingerprint"]), **attempt_headers}
     # Run discovery first so findings can map to a real asset/service.
     await client.post(
-        f"/api/v1/probes/{probe['probe_id']}/jobs/{job_id}/results?scanner=nmap",
+        f"/api/v1/probes/{probe['probe_id']}/jobs/{job_id}/results?stage=discovery&scanner=nmap",
         content=NMAP_XML,
         headers={**headers, "Content-Type": "application/xml"},
     )
     return probe, job_id, {**headers, "Content-Type": "application/json"}
 
 
-async def _upload(client: AsyncClient, probe: dict[str, str], job_id: str, scanner: str,
-                  body: bytes, headers: dict[str, str]) -> dict[str, int]:
+async def _upload(
+    client: AsyncClient,
+    probe: dict[str, str],
+    job_id: str,
+    scanner: str,
+    body: bytes,
+    headers: dict[str, str],
+) -> dict[str, int]:
     resp = await client.post(
-        f"/api/v1/probes/{probe['probe_id']}/jobs/{job_id}/results?scanner={scanner}",
+        f"/api/v1/probes/{probe['probe_id']}/jobs/{job_id}/results"
+        f"?stage={'vulnerability' if scanner == 'nuclei' else 'tls'}&scanner={scanner}",
         content=body,
         headers=headers,
     )
-    assert resp.status_code == 201, resp.text
+    assert resp.status_code in (200, 201), resp.text
     return resp.json()
 
 
@@ -98,7 +109,8 @@ async def test_repeated_upload_does_not_duplicate(
     assert first["findings_created"] == 1
     second = await _upload(client, probe, job_id, "nuclei", NUCLEI_JSONL, headers)
     assert second["findings_created"] == 0
-    assert second["findings_updated"] == 1
+    assert second["findings_updated"] == 0
+    assert second["duplicate"] is True
     listed = await client.get("/api/v1/findings", headers=admin_headers)
     assert listed.json()["total"] == 1
 
@@ -109,9 +121,7 @@ async def test_testssl_upload_creates_weak_protocol_finding(
     probe, job_id, headers = await _setup(client, admin_headers, enroll_probe)
     summary = await _upload(client, probe, job_id, "testssl", TESTSSL_JSON, headers)
     assert summary["findings_created"] == 1
-    listed = await client.get(
-        "/api/v1/findings?finding_type=weak_protocol", headers=admin_headers
-    )
+    listed = await client.get("/api/v1/findings?finding_type=weak_protocol", headers=admin_headers)
     assert listed.json()["total"] == 1
     assert listed.json()["items"][0]["severity"] == "high"
 
@@ -129,8 +139,25 @@ async def test_resolved_finding_reopens_on_recurrence(
         f"/api/v1/findings/{finding_id}", json={"status": "resolved"}, headers=admin_headers
     )
     assert resolved.json()["status"] == "resolved"
-    # The same issue recurs on the next scan -> reopened.
-    summary = await _upload(client, probe, job_id, "nuclei", NUCLEI_JSONL, headers)
+    # The same issue recurs on the next scan -> reopened. A new job is
+    # intentional: retransmitting an identical result for one attempt is a
+    # durable-upload retry and must remain an idempotent no-op.
+    next_job = await client.post(
+        "/api/v1/jobs",
+        json={"probe_id": probe["probe_id"], "targets": ["10.20.0.0/24"]},
+        headers=admin_headers,
+    )
+    next_job_id = next_job.json()["id"]
+    offered_job_id, attempt_headers = await start_job_attempt(
+        client, probe["probe_id"], probe["fingerprint"]
+    )
+    assert offered_job_id == next_job_id
+    next_headers = {
+        **probe_cert_headers(probe["fingerprint"]),
+        **attempt_headers,
+        "Content-Type": "application/json",
+    }
+    summary = await _upload(client, probe, next_job_id, "nuclei", NUCLEI_JSONL, next_headers)
     assert summary["findings_reopened"] == 1
     got = await client.get(f"/api/v1/findings/{finding_id}", headers=admin_headers)
     assert got.json()["status"] == "reopened"
@@ -138,7 +165,9 @@ async def test_resolved_finding_reopens_on_recurrence(
 
 
 async def test_finding_update_requires_operator(
-    client: AsyncClient, admin_headers: dict[str, str], viewer_headers: dict[str, str],
+    client: AsyncClient,
+    admin_headers: dict[str, str],
+    viewer_headers: dict[str, str],
     enroll_probe: EnrollFactory,
 ) -> None:
     probe, job_id, headers = await _setup(client, admin_headers, enroll_probe)

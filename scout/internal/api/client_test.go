@@ -11,6 +11,11 @@ import (
 	"testing"
 )
 
+var agentAPIAttempt = AttemptRef{
+	AttemptID: "11111111-1111-1111-1111-111111111111",
+	LeaseID:   "22222222-2222-2222-2222-222222222222", FencingToken: 7,
+}
+
 func TestHeartbeatSuccess(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v1/probes/probe-1/heartbeat" {
@@ -100,6 +105,9 @@ func TestPollJob(t *testing.T) {
 		}
 		if serve == 0 {
 			serve++
+			w.Header().Set("X-Vulna-Attempt-ID", "11111111-1111-1111-1111-111111111111")
+			w.Header().Set("X-Vulna-Lease-ID", "22222222-2222-2222-2222-222222222222")
+			w.Header().Set("X-Vulna-Fencing-Token", "7")
 			_, _ = w.Write([]byte(`{"job_id":"j1"}`))
 			return
 		}
@@ -108,12 +116,12 @@ func TestPollJob(t *testing.T) {
 	defer srv.Close()
 	c := newClient(srv.URL, "p1", srv.Client())
 
-	body, ok, err := c.PollJob(context.Background())
+	offer, ok, err := c.PollJob(context.Background())
 	if err != nil || !ok {
 		t.Fatalf("expected a job, ok=%v err=%v", ok, err)
 	}
-	if !strings.Contains(string(body), "j1") {
-		t.Errorf("unexpected job body: %s", body)
+	if !strings.Contains(string(offer.Envelope), "j1") || offer.Attempt.FencingToken != 7 {
+		t.Errorf("unexpected job offer: %+v", offer)
 	}
 	_, ok, err = c.PollJob(context.Background())
 	if err != nil || ok {
@@ -124,25 +132,52 @@ func TestPollJob(t *testing.T) {
 func TestUploadResults(t *testing.T) {
 	var gotBody []byte
 	var gotQuery string
+	var gotContentType string
+	var gotIdempotencyKey string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v1/probes/p1/jobs/j1/results" {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
 		gotQuery = r.URL.RawQuery
+		gotContentType = r.Header.Get("Content-Type")
+		gotIdempotencyKey = r.Header.Get("Idempotency-Key")
 		gotBody, _ = io.ReadAll(r.Body)
 		w.WriteHeader(http.StatusCreated)
 	}))
 	defer srv.Close()
 	c := newClient(srv.URL, "p1", srv.Client())
-	if err := c.UploadResults(context.Background(), "j1", []byte("<nmaprun/>"), "discovery", "nmap"); err != nil {
+	if err := c.UploadResults(
+		context.Background(), "j1", agentAPIAttempt,
+		[]byte("<nmaprun/>"), "discovery", "nmap",
+	); err != nil {
 		t.Fatal(err)
 	}
-	if string(gotBody) != "<nmaprun/>" {
-		t.Errorf("body not received: %q", gotBody)
+	var envelope resultEnvelope
+	if err := json.Unmarshal(gotBody, &envelope); err != nil {
+		t.Fatalf("decode result envelope: %v", err)
+	}
+	if gotContentType != resultContentType || envelope.SchemaVersion != 1 ||
+		envelope.JobID != "j1" || envelope.ProbeID != "p1" || envelope.Stage != "discovery" ||
+		envelope.Scanner != "nmap" || envelope.ResultFormat != "nmap_xml" ||
+		envelope.Payload != "PG5tYXBydW4vPg==" || envelope.ByteLength != len("<nmaprun/>") {
+		t.Errorf("unexpected upload envelope/header: content-type=%q envelope=%+v", gotContentType, envelope)
+	}
+	if gotIdempotencyKey != ResultKey("j1", "discovery", "nmap", []byte("<nmaprun/>")) {
+		t.Errorf("unexpected idempotency key: %q", gotIdempotencyKey)
 	}
 	if !strings.Contains(gotQuery, "scanner=nmap") || !strings.Contains(gotQuery, "stage=discovery") {
 		t.Errorf("query missing stage/scanner: %q", gotQuery)
+	}
+}
+
+func TestResultKeyCrossLanguageVector(t *testing.T) {
+	jobID := "00000000-0000-0000-0000-000000000001"
+	if got := ResultKey(jobID, "discovery", "nmap", []byte("<nmaprun/>")); got != "7925f9328a62d64b5240bf5f03dc567a49605b7cef1f0f27e8f9456158fb9bee" {
+		t.Fatalf("raw result key drifted: %s", got)
+	}
+	if got := ResultKey(jobID, "discovery", "nmap", []byte("<nmaprun/>"), true); got != "144aaa9e7646833b5767f7b303ad6e65ef4ea9e3b005819d7106d358dd7f5274" {
+		t.Fatalf("completion result key drifted: %s", got)
 	}
 }
 
@@ -154,7 +189,9 @@ func TestUploadScannerCompletion(t *testing.T) {
 	}))
 	defer srv.Close()
 	c := newClient(srv.URL, "p1", srv.Client())
-	if err := c.UploadResults(context.Background(), "j1", nil, "vuln", "nuclei", true); err != nil {
+	if err := c.UploadResults(
+		context.Background(), "j1", agentAPIAttempt, nil, "vuln", "nuclei", true,
+	); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(gotQuery, "complete=true") {
@@ -175,7 +212,7 @@ func TestReportJobStatus(t *testing.T) {
 	defer srv.Close()
 	c := newClient(srv.URL, "p1", srv.Client())
 	eta := 30
-	err := c.ReportJobStatus(context.Background(), "j1", JobStatusReport{
+	err := c.ReportJobStatus(context.Background(), "j1", agentAPIAttempt, JobStatusReport{
 		Status: "running",
 		Progress: &JobProgressReport{
 			Percent: 50, CurrentStage: "vulnerability", CurrentPlugin: "nuclei",

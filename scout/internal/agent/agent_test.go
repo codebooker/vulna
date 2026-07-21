@@ -19,10 +19,15 @@ import (
 // Cross-language vectors: one Python key signed both a policy and a job whose
 // target (10.20.0.5/32) is within the policy scope (10.20.0.0/24).
 const (
-	agentPub    = "blvaFuR83ZFZ+AxnSh49WCQWagd2LnnMKaIdZldONJ0="
-	agentPolicy = `{"policy_version": 4, "probe_id": "p1", "site_id": "s1", "approved_cidrs": ["10.20.0.0/24"], "denied_cidrs": [], "allow_public_addresses": false, "allowed_modes": ["vulnerability_assessment"], "allowed_plugins": ["nmap"], "limits": {"max_hosts": 256, "max_parallel_hosts": 8, "max_packets_per_second": 1000, "max_duration_seconds": 10800}, "signature": "Roi9CK9tIdbT2emeUi1S7HQu+/j1Vxh6mjCbZciPlgsCgefulC1RXCH2LNKb0yZHZDOoh2tRlLjFANaqfVhLAA=="}`
-	agentJob    = `{"job_id": "job-123", "probe_id": "p1", "site_id": "s1", "mode": "vulnerability_assessment", "policy_version": 4, "not_before": "2020-01-01T00:00:00+00:00", "expires_at": "2030-01-01T00:00:00+00:00", "targets": ["10.20.0.5/32"], "workflow": [{"stage": "discovery", "plugin": "nmap", "config": {}}], "limits": {"max_hosts": 256, "max_parallel_hosts": 8, "max_packets_per_second": 1000, "max_duration_seconds": 10800}, "signature": "XXQ96+bIc576ZxinQFEpmstjEUF7DKTKPsKphVjVwfJj05xOyV0Ze+977nTS7noPHUVHXM3x2/RzNfDIdO6NAQ=="}`
+	agentPub    = "A6EHv/POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg="
+	agentPolicy = `{"schema_version": 1, "policy_version": 4, "probe_id": "p1", "site_id": "s1", "approved_cidrs": ["10.20.0.0/24"], "denied_cidrs": [], "allow_public_addresses": false, "allowed_modes": ["vulnerability_assessment"], "allowed_plugins": ["nmap"], "active_web_scans_allowed": false, "credentialed_scans_allowed": false, "limits": {"max_hosts": 256, "max_parallel_hosts": 8, "max_packets_per_second": 1000, "max_duration_seconds": 10800}, "signature": "mirXEAyswKQuI7n8tcKGFYiaZaqn1VpxtUSg3XMKJhG9i0MgqZBxFJj1pNIPVCTxpCWJNiMnqUZEytLIE8mDBw=="}`
+	agentJob    = `{"schema_version": 1, "job_id": "job-123", "probe_id": "p1", "site_id": "s1", "mode": "vulnerability_assessment", "profile_version": 1, "policy_version": 4, "not_before": "2020-01-01T00:00:00+00:00", "expires_at": "2030-01-01T00:00:00+00:00", "targets": ["10.20.0.5/32"], "workflow": [{"stage": "discovery", "plugin": "nmap", "config": {}}], "limits": {"max_hosts": 256, "max_parallel_hosts": 8, "max_packets_per_second": 1000, "max_duration_seconds": 10800}, "signature": "A07Uz317F18t8r1Tnk/sjrvkvGQ+pnbJch/RS6phrlKoxKsLHYrW5gmFU2i+CT0R2DFmAXzMvAFW8N04/2P4Dg=="}`
 )
+
+var agentAttempt = api.AttemptRef{
+	AttemptID: "11111111-1111-1111-1111-111111111111",
+	LeaseID:   "22222222-2222-2222-2222-222222222222", FencingToken: 1,
+}
 
 type fakeOrch struct {
 	mu             sync.Mutex
@@ -33,13 +38,14 @@ type fakeOrch struct {
 	uploads        int
 	uploaded       []byte
 	uploadErr      error // when set, uploads fail (simulates an offline link)
+	renewErr       error
 	reportFailures int
 }
 
 func (f *fakeOrch) FetchPolicy(context.Context) ([]byte, error) { return f.policy, nil }
 
 func (f *fakeOrch) UploadResults(
-	_ context.Context, _ string, raw []byte, _, _ string, _ ...bool,
+	_ context.Context, _ string, _ api.AttemptRef, raw []byte, _, _ string, _ ...bool,
 ) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -57,17 +63,19 @@ func (f *fakeOrch) setUploadErr(err error) {
 	f.uploadErr = err
 }
 
-func (f *fakeOrch) PollJob(context.Context) ([]byte, bool, error) {
+func (f *fakeOrch) PollJob(context.Context) (api.JobOffer, bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.jobServed || f.job == nil {
-		return nil, false, nil
+		return api.JobOffer{}, false, nil
 	}
 	f.jobServed = true
-	return f.job, true, nil
+	return api.JobOffer{Envelope: f.job, Attempt: agentAttempt}, true, nil
 }
 
-func (f *fakeOrch) ReportJobStatus(_ context.Context, _ string, r api.JobStatusReport) error {
+func (f *fakeOrch) ReportJobStatus(
+	_ context.Context, _ string, _ api.AttemptRef, r api.JobStatusReport,
+) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.reports = append(f.reports, r)
@@ -76,6 +84,28 @@ func (f *fakeOrch) ReportJobStatus(_ context.Context, _ string, r api.JobStatusR
 		return errors.New("temporary status failure")
 	}
 	return nil
+}
+
+func (f *fakeOrch) RenewJobLease(context.Context, string, api.AttemptRef) error {
+	return f.renewErr
+}
+
+func TestLeaseRenewalFailureStopsBeforeServerLeaseExpires(t *testing.T) {
+	f := &fakeOrch{renewErr: errors.New("orchestrator unreachable")}
+	a := newAgent(t, f, time.Millisecond)
+	jobCtx, cancel := context.WithCancelCause(context.Background())
+	running := &RunningJob{
+		JobID: "job-1", Attempt: agentAttempt, cancel: cancel,
+		lastLeaseRenewal: time.Now().Add(-leaseFailureLimit),
+	}
+	if err := a.RenewLease(context.Background(), running); err == nil {
+		t.Fatal("expected renewal error")
+	}
+	select {
+	case <-jobCtx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("job continued beyond the safe lease-renewal window")
+	}
 }
 
 func (f *fakeOrch) statuses() []string {

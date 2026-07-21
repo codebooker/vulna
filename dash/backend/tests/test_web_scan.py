@@ -10,7 +10,7 @@ from app.models.scan_job import ScanJob
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tests.conftest import UserFactory, auth_headers, probe_cert_headers
+from tests.conftest import UserFactory, auth_headers, probe_cert_headers, start_job_attempt
 from tests.test_jobs import _ready_probe
 
 EnrollFactory = Callable[..., Awaitable[dict[str, str]]]
@@ -164,15 +164,19 @@ async def test_zap_upload_creates_web_finding(
         headers=admin_headers,
     )
     job_id = job.json()["id"]
-    headers = probe_cert_headers(probe["fingerprint"])
+    offered_job_id, attempt_headers = await start_job_attempt(
+        client, probe["probe_id"], probe["fingerprint"]
+    )
+    assert offered_job_id == job_id
+    headers = {**probe_cert_headers(probe["fingerprint"]), **attempt_headers}
     # Discovery first so the web finding maps to the asset/service.
     await client.post(
-        f"/api/v1/probes/{probe['probe_id']}/jobs/{job_id}/results?scanner=nmap",
+        f"/api/v1/probes/{probe['probe_id']}/jobs/{job_id}/results?stage=discovery&scanner=nmap",
         content=NMAP_XML,
         headers={**headers, "Content-Type": "application/xml"},
     )
     up = await client.post(
-        f"/api/v1/probes/{probe['probe_id']}/jobs/{job_id}/results?scanner=zap",
+        f"/api/v1/probes/{probe['probe_id']}/jobs/{job_id}/results?stage=web&scanner=zap",
         content=ZAP_REPORT,
         headers={**headers, "Content-Type": "application/json"},
     )

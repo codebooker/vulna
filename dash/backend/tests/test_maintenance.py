@@ -34,19 +34,27 @@ async def _old_completed_artifact(
     """Create a job + uploaded artifact, then backdate it and mark the job done.
     Returns (job_id, artifact_id)."""
     probe = await _ready_probe(client, admin_headers, enroll_probe)
-    job_id = await _create_job(client, admin_headers, probe)
+    job_id, attempt_headers = await _create_job(client, admin_headers, probe)
     resp = await client.post(
         f"/api/v1/probes/{probe['probe_id']}/jobs/{job_id}/results",
         content=SAMPLE_XML,
-        headers={**probe_cert_headers(probe["fingerprint"]), **_XML_HEADERS},
+        headers={
+            **probe_cert_headers(probe["fingerprint"]),
+            **attempt_headers,
+            **_XML_HEADERS,
+        },
     )
     assert resp.status_code == 201
 
     art = (
-        await db_session.execute(
-            select(ScanArtifact).where(ScanArtifact.scan_job_id == uuid.UUID(job_id))
+        (
+            await db_session.execute(
+                select(ScanArtifact).where(ScanArtifact.scan_job_id == uuid.UUID(job_id))
+            )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     assert art is not None
     art.created_at = datetime.now(UTC) - timedelta(days=200)
     job = await db_session.get(ScanJob, uuid.UUID(job_id))
@@ -75,9 +83,7 @@ async def test_overview_and_health_report(
     assert "domains" in hr.json() and "overall_state" in hr.json()
 
 
-async def test_storage_and_certificate(
-    client: AsyncClient, admin_headers: dict[str, str]
-) -> None:
+async def test_storage_and_certificate(client: AsyncClient, admin_headers: dict[str, str]) -> None:
     s = await client.get("/api/v1/maintenance/storage", headers=admin_headers)
     assert s.status_code == 200
     cats = {c["category"] for c in s.json()["categories"]}
@@ -161,9 +167,7 @@ async def test_legal_hold_protects_from_cleanup(
     assert await db_session.get(ScanArtifact, uuid.UUID(art_id)) is not None
 
 
-async def test_holds_require_admin(
-    client: AsyncClient, viewer_headers: dict[str, str]
-) -> None:
+async def test_holds_require_admin(client: AsyncClient, viewer_headers: dict[str, str]) -> None:
     r = await client.post(
         "/api/v1/maintenance/holds",
         json={"target_type": "scan_job", "target_id": str(uuid.uuid4())},

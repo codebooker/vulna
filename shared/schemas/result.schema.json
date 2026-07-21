@@ -1,45 +1,48 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://vulna.dev/schemas/result.schema.json",
-  "title": "Vulna Result Chunk",
-  "description": "A single chunk of scan results uploaded by a VulnaScout probe to VulnaDash. Uploads are chunked and resumable; the server acknowledges durable receipt of each chunk.",
+  "title": "Vulna Result Upload Envelope",
+  "description": "Versioned result envelope uploaded by VulnaScout. Authentication is provided by mTLS; the envelope binds the payload to the job, Scout, signed workflow stage, and scanner. Idempotency-Key remains an HTTP header derived from the decoded payload.",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "schema_version",
     "job_id",
     "probe_id",
-    "stage_id",
-    "sequence_number",
-    "scanner_name",
-    "scanner_version",
+    "stage",
+    "scanner",
+    "complete",
     "content_hash",
-    "compression",
     "payload_encoding",
+    "result_format",
+    "byte_length",
     "payload"
   ],
   "properties": {
     "schema_version": { "type": "integer", "const": 1 },
     "job_id": { "type": "string", "format": "uuid" },
     "probe_id": { "type": "string", "format": "uuid" },
-    "stage_id": { "type": "string", "description": "Identifier of the scan stage that produced this chunk" },
-    "sequence_number": { "type": "integer", "minimum": 0 },
-    "is_final": { "type": "boolean", "default": false },
-    "scanner_name": { "type": "string" },
-    "scanner_version": { "type": "string" },
+    "stage": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "scanner": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "complete": { "type": "boolean" },
     "content_hash": {
       "type": "string",
       "pattern": "^sha256:[0-9a-f]{64}$",
-      "description": "SHA-256 of the decoded, decompressed payload"
+      "description": "SHA-256 of the decoded payload"
     },
-    "compression": { "type": "string", "enum": ["none", "gzip", "zstd"] },
-    "payload_encoding": { "type": "string", "enum": ["base64", "utf-8"] },
+    "payload_encoding": { "type": "string", "const": "base64" },
     "result_format": {
       "type": "string",
-      "description": "Format of the decoded payload",
-      "examples": ["nmap_xml", "nuclei_jsonl", "zap_json", "testssl_json"]
+      "enum": [
+        "nmap_xml",
+        "nuclei_jsonl",
+        "testssl_json",
+        "zap_json",
+        "metasploit_json",
+        "software_inventory_json"
+      ]
     },
-    "byte_length": { "type": "integer", "minimum": 0 },
-    "payload": { "type": "string", "description": "Encoded (and optionally compressed) result data" }
+    "byte_length": { "type": "integer", "minimum": 0, "maximum": 26214400 },
+    "payload": { "type": "string", "contentEncoding": "base64" }
   }
 }

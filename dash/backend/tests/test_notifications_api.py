@@ -70,13 +70,13 @@ async def test_scan_failure_queues_notification(
 ) -> None:
     await client.post("/api/v1/notifications/channels", json=WEBHOOK, headers=admin_headers)
     probe = await _ready_probe(client, admin_headers, enroll_probe)
-    job_id = await _create_job(client, admin_headers, probe)
+    job_id, attempt_headers = await _create_job(client, admin_headers, probe)
 
     # The probe reports the job failed -> a pending delivery is queued (non-blocking).
     status_resp = await client.post(
         f"/api/v1/probes/{probe['probe_id']}/jobs/{job_id}/status",
         json={"status": "failed", "error_code": "timeout"},
-        headers=probe_cert_headers(probe["fingerprint"]),
+        headers={**probe_cert_headers(probe["fingerprint"]), **attempt_headers},
     )
     assert status_resp.status_code == 204
 
@@ -98,10 +98,17 @@ class _FakeSender:
 
 async def _make_channel(session: AsyncSession, org_id, **over) -> NotificationChannel:
     ch = notify.build_channel(
-        get_settings(), org_id, None,
-        name="c", channel_type="webhook", config={"url": "https://8.8.8.8/h"},
-        secret="k", events=["scan_failed"], policy="immediate",
-        quiet_start_hour=over.get("quiet_start"), quiet_end_hour=over.get("quiet_end"),
+        get_settings(),
+        org_id,
+        None,
+        name="c",
+        channel_type="webhook",
+        config={"url": "https://8.8.8.8/h"},
+        secret="k",
+        events=["scan_failed"],
+        policy="immediate",
+        quiet_start_hour=over.get("quiet_start"),
+        quiet_end_hour=over.get("quiet_end"),
     )
     session.add(ch)
     await session.commit()
@@ -110,26 +117,32 @@ async def _make_channel(session: AsyncSession, org_id, **over) -> NotificationCh
 
 def _event() -> core.NotificationEvent:
     return core.NotificationEvent(
-        type=core.EventType.SCAN_FAILED, title="Scan failed", summary="x",
-        severity="high", object_type="job", object_id="j1",
+        type=core.EventType.SCAN_FAILED,
+        title="Scan failed",
+        summary="x",
+        severity="high",
+        object_type="job",
+        object_id="j1",
     )
 
 
-async def test_emit_dedup_and_dispatch_sends(
-    db_session: AsyncSession, organization
-) -> None:
+async def test_emit_dedup_and_dispatch_sends(db_session: AsyncSession, organization) -> None:
     ch = await _make_channel(db_session, organization.id)
     # Emit the same event twice -> deduplicated to one pending delivery.
     await notify.emit_event(db_session, organization.id, _event())
     await notify.emit_event(db_session, organization.id, _event())
     await db_session.commit()
     pending = (
-        await db_session.execute(
-            select(notify.NotificationDelivery).where(
-                notify.NotificationDelivery.channel_id == ch.id
+        (
+            await db_session.execute(
+                select(notify.NotificationDelivery).where(
+                    notify.NotificationDelivery.channel_id == ch.id
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert len(pending) == 1
 
     sender = _FakeSender()
@@ -142,9 +155,7 @@ async def test_emit_dedup_and_dispatch_sends(
     assert pending[0].status == DELIVERY_SENT
 
 
-async def test_dispatch_failure_records_error(
-    db_session: AsyncSession, organization
-) -> None:
+async def test_dispatch_failure_records_error(db_session: AsyncSession, organization) -> None:
     await _make_channel(db_session, organization.id)
     await notify.emit_event(db_session, organization.id, _event())
     await db_session.commit()
@@ -156,16 +167,12 @@ async def test_dispatch_failure_records_error(
     )
     await db_session.commit()
     assert result["failed"] == 1
-    row = (
-        await db_session.execute(select(notify.NotificationDelivery))
-    ).scalars().first()
+    row = (await db_session.execute(select(notify.NotificationDelivery))).scalars().first()
     assert row is not None
     assert row.attempts == 1 and row.last_error and row.status != DELIVERY_SENT
 
 
-async def test_quiet_hours_delays_then_sends(
-    db_session: AsyncSession, organization
-) -> None:
+async def test_quiet_hours_delays_then_sends(db_session: AsyncSession, organization) -> None:
     # Quiet all day so the event is delayed on emit.
     await _make_channel(db_session, organization.id, quiet_start=0, quiet_end=23)
     at_2am = datetime(2026, 7, 11, 2, 0, tzinfo=UTC)

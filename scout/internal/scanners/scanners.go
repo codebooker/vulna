@@ -224,7 +224,18 @@ func (w *Workflow) RunStreaming(
 	}
 
 	chunks := ChunkTargets(job.Targets, discoveryChunkAddresses)
-	totalUnits := len(chunks) * len(runnable)
+	// Discovery remains subnet-chunked for bounded Nmap execution and live asset
+	// delivery. Service-aware stages run once over the combined discovered
+	// endpoints, avoiding repeated Nuclei/ZAP JVM/process startup and allowing
+	// testssl's signed concurrency limit to span the full assessment.
+	totalUnits := 0
+	for _, stage := range runnable {
+		if stage.scanner.Stage() == discoveryStage {
+			totalUnits += len(chunks)
+		} else {
+			totalUnits++
+		}
+	}
 	completed := 0
 	deliveryFailed := make([]bool, len(runnable))
 	// Discovery output is retained per chunk so later stages receive only the
@@ -242,7 +253,17 @@ func (w *Workflow) RunStreaming(
 		st := runnable[si]
 		stageRan := false
 		stageFailed := false
-		for ci, chunk := range chunks {
+		stageChunks := chunks
+		stageEndpoints := endpointsByChunk
+		if st.scanner.Stage() != discoveryStage {
+			combined := make([]discovery.Endpoint, 0)
+			for _, endpoints := range endpointsByChunk {
+				combined = append(combined, endpoints...)
+			}
+			stageChunks = [][]string{job.Targets}
+			stageEndpoints = [][]discovery.Endpoint{combined}
+		}
+		for ci, chunk := range stageChunks {
 			if ctx.Err() != nil {
 				res.Cancelled = true
 				return res, ctx.Err()
@@ -250,7 +271,7 @@ func (w *Workflow) RunStreaming(
 
 			stageJob := *job
 			stageJob.ScopeTargets = append([]string(nil), signedScopeTargets(job)...)
-			stageJob.Targets = stageTargets(st.scanner, endpointsByChunk[ci], chunk)
+			stageJob.Targets = stageTargets(st.scanner, stageEndpoints[ci], chunk)
 			isDiscovery := st.scanner.Stage() == discoveryStage
 			var discovered [][]byte
 

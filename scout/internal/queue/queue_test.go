@@ -107,6 +107,30 @@ func TestKeyIsStableAndContentAddressed(t *testing.T) {
 	}
 }
 
+func TestKeyMatchesVersionedUploadContract(t *testing.T) {
+	jobID := "00000000-0000-0000-0000-000000000001"
+	if got := Key(jobID, "discovery", "nmap", []byte("<nmaprun/>")); got != "7925f9328a62d64b5240bf5f03dc567a49605b7cef1f0f27e8f9456158fb9bee" {
+		t.Fatalf("queue result key drifted: %s", got)
+	}
+}
+
+func TestEnqueueKeepsDistinctFencedAttempts(t *testing.T) {
+	q, _ := Open(t.TempDir(), 0)
+	first := item("j1", "discovery", "nmap", "same")
+	first.AttemptID, first.LeaseID, first.FencingToken = "a1", "l1", 1
+	second := first
+	second.AttemptID, second.LeaseID, second.FencingToken = "a2", "l2", 2
+	if err := q.Enqueue(first); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.Enqueue(second); err != nil {
+		t.Fatal(err)
+	}
+	if count, _, err := q.Backlog(); err != nil || count != 2 {
+		t.Fatalf("expected both fenced attempts in durable queue, count=%d err=%v", count, err)
+	}
+}
+
 func TestCompletionDrainsAfterEarlierResultBatches(t *testing.T) {
 	q, _ := Open(t.TempDir(), 0)
 	complete := item("j1", "vuln", "nuclei", "")

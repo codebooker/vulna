@@ -35,6 +35,7 @@ from app.models.network_scope import NetworkScope
 from app.models.probe import Probe
 from app.models.scan_job import ScanJob
 from app.services import credentials as credential_service
+from app.services import presets as preset_service
 from app.services.policy import build_policy_document, duration_limit_for_hosts
 from app.services.scopes import ScopeValidationError, normalize_cidr
 from app.services.signing import get_signer
@@ -53,19 +54,68 @@ async def _job_site_id(
     return probe.site_id
 
 
-# The non-intrusive assessment workflow starts with discovery, then runs the
-# network vulnerability and TLS stages. A bounded passive ZAP stage is added
-# dynamically below so it can use this job's signed limits and automatically
-# consume the HTTP(S) endpoints Nmap discovers at runtime.
 _SUPPORTED_MODES = {JobMode.VULNERABILITY_ASSESSMENT}
-_DEFAULT_WORKFLOW: list[dict[str, Any]] = [
-    {"stage": "discovery", "plugin": "nmap", "config": {}},
-    {"stage": "vulnerability", "plugin": "nuclei", "config": {}},
-    {"stage": "tls", "plugin": "testssl", "config": {}},
-]
-
 _AUTO_ZAP_MAX_DURATION_MINUTES = 10
 _AUTO_ZAP_MAX_REQUESTS_PER_SECOND = 10
+
+
+def _nmap_stage_config(preset_key: str) -> dict[str, Any]:
+    """Typed, signed discovery tuning for the selected safe preset."""
+    if preset_key == "quick":
+        return {
+            "port_profile": "quick",
+            "timing": 4,
+            "max_retries": 1,
+            "host_timeout": "5m",
+            "max_duration_seconds": 30 * 60,
+        }
+    if preset_key == "fragile":
+        return {
+            "port_profile": "standard",
+            "timing": 3,
+            "max_retries": 2,
+            "host_timeout": "15m",
+            "max_duration_seconds": 3 * 60 * 60,
+        }
+    return {
+        "port_profile": "standard",
+        "timing": 4,
+        "max_retries": 1,
+        "host_timeout": "5m",
+        "max_duration_seconds": 60 * 60 if preset_key == "standard" else 90 * 60,
+    }
+
+
+def _workflow_for_preset(
+    preset: preset_service.Preset, limits: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """Translate product-stage keys into the concrete Scout workflow."""
+    selected = set(preset.stage_keys)
+    workflow: list[dict[str, Any]] = []
+    # TLS and automatic passive-web stages need fresh Nmap endpoints even when a
+    # preset is described in product terms as "web/TLS only".
+    if selected.intersection({"discovery", "service_detection", "tls", "web_passive"}):
+        workflow.append(
+            {
+                "stage": "discovery",
+                "plugin": "nmap",
+                "config": _nmap_stage_config(preset.key),
+            }
+        )
+    if "vuln" in selected:
+        workflow.append({"stage": "vulnerability", "plugin": "nuclei", "config": {}})
+    if "tls" in selected:
+        workflow.append({"stage": "tls", "plugin": "testssl", "config": {}})
+    if "web_passive" in selected:
+        workflow.append(
+            _build_web_stage(
+                WebScanProfile.PASSIVE_BASELINE,
+                [],
+                limits,
+                auto_discover=True,
+            )
+        )
+    return workflow
 
 
 def _validate_web_start_urls(start_urls: list[str], approved: list[str]) -> list[str]:
@@ -85,9 +135,7 @@ def _validate_web_start_urls(start_urls: list[str], approved: list[str]) -> list
                 "Web start URLs must use an IP-literal host; DNS names are disabled"
             ) from exc
         if not _target_within_approved(host, approved):
-            raise JobValidationError(
-                f"Web start URL host '{host}' is outside the approved scope"
-            )
+            raise JobValidationError(f"Web start URL host '{host}' is outside the approved scope")
         validated.append(raw)
     return validated
 
@@ -287,13 +335,16 @@ def build_job_envelope(
     not_before: datetime,
     expires_at: datetime,
     credential_envelope: dict[str, str] | None = None,
+    profile_version: int = 1,
 ) -> dict[str, Any]:
     """Build the unsigned job envelope payload (build plan Section 11.3)."""
     envelope: dict[str, Any] = {
+        "schema_version": 1,
         "job_id": str(job_id),
         "probe_id": str(probe.id),
         "site_id": str(probe.site_id),
         "mode": mode.value,
+        "profile_version": profile_version,
         "policy_version": policy_version,
         "not_before": not_before.isoformat(),
         "expires_at": expires_at.isoformat(),
@@ -324,6 +375,7 @@ async def create_scan_job(
     asset_id: uuid.UUID | None = None,
     authenticated_protocols: list[CredentialProtocol] | None = None,
     preset_key: str | None = None,
+    preset_version: int | None = None,
     include_default_workflow: bool = True,
 ) -> ScanJob:
     """Validate, build, sign, and persist a scan job for a probe (status queued).
@@ -365,6 +417,19 @@ async def create_scan_job(
         int(limits["max_duration_seconds"]),
         duration_limit_for_hosts(_count_hosts(normalized_targets)),
     )
+    try:
+        preset = preset_service.get_preset(preset_key or "standard", preset_version)
+    except preset_service.PresetError as exc:
+        raise JobValidationError(str(exc)) from exc
+    tuning = preset_service.recommend_tuning(
+        preset,
+        cpu_count=int((probe.health_json or {}).get("cpu_count", 2) or 2),
+        memory_bytes=int((probe.health_json or {}).get("memory_mb", 0) or 0) * (1 << 20),
+        max_pps=int(limits["max_packets_per_second"]),
+        max_concurrency=int(limits["max_parallel_hosts"]),
+    )
+    limits["max_packets_per_second"] = tuning.packets_per_second
+    limits["max_parallel_hosts"] = tuning.concurrency
 
     protocols = list(dict.fromkeys(authenticated_protocols or []))
     asset: Asset | None = None
@@ -414,21 +479,13 @@ async def create_scan_job(
         except credential_service.CredentialResolutionError as exc:
             raise JobValidationError(str(exc)) from exc
 
-    workflow = list(_DEFAULT_WORKFLOW) if include_default_workflow else []
+    workflow = _workflow_for_preset(preset, limits) if include_default_workflow else []
     if web_profile is not None:
         if not web_start_urls:
             raise JobValidationError("An explicit web assessment requires at least one start URL")
         validated_urls = _validate_web_start_urls(web_start_urls, approved)
+        workflow = [stage for stage in workflow if stage["stage"] != "web"]
         workflow.append(_build_web_stage(web_profile, validated_urls, limits))
-    elif include_default_workflow:
-        workflow.append(
-            _build_web_stage(
-                WebScanProfile.PASSIVE_BASELINE,
-                [],
-                limits,
-                auto_discover=True,
-            )
-        )
     if stages is not None:
         wanted = set(stages)
         workflow = [s for s in workflow if s["stage"] in wanted]
@@ -486,6 +543,7 @@ async def create_scan_job(
         not_before=start,
         expires_at=end,
         credential_envelope=credential_envelope,
+        profile_version=preset.version,
     )
     signed = get_signer().sign_document(envelope)
 

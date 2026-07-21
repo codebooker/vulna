@@ -36,9 +36,7 @@ os.environ.setdefault("VULNA_RELAY_CONTROL_URL", "https://relay.test:8443")
 os.environ.setdefault("VULNA_RELAY_EGRESS_TOKEN", "test-only-relay-egress-token")
 
 # Write generated report artifacts under a temp directory, never /var/lib/vulna.
-os.environ.setdefault(
-    "VULNA_REPORTS_DIR", str(Path(tempfile.gettempdir()) / "vulna-test-reports")
-)
+os.environ.setdefault("VULNA_REPORTS_DIR", str(Path(tempfile.gettempdir()) / "vulna-test-reports"))
 
 import app.models  # noqa: F401  (register models on the metadata)
 import pytest
@@ -52,7 +50,7 @@ from app.main import create_app
 from app.models.enums import UserRole
 from app.models.organization import Organization
 from app.models.user import User
-from httpx import ASGITransport, AsyncClient
+from httpx import ASGITransport, AsyncClient, Response
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -246,6 +244,35 @@ def generate_csr_pem() -> str:
 def probe_cert_headers(fingerprint: str) -> dict[str, str]:
     """Build the proxy-injected client-cert header for probe authentication."""
     return {get_settings().probe_cert_fingerprint_header: fingerprint}
+
+
+def job_attempt_headers(response: Response) -> dict[str, str]:
+    """Copy the lease/fencing headers from a Scout job-offer response."""
+    headers = response.headers
+    return {
+        "X-Vulna-Attempt-ID": headers["X-Vulna-Attempt-ID"],
+        "X-Vulna-Lease-ID": headers["X-Vulna-Lease-ID"],
+        "X-Vulna-Fencing-Token": headers["X-Vulna-Fencing-Token"],
+    }
+
+
+async def start_job_attempt(
+    client: AsyncClient, probe_id: str, fingerprint: str
+) -> tuple[str, dict[str, str]]:
+    """Offer, accept, and start the next job exactly as a current Scout does."""
+    headers = probe_cert_headers(fingerprint)
+    offered = await client.post(f"/api/v1/probes/{probe_id}/jobs/next", headers=headers)
+    assert offered.status_code == 200, offered.text
+    headers.update(job_attempt_headers(offered))
+    job_id = offered.json()["job_id"]
+    for state in ("accepted", "running"):
+        response = await client.post(
+            f"/api/v1/probes/{probe_id}/jobs/{job_id}/status",
+            json={"status": state},
+            headers=headers,
+        )
+        assert response.status_code == 204, response.text
+    return job_id, headers
 
 
 EnrolledProbe = dict[str, str]

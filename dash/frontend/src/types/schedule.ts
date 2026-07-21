@@ -5,6 +5,8 @@ export interface ScanSchedule {
   name: string;
   mode: string;
   interval_minutes: number;
+  preset_key: string;
+  preset_version: number;
   enabled: boolean;
   next_run_at: string;
   last_run_at: string | null;
@@ -18,6 +20,7 @@ export interface NewSchedule {
   network_id: string;
   name: string;
   interval_minutes: number;
+  preset_key?: string;
 }
 
 export interface JobProgressStats {

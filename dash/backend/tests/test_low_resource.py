@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import uuid
 from collections.abc import Awaitable, Callable
 
+from app.api.v1.probes import _result_idempotency_key
 from app.services.signing import get_signer, reset_signer_cache
 from httpx import AsyncClient
 
@@ -14,16 +18,30 @@ from tests.test_jobs import _ready_probe
 EnrollFactory = Callable[..., Awaitable[dict[str, str]]]
 
 
+def test_result_idempotency_cross_language_vectors() -> None:
+    job_id = uuid.UUID("00000000-0000-0000-0000-000000000001")
+    raw = b"<nmaprun/>"
+    assert (
+        _result_idempotency_key(job_id, "discovery", "nmap", raw, complete=False)
+        == "7925f9328a62d64b5240bf5f03dc567a49605b7cef1f0f27e8f9456158fb9bee"
+    )
+    assert (
+        _result_idempotency_key(job_id, "discovery", "nmap", raw, complete=True)
+        == "144aaa9e7646833b5767f7b303ad6e65ef4ea9e3b005819d7106d358dd7f5274"
+    )
+
+
 async def test_resend_with_idempotency_key_does_not_duplicate(
     client: AsyncClient, admin_headers: dict[str, str], enroll_probe: EnrollFactory
 ) -> None:
     probe = await _ready_probe(client, admin_headers, enroll_probe)
-    job_id = await _create_job(client, admin_headers, probe)
+    job_id, attempt_headers = await _create_job(client, admin_headers, probe)
     url = f"/api/v1/probes/{probe['probe_id']}/jobs/{job_id}/results"
     headers = {
         **probe_cert_headers(probe["fingerprint"]),
         **_XML_HEADERS,
         "Idempotency-Key": "abc123",
+        **attempt_headers,
     }
 
     first = await client.post(url, content=SAMPLE_XML, headers=headers)
@@ -40,6 +58,38 @@ async def test_resend_with_idempotency_key_does_not_duplicate(
     # No duplicate observation: still exactly one asset.
     listed = await client.get("/api/v1/assets", headers=admin_headers)
     assert listed.json()["total"] == 1
+
+
+async def test_versioned_result_envelope_rejects_scanner_format_mismatch(
+    client: AsyncClient, admin_headers: dict[str, str], enroll_probe: EnrollFactory
+) -> None:
+    probe = await _ready_probe(client, admin_headers, enroll_probe)
+    job_id, attempt_headers = await _create_job(client, admin_headers, probe)
+    digest = hashlib.sha256(SAMPLE_XML).hexdigest()
+    response = await client.post(
+        f"/api/v1/probes/{probe['probe_id']}/jobs/{job_id}/results?stage=discovery&scanner=nmap",
+        json={
+            "schema_version": 1,
+            "job_id": job_id,
+            "probe_id": probe["probe_id"],
+            "stage": "discovery",
+            "scanner": "nmap",
+            "complete": False,
+            "content_hash": f"sha256:{digest}",
+            "payload_encoding": "base64",
+            "result_format": "zap_json",
+            "byte_length": len(SAMPLE_XML),
+            "payload": base64.b64encode(SAMPLE_XML).decode(),
+        },
+        headers={
+            **probe_cert_headers(probe["fingerprint"]),
+            **attempt_headers,
+            "Content-Type": "application/vnd.vulna.result+json",
+            "Idempotency-Key": "a" * 64,
+        },
+    )
+    assert response.status_code == 422
+    assert "format" in response.json()["detail"]
 
 
 async def test_resource_profile_endpoint(

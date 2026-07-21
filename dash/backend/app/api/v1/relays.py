@@ -60,6 +60,10 @@ class RegisterRequest(BaseModel):
     tunnel_public_key: str = Field(min_length=1, max_length=128)
 
 
+class RenewRequest(BaseModel):
+    csr_pem: str
+
+
 class HeartbeatRequest(BaseModel):
     tunnel_up: bool
     health: dict[str, Any] = Field(default_factory=dict)
@@ -104,6 +108,9 @@ def _serialize(r: Relay) -> dict[str, Any]:
         "denied_cidrs": r.denied_cidrs_json,
         "allow_public_addresses": bool(r.metadata_json.get("allow_public_addresses", False)),
         "certificate_fingerprint": r.certificate_fingerprint,
+        "certificate_expires_at": (
+            r.certificate_expires_at.isoformat() if r.certificate_expires_at else None
+        ),
         "last_seen_at": r.last_seen_at.isoformat() if r.last_seen_at else None,
         "enrolled_at": r.enrolled_at.isoformat() if r.enrolled_at else None,
     }
@@ -129,9 +136,14 @@ async def update_relay_settings(
     org = await _org(session, admin.organization_id)
     enabled = relay_svc.set_relay_enabled(org, payload.enabled)
     record_audit(
-        session, action="relay.mode_" + ("enabled" if enabled else "disabled"), actor=admin,
-        organization_id=admin.organization_id, target_type="relay_mode",
-        source_ip=context.source_ip, user_agent=context.user_agent, request_id=context.request_id,
+        session,
+        action="relay.mode_" + ("enabled" if enabled else "disabled"),
+        actor=admin,
+        organization_id=admin.organization_id,
+        target_type="relay_mode",
+        source_ip=context.source_ip,
+        user_agent=context.user_agent,
+        request_id=context.request_id,
     )
     await session.commit()
     return {"enabled": enabled}
@@ -143,15 +155,19 @@ async def list_relays(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict[str, Any]:
     rows = (
-        await session.execute(
-            select(Relay).where(
-                Relay.organization_id == current_user.organization_id,
-                optional_site_scope_clause(
-                    current_user, Relay.site_id, permission_key="relays.read"
-                ),
+        (
+            await session.execute(
+                select(Relay).where(
+                    Relay.organization_id == current_user.organization_id,
+                    optional_site_scope_clause(
+                        current_user, Relay.site_id, permission_key="relays.read"
+                    ),
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return {"relays": [_serialize(r) for r in rows]}
 
 
@@ -170,23 +186,28 @@ async def enrollment_command(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="A relay must be assigned to a site.",
         )
-    await get_accessible_site(
-        session, admin, payload.site_id, permission_key="relays.manage"
-    )
+    await get_accessible_site(session, admin, payload.site_id, permission_key="relays.manage")
     generated = generate_token()
+    now = datetime.now(UTC)
     relay = Relay(
         organization_id=admin.organization_id,
         site_id=payload.site_id,
         name=payload.name,
         status=RelayStatus.PENDING_ENROLLMENT,
         enrollment_token_hash=generated.token_hash,
+        enrollment_token_expires_at=now + timedelta(minutes=settings.enrollment_token_ttl_minutes),
         created_by=admin.id,
     )
     session.add(relay)
     record_audit(
-        session, action="relay.enrollment_created", actor=admin,
-        organization_id=admin.organization_id, target_type="relay",
-        source_ip=context.source_ip, user_agent=context.user_agent, request_id=context.request_id,
+        session,
+        action="relay.enrollment_created",
+        actor=admin,
+        organization_id=admin.organization_id,
+        target_type="relay",
+        source_ip=context.source_ip,
+        user_agent=context.user_agent,
+        request_id=context.request_id,
     )
     await session.commit()
     effective_settings = settings
@@ -214,17 +235,30 @@ async def register_relay(
     invalid = HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid token")
     relay = (
         await session.execute(
-            select(Relay).where(Relay.enrollment_token_hash == hash_token(payload.token))
+            select(Relay)
+            .where(Relay.enrollment_token_hash == hash_token(payload.token))
+            .with_for_update()
         )
     ).scalar_one_or_none()
     if relay is None or relay.status != RelayStatus.PENDING_ENROLLMENT:
         raise invalid
+    now = datetime.now(UTC)
+    token_expires = relay.enrollment_token_expires_at
+    if (
+        token_expires is None
+        or (token_expires.replace(tzinfo=UTC) if token_expires.tzinfo is None else token_expires)
+        <= now
+    ):
+        # Expired tokens are consumed so repeated guesses cannot keep probing a
+        # stale pending enrollment indefinitely.
+        relay.enrollment_token_hash = None
+        relay.enrollment_token_expires_at = None
+        await session.commit()
+        raise invalid
 
     org = await _org(session, relay.organization_id)
     if not relay_svc.relay_enabled(org):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail="Relay mode is disabled."
-        )
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Relay mode is disabled.")
 
     ca = get_ca(settings)
     try:
@@ -238,26 +272,97 @@ async def register_relay(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
 
-    now = datetime.now(UTC)
     relay.status = RelayStatus.ENROLLED
     relay.certificate_fingerprint = certificate_fingerprint(cert)
+    relay.certificate_serial = str(cert.serial_number)
+    relay.certificate_expires_at = cert.not_valid_after_utc
     relay.tunnel_public_key = payload.tunnel_public_key
     try:
         relay.tunnel_address = await relay_svc.allocate_tunnel_address(session, settings)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     relay.enrollment_token_hash = None  # single-use
+    relay.enrollment_token_expires_at = None
     relay.enrolled_at = now
     record_audit(
-        session, action="relay.registered", actor_type=ActorType.SYSTEM,
-        organization_id=relay.organization_id, target_type="relay", target_id=relay.id,
+        session,
+        action="relay.registered",
+        actor_type=ActorType.SYSTEM,
+        organization_id=relay.organization_id,
+        target_type="relay",
+        target_id=relay.id,
     )
     await session.commit()
     return {
         "relay_id": str(relay.id),
         "certificate_pem": cert.public_bytes(serialization.Encoding.PEM).decode(),
+        "certificate_expires_at": cert.not_valid_after_utc.isoformat(),
         "ca_pem": ca.cert_pem.decode(),
         # No job-signing keys, no scanner credentials: a relay never runs scanners.
+    }
+
+
+@router.post("/renew", summary="Renew this Relay's mTLS certificate")
+async def renew_relay_certificate(
+    payload: RenewRequest,
+    request: Request,
+    relay: CurrentRelay,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> dict[str, Any]:
+    """Rotate a Relay certificate while its current certificate is still valid.
+
+    The request is authenticated with the old certificate. The previous
+    fingerprint remains valid for a bounded recovery window so a lost renewal
+    response cannot permanently strand a remote Relay.
+    """
+    org = await _org(session, relay.organization_id)
+    if not relay_svc.relay_enabled(org) or relay.status != RelayStatus.ENROLLED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Relay mode is disabled or this Relay is not enrolled.",
+        )
+    ca = get_ca(settings)
+    try:
+        cert = ca.sign_csr(
+            payload.csr_pem.encode("utf-8"),
+            common_name=str(relay.id),
+            validity_days=settings.client_cert_validity_days,
+        )
+    except CertificateAuthorityError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+    presented = request.headers.get(settings.probe_cert_fingerprint_header, "").strip().lower()
+    if presented == relay.certificate_fingerprint:
+        relay.previous_certificate_fingerprint = relay.certificate_fingerprint
+        old_expiry = relay.certificate_expires_at
+        grace_expiry = datetime.now(UTC) + timedelta(hours=24)
+        if old_expiry is not None:
+            if old_expiry.tzinfo is None:
+                old_expiry = old_expiry.replace(tzinfo=UTC)
+            grace_expiry = min(grace_expiry, old_expiry)
+        relay.previous_certificate_valid_until = grace_expiry
+    # If the request arrived through the previous-certificate grace path, retain
+    # that same recovery identity while replacing an unacknowledged current cert.
+    relay.certificate_fingerprint = certificate_fingerprint(cert)
+    relay.certificate_serial = str(cert.serial_number)
+    relay.certificate_expires_at = cert.not_valid_after_utc
+    record_audit(
+        session,
+        action="relay.certificate_renewed",
+        actor_type=ActorType.SYSTEM,
+        actor_id=relay.id,
+        organization_id=relay.organization_id,
+        target_type="relay",
+        target_id=relay.id,
+    )
+    await session.commit()
+    return {
+        "relay_id": str(relay.id),
+        "certificate_pem": cert.public_bytes(serialization.Encoding.PEM).decode(),
+        "certificate_expires_at": cert.not_valid_after_utc.isoformat(),
+        "ca_pem": ca.cert_pem.decode(),
     }
 
 
@@ -376,9 +481,7 @@ async def set_scope(
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> dict[str, Any]:
     await _require_enabled(session, admin.organization_id)
-    relay = await _get_relay(
-        session, relay_id, admin, permission_key="relays.manage"
-    )
+    relay = await _get_relay(session, relay_id, admin, permission_key="relays.manage")
     try:
         approved = relay_svc.validate_egress_cidrs(
             payload.approved_cidrs, allow_public=payload.allow_public_addresses
@@ -393,10 +496,12 @@ async def set_scope(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="VulnaRelay currently supports IPv4 scopes only.",
         )
+    # All Relay peers share one WireGuard interface and route table. Until that
+    # data plane is isolated per organization, route uniqueness must therefore
+    # be enforced globally rather than only within the current tenant.
     other_relays = (
         await session.execute(
             select(Relay).where(
-                Relay.organization_id == relay.organization_id,
                 Relay.id != relay.id,
                 Relay.status != RelayStatus.REVOKED,
             )
@@ -405,11 +510,13 @@ async def set_scope(
     for other in other_relays:
         overlap = relay_svc.overlapping_cidrs(approved, other.approved_cidrs_json)
         if overlap is not None:
+            same_org = other.organization_id == relay.organization_id
+            owner = f"relay {other.name}" if same_org else "another Relay tenant"
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=(
-                    f"Relay range {overlap[0]} overlaps {overlap[1]} on relay "
-                    f"{other.name}; WireGuard cannot route an overlapping range "
+                    f"Relay range {overlap[0]} overlaps {overlap[1]} on {owner}; "
+                    "the shared WireGuard data plane cannot route an overlapping range "
                     "to two peers."
                 ),
             )
@@ -494,10 +601,10 @@ async def set_scope(
     bindings = list(
         (
             await session.execute(
-            select(NetworkScout).where(
-                NetworkScout.network_id == net.id,
+                select(NetworkScout).where(
+                    NetworkScout.network_id == net.id,
+                )
             )
-        )
         ).scalars()
     )
     binding = next((item for item in bindings if item.probe_id == scanner.id), None)
@@ -509,9 +616,15 @@ async def set_scope(
     if binding is None:
         session.add(NetworkScout(network_id=net.id, probe_id=scanner.id, is_primary=True))
     record_audit(
-        session, action="relay.scope_set", actor=admin,
-        organization_id=admin.organization_id, target_type="relay", target_id=relay.id,
-        source_ip=context.source_ip, user_agent=context.user_agent, request_id=context.request_id,
+        session,
+        action="relay.scope_set",
+        actor=admin,
+        organization_id=admin.organization_id,
+        target_type="relay",
+        target_id=relay.id,
+        source_ip=context.source_ip,
+        user_agent=context.user_agent,
+        request_id=context.request_id,
         metadata={"approved": approved, "denied": denied},
     )
     await session.commit()
@@ -525,9 +638,7 @@ async def egress_check(
     current_user: Annotated[User, Depends(require_permission("relays.read"))],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict[str, Any]:
-    relay = await _get_relay(
-        session, relay_id, current_user, permission_key="relays.read"
-    )
+    relay = await _get_relay(session, relay_id, current_user, permission_key="relays.read")
     # Fail closed when relay mode is disabled: the central egress is the security
     # boundary, so a disabled feature blocks all relay traffic regardless of the
     # relay's stored scope/tunnel state.
@@ -538,8 +649,11 @@ async def egress_check(
             "reason": "Relay mode is disabled; the central egress blocks all relay traffic.",
         }
     decision = relay_svc.egress_decision(
-        payload.target, relay.approved_cidrs_json, relay.denied_cidrs_json,
-        status=relay.status, tunnel_up=relay.tunnel_up,
+        payload.target,
+        relay.approved_cidrs_json,
+        relay.denied_cidrs_json,
+        status=relay.status,
+        tunnel_up=relay.tunnel_up,
     )
     return {"allowed": decision.allowed, "reason": decision.reason}
 
@@ -552,16 +666,20 @@ async def kill(
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> dict[str, Any]:
     """Tear the tunnel and block all scanning through this relay immediately."""
-    relay = await _get_relay(
-        session, relay_id, admin, permission_key="relays.manage"
-    )
+    relay = await _get_relay(session, relay_id, admin, permission_key="relays.manage")
     relay.status = RelayStatus.KILLED
     relay.tunnel_up = False
     relay.killed_at = datetime.now(UTC)
     record_audit(
-        session, action="relay.killed", actor=admin,
-        organization_id=admin.organization_id, target_type="relay", target_id=relay.id,
-        source_ip=context.source_ip, user_agent=context.user_agent, request_id=context.request_id,
+        session,
+        action="relay.killed",
+        actor=admin,
+        organization_id=admin.organization_id,
+        target_type="relay",
+        target_id=relay.id,
+        source_ip=context.source_ip,
+        user_agent=context.user_agent,
+        request_id=context.request_id,
     )
     await session.commit()
     return _serialize(relay)
@@ -574,16 +692,20 @@ async def resume(
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> dict[str, Any]:
-    relay = await _get_relay(
-        session, relay_id, admin, permission_key="relays.manage"
-    )
+    relay = await _get_relay(session, relay_id, admin, permission_key="relays.manage")
     if relay.status == RelayStatus.KILLED:
         relay.status = RelayStatus.ENROLLED
         relay.killed_at = None
     record_audit(
-        session, action="relay.resumed", actor=admin,
-        organization_id=admin.organization_id, target_type="relay", target_id=relay.id,
-        source_ip=context.source_ip, user_agent=context.user_agent, request_id=context.request_id,
+        session,
+        action="relay.resumed",
+        actor=admin,
+        organization_id=admin.organization_id,
+        target_type="relay",
+        target_id=relay.id,
+        source_ip=context.source_ip,
+        user_agent=context.user_agent,
+        request_id=context.request_id,
     )
     await session.commit()
     return _serialize(relay)
@@ -596,9 +718,7 @@ async def revoke(
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> dict[str, Any]:
-    relay = await _get_relay(
-        session, relay_id, admin, permission_key="relays.manage"
-    )
+    relay = await _get_relay(session, relay_id, admin, permission_key="relays.manage")
     relay.status = RelayStatus.REVOKED
     relay.tunnel_up = False
     managed_ids = [
@@ -609,9 +729,7 @@ async def revoke(
     if managed_ids:
         scopes = list(
             (
-                await session.execute(
-                    select(NetworkScope).where(NetworkScope.id.in_(managed_ids))
-                )
+                await session.execute(select(NetworkScope).where(NetworkScope.id.in_(managed_ids)))
             ).scalars()
         )
         network_ids = {scope.network_id for scope in scopes}
@@ -628,9 +746,15 @@ async def revoke(
         "allow_public_addresses": False,
     }
     record_audit(
-        session, action="relay.revoked", actor=admin,
-        organization_id=admin.organization_id, target_type="relay", target_id=relay.id,
-        source_ip=context.source_ip, user_agent=context.user_agent, request_id=context.request_id,
+        session,
+        action="relay.revoked",
+        actor=admin,
+        organization_id=admin.organization_id,
+        target_type="relay",
+        target_id=relay.id,
+        source_ip=context.source_ip,
+        user_agent=context.user_agent,
+        request_id=context.request_id,
     )
     await session.commit()
     return {"revoked": True}

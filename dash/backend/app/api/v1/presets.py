@@ -128,7 +128,7 @@ async def preview(
     memory_bytes = 0
     if probe is not None and isinstance(probe.health_json, dict):
         cpu_count = int(probe.health_json.get("cpu_count", cpu_count) or cpu_count)
-        memory_bytes = int(probe.health_json.get("memory_bytes", 0) or 0)
+        memory_bytes = int(probe.health_json.get("memory_mb", 0) or 0) * (1 << 20)
     tuning = presetsvc.recommend_tuning(
         preset,
         cpu_count=cpu_count,

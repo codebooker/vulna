@@ -16,9 +16,10 @@ import { Tabs } from '../components/ui/tabs';
 import { Progress } from '../components/ui/misc';
 import type { Network } from '../types/network';
 import type { ProbeSummary } from '../types/onboarding';
+import type { Preset } from '../types/presets';
 import type { Job, JobDiagnostics, ScanSchedule } from '../types/schedule';
 
-const PRESETS: { label: string; minutes: number }[] = [
+const CADENCE_PRESETS: { label: string; minutes: number }[] = [
   { label: 'Every 6 hours', minutes: 360 },
   { label: 'Daily', minutes: 1440 },
   { label: 'Weekly', minutes: 10080 },
@@ -28,7 +29,7 @@ const ACTIVE_STATES = ['queued', 'offered', 'accepted', 'running'];
 const FAILED_STATES = ['failed', 'cancelled', 'expired', 'rejected_by_probe'];
 
 function intervalLabel(minutes: number): string {
-  const preset = PRESETS.find((p) => p.minutes === minutes);
+  const preset = CADENCE_PRESETS.find((p) => p.minutes === minutes);
   if (preset) return preset.label;
   if (minutes % 1440 === 0) return `Every ${minutes / 1440} days`;
   if (minutes % 60 === 0) return `Every ${minutes / 60} hours`;
@@ -71,6 +72,7 @@ export function ScansPage() {
   const [networks, setNetworks] = useState<Network[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [probes, setProbes] = useState<ProbeSummary[]>([]);
+  const [scanPresets, setScanPresets] = useState<Preset[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState(current.params.tab ?? 'running');
@@ -98,16 +100,18 @@ export function ScansPage() {
       // first load shows the skeleton, so the table doesn't flicker every 5s.
       if (!silent) setLoading(true);
       try {
-        const [scheds, nets, jobPage, probePage] = await Promise.all([
+        const [scheds, nets, jobPage, probePage, presetPage] = await Promise.all([
           api.listSchedules(token),
           api.listNetworks(token).catch(() => []),
           api.listAllJobs(token).catch(() => null),
           api.listProbes(token).catch(() => null),
+          api.listPresets(token).catch(() => ({ presets: [] })),
         ]);
         setSchedules(scheds);
         setNetworks(nets);
         setJobs(jobPage?.items ?? []);
         setProbes(probePage?.items ?? []);
+        setScanPresets(presetPage.presets);
         setError(null);
       } catch (err) {
         if (err instanceof ApiError && err.status === 401) {
@@ -608,6 +612,7 @@ export function ScansPage() {
           <CreateScanModal
             open={scanOpen}
             networks={networks}
+            presets={scanPresets}
             onClose={() => setScanOpen(false)}
             onCreated={() => {
               setScanOpen(false);
@@ -618,6 +623,7 @@ export function ScansPage() {
           <CreateScheduleModal
             open={scheduleOpen}
             networks={networks}
+            presets={scanPresets}
             onClose={() => setScheduleOpen(false)}
             onCreated={() => {
               setScheduleOpen(false);
@@ -693,11 +699,13 @@ export function ScansPage() {
 function CreateScanModal({
   open,
   networks,
+  presets,
   onClose,
   onCreated,
 }: {
   open: boolean;
   networks: Network[];
+  presets: Preset[];
   onClose: () => void;
   onCreated: () => void;
 }) {
@@ -705,6 +713,7 @@ function CreateScanModal({
   const { toast } = useToast();
   const [networkId, setNetworkId] = useState('');
   const [targets, setTargets] = useState('');
+  const [presetKey, setPresetKey] = useState('standard');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -736,7 +745,7 @@ function CreateScanModal({
     setError(null);
     setSubmitting(true);
     try {
-      await api.createJob(token, scout.probe_id, list, net.id);
+      await api.createJob(token, scout.probe_id, list, net.id, presetKey);
       setNetworkId('');
       setTargets('');
       toast('success', 'Scan started.');
@@ -805,6 +814,26 @@ function CreateScanModal({
               required
             />
           </Field>
+          <Field
+            label="Scan profile"
+            htmlFor="scan-preset"
+            hint="Quick is fastest; Standard adds safe vulnerability, TLS, and passive web checks."
+          >
+            <Select
+              id="scan-preset"
+              value={presetKey}
+              onChange={(e) => setPresetKey(e.target.value)}
+            >
+              {(presets.length
+                ? presets
+                : [{ key: 'standard', name: 'Standard Security Check' }]
+              ).map((preset) => (
+                <option key={preset.key} value={preset.key}>
+                  {preset.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
           {error && <InlineError message={error} />}
           <div className="mt-1 flex justify-end gap-2">
             <Button variant="ghost" onClick={onClose}>
@@ -823,11 +852,13 @@ function CreateScanModal({
 function CreateScheduleModal({
   open,
   networks,
+  presets,
   onClose,
   onCreated,
 }: {
   open: boolean;
   networks: Network[];
+  presets: Preset[];
   onClose: () => void;
   onCreated: () => void;
 }) {
@@ -836,6 +867,7 @@ function CreateScheduleModal({
   const [networkId, setNetworkId] = useState('');
   const [name, setName] = useState('');
   const [minutes, setMinutes] = useState(1440);
+  const [presetKey, setPresetKey] = useState('standard');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -845,7 +877,12 @@ function CreateScheduleModal({
     setError(null);
     setSubmitting(true);
     try {
-      await api.createSchedule(token, { network_id: networkId, name, interval_minutes: minutes });
+      await api.createSchedule(token, {
+        network_id: networkId,
+        name,
+        interval_minutes: minutes,
+        preset_key: presetKey,
+      });
       setName('');
       setNetworkId('');
       toast('success', 'Schedule created.');
@@ -903,9 +940,25 @@ function CreateScheduleModal({
               value={minutes}
               onChange={(e) => setMinutes(Number(e.target.value))}
             >
-              {PRESETS.map((p) => (
+              {CADENCE_PRESETS.map((p) => (
                 <option key={p.minutes} value={p.minutes}>
                   {p.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Scan profile" htmlFor="sched-preset">
+            <Select
+              id="sched-preset"
+              value={presetKey}
+              onChange={(e) => setPresetKey(e.target.value)}
+            >
+              {(presets.length
+                ? presets
+                : [{ key: 'standard', name: 'Standard Security Check' }]
+              ).map((preset) => (
+                <option key={preset.key} value={preset.key}>
+                  {preset.name}
                 </option>
               ))}
             </Select>

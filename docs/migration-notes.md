@@ -17,6 +17,28 @@ step is needed for schema changes unless noted.
 
 ## Unreleased (on `main`)
 
+- **Faster, versioned scan execution and fenced delivery.** Scan presets now
+  control the signed workflow and rate limits, the Standard profile includes
+  automatic passive ZAP, and discovery avoids restarting downstream scanners for
+  every subnet. New immutable job-attempt leases fence stale Scouts and bind all
+  result uploads to an authorized stage and versioned content envelope. Current
+  Scout and backend images must be upgraded together; interrupted pre-upgrade
+  scans should be restarted. Existing queued jobs are re-signed into the v1 wire
+  contract when first offered, and recurring schedules are pinned to an explicit
+  preset version.
+
+- **Relay enrollment and certificate lifecycle.** Relay enrollment commands now
+  expire using the configured token TTL, enrolled Relays persist certificate
+  metadata and renew automatically before expiry, and a bounded prior-certificate
+  window permits lost-response recovery. Approved Relay ranges are checked
+  globally because the current WireGuard route table is shared across
+  organizations. No operator action is required, but overlapping routes in a
+  multi-organization appliance must be made globally unique before changing
+  Relay scope.
+
+- **Route-level frontend loading.** Operator pages are loaded on demand rather
+  than shipping one monolithic JavaScript bundle. No operator action is required.
+
 - **Scan progress and failure diagnostics.** The additive upgrade adds bounded
   stage progress, an estimated-completion timestamp, and sanitized structured
   failures to scan jobs. Existing completed scans backfill to 100%; every other

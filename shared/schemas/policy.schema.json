@@ -10,8 +10,8 @@
     "policy_version",
     "probe_id",
     "site_id",
-    "issued_at",
     "approved_cidrs",
+    "denied_cidrs",
     "allow_public_addresses",
     "allowed_modes",
     "allowed_plugins",
@@ -20,11 +20,9 @@
   ],
   "properties": {
     "schema_version": { "type": "integer", "const": 1 },
-    "policy_version": { "type": "integer", "minimum": 1 },
+    "policy_version": { "type": "integer", "minimum": 0 },
     "probe_id": { "type": "string", "format": "uuid" },
     "site_id": { "type": "string", "format": "uuid" },
-    "issued_at": { "type": "string", "format": "date-time" },
-    "expires_at": { "type": "string", "format": "date-time" },
     "approved_cidrs": {
       "type": "array",
       "items": { "type": "string", "description": "Approved CIDR (IPv4 or IPv6)" }
@@ -53,23 +51,13 @@
     "limits": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["max_hosts", "max_concurrency", "max_packets_per_second", "max_job_duration_seconds"],
+      "required": ["max_hosts", "max_parallel_hosts", "max_packets_per_second", "max_duration_seconds"],
       "properties": {
         "max_hosts": { "type": "integer", "minimum": 1 },
-        "max_concurrency": { "type": "integer", "minimum": 1 },
+        "max_parallel_hosts": { "type": "integer", "minimum": 1 },
         "max_packets_per_second": { "type": "integer", "minimum": 1 },
-        "max_job_duration_seconds": { "type": "integer", "minimum": 1 }
+        "max_duration_seconds": { "type": "integer", "minimum": 1 }
       }
-    },
-    "redirect_behavior": {
-      "type": "string",
-      "enum": ["deny_out_of_scope", "follow_in_scope_only"],
-      "default": "deny_out_of_scope"
-    },
-    "dns_resolution": {
-      "type": "string",
-      "enum": ["revalidate_at_execution", "static_only"],
-      "default": "revalidate_at_execution"
     },
     "credentialed_scans_allowed": { "type": "boolean", "default": false },
     "active_web_scans_allowed": {

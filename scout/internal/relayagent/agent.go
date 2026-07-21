@@ -4,9 +4,11 @@ package relayagent
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"flag"
 	"fmt"
@@ -28,12 +30,15 @@ const (
 	defaultStateDir = "/var/lib/vulna-relay"
 	interfaceName   = "vulna-wg0"
 	maxResponse     = 1 << 20
+	renewBefore     = 30 * 24 * time.Hour
+	renewCheckEvery = time.Hour
 )
 
 type state struct {
-	RelayID  string `json:"relay_id"`
-	Server   string `json:"server"`
-	Enrolled string `json:"enrolled_at"`
+	RelayID              string `json:"relay_id"`
+	Server               string `json:"server"`
+	Enrolled             string `json:"enrolled_at"`
+	CertificateExpiresAt string `json:"certificate_expires_at,omitempty"`
 }
 
 type enrollRequest struct {
@@ -43,9 +48,10 @@ type enrollRequest struct {
 }
 
 type enrollResponse struct {
-	RelayID        string `json:"relay_id"`
-	CertificatePEM string `json:"certificate_pem"`
-	CAPEM          string `json:"ca_pem"`
+	RelayID              string `json:"relay_id"`
+	CertificatePEM       string `json:"certificate_pem"`
+	CertificateExpiresAt string `json:"certificate_expires_at"`
+	CAPEM                string `json:"ca_pem"`
 }
 
 type relayConfig struct {
@@ -186,7 +192,8 @@ func enrollRelay(ctx context.Context, server, token, dir, serverCA string) error
 	}
 	return writeJSON(filepath.Join(dir, "state.json"), state{
 		RelayID: registered.RelayID, Server: strings.TrimRight(server, "/"),
-		Enrolled: time.Now().UTC().Format(time.RFC3339),
+		Enrolled:             time.Now().UTC().Format(time.RFC3339),
+		CertificateExpiresAt: registered.CertificateExpiresAt,
 	})
 }
 
@@ -215,7 +222,29 @@ func runCommand(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	fmt.Fprintln(stdout, "vulnarelay running; no scanners are installed on this endpoint")
+	lastRenewalCheck := time.Time{}
 	for {
+		if time.Since(lastRenewalCheck) >= renewCheckEvery {
+			renewed, renewErr := renewCertificateIfNeeded(
+				context.Background(), hc, &st, *stateDir, time.Now().UTC(),
+			)
+			lastRenewalCheck = time.Now()
+			if renewErr != nil {
+				fmt.Fprintln(stderr, "relay certificate renewal failed:", renewErr)
+			} else if renewed {
+				hc, err = tlsHTTPClient(
+					filepath.Join(*stateDir, "client.crt"),
+					filepath.Join(*stateDir, "client.key"),
+					*serverCA,
+				)
+				if err != nil {
+					fmt.Fprintln(stderr, "reload renewed relay certificate:", err)
+					_ = teardown()
+					return 1
+				}
+				fmt.Fprintln(stdout, "relay mTLS certificate renewed")
+			}
+		}
 		interval := 5 * time.Second
 		cfg, fetchErr := fetchConfig(context.Background(), hc, st.Server)
 		if fetchErr != nil {
@@ -238,6 +267,94 @@ func runCommand(args []string, stdout, stderr io.Writer) int {
 		}
 		time.Sleep(interval)
 	}
+}
+
+// renewCertificateIfNeeded rotates the Relay certificate before expiry using
+// the existing private key. The server keeps the prior certificate valid for a
+// short grace period, so a lost response can be retried without re-enrollment.
+func renewCertificateIfNeeded(
+	ctx context.Context, hc *http.Client, st *state, stateDir string, now time.Time,
+) (bool, error) {
+	certPath := filepath.Join(stateDir, "client.crt")
+	certPEM, err := os.ReadFile(certPath) //nolint:gosec // fixed Relay state path
+	if err != nil {
+		return false, err
+	}
+	block, _ := pem.Decode(certPEM)
+	if block == nil || block.Type != "CERTIFICATE" {
+		return false, errors.New("relay certificate file is invalid")
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return false, fmt.Errorf("parse relay certificate: %w", err)
+	}
+	if now.Add(renewBefore).Before(cert.NotAfter) {
+		return false, nil
+	}
+	key, err := loadRelayPrivateKey(filepath.Join(stateDir, "client.key"))
+	if err != nil {
+		return false, err
+	}
+	csr, err := enrollment.CreateCSR(key)
+	if err != nil {
+		return false, err
+	}
+	payload, err := json.Marshal(map[string]string{"csr_pem": string(csr)})
+	if err != nil {
+		return false, err
+	}
+	req, err := http.NewRequestWithContext(
+		ctx, http.MethodPost, strings.TrimRight(st.Server, "/")+"/api/v1/relays/renew",
+		bytes.NewReader(payload),
+	)
+	if err != nil {
+		return false, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := hc.Do(req)
+	if err != nil {
+		return false, fmt.Errorf("renewal request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxResponse))
+	if resp.StatusCode != http.StatusOK {
+		return false, fmt.Errorf("renewal rejected: status %d: %s", resp.StatusCode, body)
+	}
+	var renewed enrollResponse
+	if err := json.Unmarshal(body, &renewed); err != nil {
+		return false, fmt.Errorf("parse renewal response: %w", err)
+	}
+	if renewed.CertificatePEM == "" || renewed.CertificateExpiresAt == "" {
+		return false, errors.New("renewal response is missing certificate metadata")
+	}
+	if err := writeSecretAtomic(certPath, []byte(renewed.CertificatePEM)); err != nil {
+		return false, err
+	}
+	st.CertificateExpiresAt = renewed.CertificateExpiresAt
+	if err := writeJSON(filepath.Join(stateDir, "state.json"), *st); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func loadRelayPrivateKey(path string) (*ecdsa.PrivateKey, error) {
+	data, err := os.ReadFile(path) //nolint:gosec // fixed Relay state path
+	if err != nil {
+		return nil, err
+	}
+	block, _ := pem.Decode(data)
+	if block == nil {
+		return nil, errors.New("relay private key file is invalid")
+	}
+	parsed, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("parse relay private key: %w", err)
+	}
+	key, ok := parsed.(*ecdsa.PrivateKey)
+	if !ok {
+		return nil, errors.New("relay private key is not ECDSA")
+	}
+	return key, nil
 }
 
 func statusCommand(args []string, stdout, stderr io.Writer) int {
@@ -500,6 +617,31 @@ func writeSecret(path string, data []byte) error {
 		return err
 	}
 	return os.Chmod(path, 0o600)
+}
+
+func writeSecretAtomic(path string, data []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".vulna-relay-secret-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer func() { _ = os.Remove(tmpPath) }()
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, path)
 }
 
 func writeJSON(path string, value any) error {

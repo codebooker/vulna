@@ -6,7 +6,7 @@ from collections.abc import Awaitable, Callable
 
 from httpx import AsyncClient
 
-from tests.conftest import probe_cert_headers
+from tests.conftest import probe_cert_headers, start_job_attempt
 from tests.test_jobs import _ready_probe
 
 EnrollFactory = Callable[..., Awaitable[dict[str, str]]]
@@ -38,12 +38,21 @@ async def _setup(
         headers=admin_headers,
     )
     job_id = job.json()["id"]
-    headers = {**probe_cert_headers(probe["fingerprint"]), **_XML_HEADERS}
+    offered_job_id, attempt_headers = await start_job_attempt(
+        client, probe["probe_id"], probe["fingerprint"]
+    )
+    assert offered_job_id == job_id
+    headers = {
+        **probe_cert_headers(probe["fingerprint"]),
+        **attempt_headers,
+        **_XML_HEADERS,
+    }
     return probe, job_id, headers
 
 
-async def _upload(client: AsyncClient, probe: dict[str, str], job_id: str, xml: bytes,
-                  headers: dict[str, str]) -> dict[str, int]:
+async def _upload(
+    client: AsyncClient, probe: dict[str, str], job_id: str, xml: bytes, headers: dict[str, str]
+) -> dict[str, int]:
     resp = await client.post(
         f"/api/v1/probes/{probe['probe_id']}/jobs/{job_id}/results",
         content=xml,
@@ -77,8 +86,11 @@ async def test_opening_a_port_creates_an_event(
     await _upload(client, probe, job_id, _scan_xml("10.20.0.5", [(22, "ssh", "", "")]), headers)
     # Second scan: port 80 is now open.
     summary = await _upload(
-        client, probe, job_id,
-        _scan_xml("10.20.0.5", [(22, "ssh", "", ""), (80, "http", "nginx", "")]), headers
+        client,
+        probe,
+        job_id,
+        _scan_xml("10.20.0.5", [(22, "ssh", "", ""), (80, "http", "nginx", "")]),
+        headers,
     )
     assert summary["change_events"] == 1
     assert "new_port_opened" in await _change_types(client, admin_headers)
@@ -89,8 +101,11 @@ async def test_closing_a_port_creates_an_event(
 ) -> None:
     probe, job_id, headers = await _setup(client, admin_headers, enroll_probe)
     await _upload(
-        client, probe, job_id,
-        _scan_xml("10.20.0.5", [(22, "ssh", "", ""), (80, "http", "", "")]), headers
+        client,
+        probe,
+        job_id,
+        _scan_xml("10.20.0.5", [(22, "ssh", "", ""), (80, "http", "", "")]),
+        headers,
     )
     # Second scan: port 80 has closed.
     summary = await _upload(
@@ -107,10 +122,34 @@ async def test_scan_comparison_shows_open_and_close(
     probe, job_id, headers = await _setup(client, admin_headers, enroll_probe)
     await _upload(client, probe, job_id, _scan_xml("10.20.0.5", [(22, "ssh", "", "")]), headers)
     await _upload(
-        client, probe, job_id,
-        _scan_xml("10.20.0.5", [(22, "ssh", "", ""), (8080, "http", "", "")]), headers
+        client,
+        probe,
+        job_id,
+        _scan_xml("10.20.0.5", [(22, "ssh", "", ""), (8080, "http", "", "")]),
+        headers,
     )
-    await _upload(client, probe, job_id, _scan_xml("10.20.0.5", [(22, "ssh", "", "")]), headers)
+    next_job = await client.post(
+        "/api/v1/jobs",
+        json={"probe_id": probe["probe_id"], "targets": ["10.20.0.0/24"]},
+        headers=admin_headers,
+    )
+    next_job_id = next_job.json()["id"]
+    offered_job_id, attempt_headers = await start_job_attempt(
+        client, probe["probe_id"], probe["fingerprint"]
+    )
+    assert offered_job_id == next_job_id
+    next_headers = {
+        **probe_cert_headers(probe["fingerprint"]),
+        **attempt_headers,
+        **_XML_HEADERS,
+    }
+    await _upload(
+        client,
+        probe,
+        next_job_id,
+        _scan_xml("10.20.0.5", [(22, "ssh", "", "")]),
+        next_headers,
+    )
 
     # Filter to this asset and confirm both the open and close events are present.
     assets = await client.get("/api/v1/assets", headers=admin_headers)
@@ -126,12 +165,10 @@ async def test_service_version_change_event(
 ) -> None:
     probe, job_id, headers = await _setup(client, admin_headers, enroll_probe)
     await _upload(
-        client, probe, job_id,
-        _scan_xml("10.20.0.5", [(22, "ssh", "OpenSSH", "8.9")]), headers
+        client, probe, job_id, _scan_xml("10.20.0.5", [(22, "ssh", "OpenSSH", "8.9")]), headers
     )
     summary = await _upload(
-        client, probe, job_id,
-        _scan_xml("10.20.0.5", [(22, "ssh", "OpenSSH", "9.6")]), headers
+        client, probe, job_id, _scan_xml("10.20.0.5", [(22, "ssh", "OpenSSH", "9.6")]), headers
     )
     assert summary["change_events"] == 1
     resp = await client.get(

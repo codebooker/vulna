@@ -39,7 +39,7 @@ from httpx import AsyncClient
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tests.conftest import probe_cert_headers
+from tests.conftest import probe_cert_headers, start_job_attempt
 
 pytestmark = pytest.mark.release_gate
 
@@ -200,6 +200,10 @@ async def test_one_way_vault_envelope_inventory_and_eol_override(
     payload = _decrypt_job_envelope(job, private_key)
     assert payload["job_id"] == str(job.id)
     assert payload["credentials"][0]["secret"] == password  # type: ignore[index]
+    offered_job_id, attempt_headers = await start_job_attempt(
+        client, str(probe.id), probe.certificate_fingerprint
+    )
+    assert offered_job_id == str(job.id)
 
     version = await db_session.scalar(
         select(CredentialSecretVersion).where(
@@ -219,7 +223,7 @@ async def test_one_way_vault_envelope_inventory_and_eol_override(
 
     upload = await client.post(
         f"/api/v1/probes/{probe.id}/jobs/{job.id}/results?stage=inventory&scanner=ssh_inventory",
-        headers=probe_cert_headers(probe.certificate_fingerprint),
+        headers={**probe_cert_headers(probe.certificate_fingerprint), **attempt_headers},
         content=json.dumps(
             {
                 "operating_system": {"name": "Debian GNU/Linux", "version": "12"},
@@ -268,7 +272,7 @@ async def test_one_way_vault_envelope_inventory_and_eol_override(
 
     second_upload = await client.post(
         f"/api/v1/probes/{probe.id}/jobs/{job.id}/results?stage=inventory&scanner=ssh_inventory",
-        headers=probe_cert_headers(probe.certificate_fingerprint),
+        headers={**probe_cert_headers(probe.certificate_fingerprint), **attempt_headers},
         content=json.dumps(
             {
                 "operating_system": {"name": "Debian GNU/Linux", "version": "12"},
@@ -301,6 +305,20 @@ async def test_one_way_vault_envelope_inventory_and_eol_override(
         json={"is_active": False},
     )
     assert deactivated.status_code == 200, deactivated.text
+    await db_session.refresh(job)
+    assert job.status.value == "running"
+    assert job.cancel_requested_at is not None
+    renewal = await client.post(
+        f"/api/v1/probes/{probe.id}/jobs/{job.id}/lease",
+        headers={**probe_cert_headers(probe.certificate_fingerprint), **attempt_headers},
+    )
+    assert renewal.status_code == 409
+    cancelled = await client.post(
+        f"/api/v1/probes/{probe.id}/jobs/{job.id}/status",
+        headers={**probe_cert_headers(probe.certificate_fingerprint), **attempt_headers},
+        json={"status": "cancelled"},
+    )
+    assert cancelled.status_code == 204, cancelled.text
     await db_session.refresh(job)
     assert job.status.value == "cancelled"
     usage_row = await db_session.scalar(
@@ -474,9 +492,7 @@ async def test_phase42_permissions_openapi_and_capability_status(
     ):
         assert path in openapi["paths"]
 
-    capabilities = (
-        await client.get("/api/v1/system/capabilities", headers=viewer_headers)
-    ).json()
+    capabilities = (await client.get("/api/v1/system/capabilities", headers=viewer_headers)).json()
     phase42 = next(
         item for item in capabilities["capabilities"] if item["key"] == "authenticated_scanning"
     )

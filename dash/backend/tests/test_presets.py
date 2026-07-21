@@ -107,18 +107,14 @@ def test_custom_rejects_raw_commands() -> None:
 
 def test_custom_rejects_out_of_bounds_rates() -> None:
     with pytest.raises(ps.PresetError):
-        ps.validate_custom(
-            {"name": "x", "stage_keys": ["discovery"], "packets_per_second": 100000}
-        )
+        ps.validate_custom({"name": "x", "stage_keys": ["discovery"], "packets_per_second": 100000})
     with pytest.raises(ps.PresetError):
         ps.validate_custom({"name": "x", "stage_keys": ["discovery"], "concurrency": 999})
 
 
 def test_custom_rejects_bad_severities() -> None:
     with pytest.raises(ps.PresetError):
-        ps.validate_custom(
-            {"name": "x", "stage_keys": ["vuln"], "severities": ["catastrophic"]}
-        )
+        ps.validate_custom({"name": "x", "stage_keys": ["vuln"], "severities": ["catastrophic"]})
 
 
 # --------------------------------------------------------------------------- #
@@ -126,9 +122,7 @@ def test_custom_rejects_bad_severities() -> None:
 # --------------------------------------------------------------------------- #
 
 
-async def test_list_and_get_presets(
-    client: AsyncClient, admin_headers: dict[str, str]
-) -> None:
+async def test_list_and_get_presets(client: AsyncClient, admin_headers: dict[str, str]) -> None:
     r = await client.get("/api/v1/presets", headers=admin_headers)
     assert r.status_code == 200
     keys = [p["key"] for p in r.json()["presets"]]
@@ -153,7 +147,8 @@ async def test_preview_no_probe_runs_full_pack(
     assert r.status_code == 200
     body = r.json()
     assert body["blocked"] is False
-    assert len(body["stages_to_run"]) == 4
+    assert len(body["stages_to_run"]) == 5
+    assert any(stage["scanner"] == "zap" for stage in body["stages_to_run"])
     assert body["estimate"]["duration_range"]
     assert body["tuning"]["concurrency"] >= 1
 
@@ -183,9 +178,7 @@ async def test_preview_missing_scanner_blocks(
     assert any(s["stage"] == "vuln" for s in body["skipped"])
 
 
-async def test_custom_validate_endpoint(
-    client: AsyncClient, admin_headers: dict[str, str]
-) -> None:
+async def test_custom_validate_endpoint(client: AsyncClient, admin_headers: dict[str, str]) -> None:
     ok = await client.post(
         "/api/v1/presets/custom/validate",
         json={"name": "Mine", "stage_keys": ["discovery", "tls"]},
