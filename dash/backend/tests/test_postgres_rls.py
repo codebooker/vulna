@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import os
 import uuid
+from pathlib import Path
 
 import asyncpg
 import pytest
+from app.core.config import Settings
 from app.db.session import set_maintenance_context, set_tenant_context
 from app.models.site import Site
+from app.services.bootstrap import run_bootstrap
 from sqlalchemy import func, literal, select
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -19,6 +22,34 @@ pytestmark = [
     pytest.mark.release_gate,
     pytest.mark.skipif(not POSTGRES_URL, reason="PostgreSQL RLS test URL is not configured"),
 ]
+
+
+async def test_postgres_single_host_bootstrap_enters_default_tenant(tmp_path: Path) -> None:
+    assert POSTGRES_URL is not None
+    unique = uuid.uuid4().hex
+    async_url = POSTGRES_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
+    engine = create_async_engine(async_url)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    settings = Settings(
+        default_org_name="RLS Bootstrap Organization",
+        default_org_slug=f"rls-bootstrap-{unique}",
+        default_site_name="RLS Bootstrap Site",
+        default_site_code=f"RLS-{unique[:8]}",
+        bootstrap_local_scout=True,
+        bootstrap_dir=str(tmp_path),
+        ca_key_path=str(tmp_path / "ca-key.pem"),
+        ca_cert_path=str(tmp_path / "ca-cert.pem"),
+    )
+    try:
+        async with factory() as session:
+            await run_bootstrap(session, settings)
+            assert session.info["vulna_organization_id"] is not None
+            site = await session.scalar(select(Site).where(Site.code == settings.default_site_code))
+            assert site is not None
+            assert site.organization_id == session.info["vulna_organization_id"]
+            await session.rollback()
+    finally:
+        await engine.dispose()
 
 
 async def test_postgres_runtime_role_fails_closed_and_isolates_tenants() -> None:

@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.password import hash_password
 from app.core.config import Settings
+from app.db.session import set_tenant_context
 from app.models.enrollment_token import EnrollmentToken
 from app.models.enums import ActorType, ExperienceProfile, UserRole
 from app.models.organization import Organization
@@ -235,6 +236,7 @@ async def run_bootstrap(session: AsyncSession, settings: Settings) -> None:
     from app.services.risk import default_profile
 
     organization = await ensure_default_organization(session, settings)
+    await set_tenant_context(session, organization.id)
     await default_profile(session, organization.id)
     await ensure_builtin_roles(session, organization.id)
     administrator = await ensure_bootstrap_admin(session, settings)
