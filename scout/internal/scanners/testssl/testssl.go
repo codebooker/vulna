@@ -329,7 +329,7 @@ func (w *Worker) scanOne(ctx context.Context, hostPort string) ([]byte, error) {
 	args := BuildArgs(outPath, hostPort)
 	runCtx, cancel := context.WithTimeout(ctx, w.timeout())
 	defer cancel()
-	cmd := processutil.CommandContext(runCtx, w.binary(), args...)
+	cmd := processutil.ScannerCommandContext(runCtx, dir, w.binary(), args...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	runErr := cmd.Run()

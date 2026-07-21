@@ -34,6 +34,7 @@ import (
 	"github.com/codebooker/vulna/scout/internal/scanners/testssl"
 	"github.com/codebooker/vulna/scout/internal/scanners/winrm_inventory"
 	"github.com/codebooker/vulna/scout/internal/scanners/zap"
+	"github.com/codebooker/vulna/scout/internal/scannersandbox"
 	"github.com/codebooker/vulna/scout/internal/selftest"
 	"github.com/codebooker/vulna/scout/internal/storage"
 	"github.com/codebooker/vulna/scout/internal/telemetry"
@@ -86,6 +87,9 @@ func Execute(args []string, stdout, stderr io.Writer) int {
 		return runResume(args[1:], stdout, stderr)
 	case "reset":
 		return runReset(args[1:], stdout, stderr)
+	case "scanner-sandbox":
+		// Internal deployment helper, deliberately omitted from user-facing help.
+		return scannersandbox.Execute(args[1:], stdout, stderr)
 	case "help", "--help", "-h":
 		fmt.Fprint(stdout, usage)
 		return 0

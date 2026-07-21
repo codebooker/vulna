@@ -69,4 +69,17 @@ jobs:
       - name: Shellcheck hardening scripts
         run: |
           sudo apt-get update && sudo apt-get install -y shellcheck
-          shellcheck deploy/backup/*.sh deploy/release/*.sh deploy/sbom/generate-sbom.sh
+          shellcheck deploy/backup/*.sh deploy/release/*.sh deploy/relay-egress/*.sh deploy/sbom/generate-sbom.sh
+
+  relay-dataplane:
+    name: relay-dataplane
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Install WireGuard integration tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl iproute2 iptables iputils-ping jq tcpdump wireguard-tools
+          sudo modprobe wireguard
+      - name: Exercise Relay namespaces, routes, deny rules, and fail-closed behavior
+        run: sudo sh deploy/relay-egress/integration_test.sh

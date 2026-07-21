@@ -157,6 +157,7 @@ RUN chmod +x /usr/local/bin/local-scout-entrypoint.sh
 ENV HOME=/var/lib/vulna \
     XDG_CONFIG_HOME=/opt/nuclei-config \
     VULNA_NUCLEI_TEMPLATES=/opt/nuclei-templates \
-    VULNA_MSF_CONSOLE=/usr/src/metasploit-framework/msfconsole
+    VULNA_MSF_CONSOLE=/usr/src/metasploit-framework/msfconsole \
+    VULNA_SCANNER_SANDBOX_HELPER=/usr/local/bin/vulnascout
 USER vulna
 ENTRYPOINT ["/usr/local/bin/local-scout-entrypoint.sh"]

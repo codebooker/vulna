@@ -11,6 +11,7 @@ Restart=on-failure
 RestartSec=5
 User=vulna
 Group=vulna
+Environment=VULNA_SCANNER_SANDBOX_HELPER=/usr/local/bin/vulnascout
 
 # Managed state and config directories (created by systemd with correct owner).
 StateDirectory=vulna
@@ -39,9 +40,9 @@ MemoryDenyWriteExecute=true
 SystemCallArchitectures=native
 
 # Resource limits.
-MemoryMax=1G
-CPUQuota=100%
-TasksMax=256
+MemoryMax=4G
+CPUQuota=400%
+TasksMax=512
 
 [Install]
 WantedBy=multi-user.target

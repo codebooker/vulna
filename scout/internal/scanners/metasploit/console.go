@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -41,18 +42,22 @@ func (c *ConsoleRunner) RunModule(ctx context.Context, spec ModuleSpec) (RunResu
 	if err != nil {
 		return RunResult{}, err
 	}
-	f, err := os.CreateTemp("", "vulna-msf-*.rc")
+	dir, err := os.MkdirTemp("", "vulnascout-msf-*")
 	if err != nil {
 		return RunResult{}, err
 	}
-	defer func() { _ = os.Remove(f.Name()) }()
+	defer func() { _ = os.RemoveAll(dir) }()
+	f, err := os.Create(filepath.Join(dir, "module.rc"))
+	if err != nil {
+		return RunResult{}, err
+	}
 	if _, err := f.WriteString(script); err != nil {
 		_ = f.Close()
 		return RunResult{}, err
 	}
 	_ = f.Close()
 
-	cmd := processutil.CommandContext(ctx, c.binary(), "-q", "-n", "-r", f.Name())
+	cmd := processutil.ScannerCommandContext(ctx, dir, c.binary(), "-q", "-n", "-r", f.Name())
 	out, runErr := cmd.CombinedOutput()
 	res := RunResult{
 		Evidence: map[string]any{"console": string(out)},
@@ -76,7 +81,12 @@ func (c *ConsoleRunner) StopSession(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	return processutil.CommandContext(ctx, c.binary(), args...).Run()
+	dir, err := os.MkdirTemp("", "vulnascout-msf-cleanup-*")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(dir) }()
+	return processutil.ScannerCommandContext(ctx, dir, c.binary(), args...).Run()
 }
 
 // buildResourceScript renders a safe msfconsole resource script: use the module,

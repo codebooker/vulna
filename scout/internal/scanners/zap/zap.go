@@ -136,7 +136,7 @@ func (w *Worker) Run(ctx context.Context, job *policy.Job) ([]byte, error) {
 	// whole-job max duration. Do not impose a hidden per-invocation deadline.
 	runCtx, cancel := w.runContext(ctx)
 	defer cancel()
-	cmd := processutil.CommandContext(runCtx, w.binary(), BuildArgs(planPath)...)
+	cmd := processutil.ScannerCommandContext(runCtx, dir, w.binary(), BuildArgs(planPath)...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	runErr := cmd.Run()
