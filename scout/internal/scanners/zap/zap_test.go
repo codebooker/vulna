@@ -2,6 +2,8 @@ package zap
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 	"time"
@@ -42,8 +44,11 @@ func TestNewWorkerDoesNotImposeInvocationDeadline(t *testing.T) {
 }
 
 func TestBuildArgs(t *testing.T) {
-	args := BuildArgs("/tmp/plan.yaml")
-	if !slices.Equal(args, []string{"-cmd", "-autorun", "/tmp/plan.yaml"}) {
+	args := BuildArgs("/tmp/plan.yaml", "/tmp/zap-home")
+	if !slices.Equal(
+		args,
+		[]string{"-dir", "/tmp/zap-home", "-cmd", "-autorun", "/tmp/plan.yaml"},
+	) {
 		t.Errorf("unexpected args: %v", args)
 	}
 }
@@ -153,6 +158,42 @@ func TestRunFailsWithMissingBinary(t *testing.T) {
 	}
 	if out != nil {
 		t.Errorf("expected no output on failure, got %d bytes", len(out))
+	}
+}
+
+func TestRunPassesWritableDisposableHome(t *testing.T) {
+	t.Setenv("VULNA_SCANNER_SANDBOX_HELPER", "")
+	binary := filepath.Join(t.TempDir(), "fake-zap")
+	script := `#!/bin/sh
+home=
+plan=
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -dir) home="$2"; shift 2 ;;
+    -autorun) plan="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+[ -n "$home" ] && [ -d "$home" ] || exit 9
+case "$home" in
+  /tmp/vulnascout-zap-*/home) ;;
+  *) exit 10 ;;
+esac
+printf '{"site":[]}' > "$(dirname "$plan")/zap-report.json"
+`
+	if err := os.WriteFile(binary, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	w := &Worker{Binary: binary}
+	cfg := map[string]any{
+		"profile": "passive_baseline", "start_urls": []any{"http://10.20.0.5/"},
+	}
+	out, err := w.Run(context.Background(), zapJob(cfg, []string{"10.20.0.5"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(out) != `{"site":[]}` {
+		t.Fatalf("report = %q", out)
 	}
 }
 

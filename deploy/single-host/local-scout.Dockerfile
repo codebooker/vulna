@@ -31,7 +31,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
 FROM alpine:3.21@sha256:48b0309ca019d89d40f670aa1bc06e426dc0931948452e8491e3d65087abc07d AS tools
 RUN apk add --no-cache curl unzip tar coreutils
 # nuclei — verified against the release's own checksums manifest.
-ARG NUCLEI_VERSION=3.3.7
+ARG NUCLEI_VERSION=3.11.0
 RUN set -eu; \
     case "$(uname -m)" in \
       x86_64)  arch=amd64 ;; \
@@ -49,8 +49,8 @@ RUN set -eu; \
 # nuclei-templates — pinned tag. Bundled so out-of-the-box (and offline) vuln
 # scans have templates to match against; without them nuclei loads zero
 # templates (update checks are disabled by policy) and every scan finds nothing.
-ARG NUCLEI_TEMPLATES_VERSION=10.4.5
-ARG NUCLEI_TEMPLATES_SHA256=34f5f8a24400a4fff33a57806c2fbc842cdf599589f477430800140845e299cb
+ARG NUCLEI_TEMPLATES_VERSION=10.4.6
+ARG NUCLEI_TEMPLATES_SHA256=ab24c96eccf4a9dc531c9054d54a820854c971269a8185deba57927015e208f9
 RUN set -eu; \
     curl -fsSL -o /tmp/nuclei-templates.tar.gz \
       "https://github.com/projectdiscovery/nuclei-templates/archive/refs/tags/v${NUCLEI_TEMPLATES_VERSION}.tar.gz"; \
@@ -88,7 +88,9 @@ RUN set -eu; \
 ENV XDG_CONFIG_HOME=/opt/nuclei-config
 RUN mkdir -p /opt/nuclei-config/nuclei \
  && printf '{"nuclei-templates-directory":"/opt/nuclei-templates"}' \
-      > /opt/nuclei-config/nuclei/.templates-config.json
+      > /opt/nuclei-config/nuclei/.templates-config.json \
+ && cp /opt/nuclei-templates/.nuclei-ignore \
+      /opt/nuclei-config/nuclei/.nuclei-ignore
 
 # Fail the build if the template set does not actually load — a scanner that loads
 # zero or a broken template set finds nothing while looking successful. Require a

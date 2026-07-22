@@ -59,6 +59,24 @@ func TestLandlockAllowsWorkspaceAndDeniesScoutState(t *testing.T) {
 	}
 }
 
+func TestSandboxReportsChildSignalInsteadOfExit255(t *testing.T) {
+	cmd := sandboxTestCommand(t, t.TempDir(), "sh", "-c", "kill -KILL $$")
+	output, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatal("signal-terminated scanner unexpectedly succeeded")
+	}
+	exitErr, ok := err.(*exec.ExitError)
+	if !ok {
+		t.Fatalf("error = %T %v", err, err)
+	}
+	if exitErr.ExitCode() != 137 {
+		t.Fatalf("exit code = %d, want 137; output: %s", exitErr.ExitCode(), output)
+	}
+	if !strings.Contains(string(output), "terminated by signal killed") {
+		t.Fatalf("signal diagnostic missing: %s", output)
+	}
+}
+
 func sandboxTestCommand(t *testing.T, workspace string, command ...string) *exec.Cmd {
 	t.Helper()
 	args := []string{"-test.run=^TestSandboxHelperProcess$", "--"}

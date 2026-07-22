@@ -5,11 +5,25 @@ package scannersandbox
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/unix"
 )
+
+func normalizedExitCode(exitErr *exec.ExitError) (int, string) {
+	if status, ok := exitErr.Sys().(syscall.WaitStatus); ok && status.Signaled() {
+		signal := status.Signal()
+		return 128 + int(signal), signal.String()
+	}
+	code := exitErr.ExitCode()
+	if code < 0 {
+		return 1, "unknown"
+	}
+	return code, ""
+}
 
 const (
 	landlockCreateRulesetVersion = 1

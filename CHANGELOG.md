@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — scanner sandbox runtimes
+
+- Sandboxed ZAP runs now receive an explicit disposable home directory, allowing
+  passive web analysis to write runtime state without exposing Scout identity or
+  weakening the read-only container and Landlock boundary.
+- Nuclei now retains the template pack's upstream ignore policy inside each
+  disposable config tree, applies signed concurrency/rate limits plus bounded
+  retry behavior, and reports signal termination accurately instead of the
+  ambiguous exit status 255. Long scanner diagnostics preserve both startup and
+  final failure output.
+- The packaged scanner is updated from Nuclei 3.3.7 to 3.11.0 and the bundled
+  template pack from 10.4.5 to 10.4.6.
+
 ### Fixed — single-host PostgreSQL startup
 
 - Single-host bootstrap now enters the default organization's PostgreSQL tenant

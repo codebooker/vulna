@@ -15,6 +15,11 @@ import (
 
 const workspaceEnv = "VULNA_SCANNER_WORKSPACE"
 
+const (
+	nucleiTemplatesEnv = "VULNA_NUCLEI_TEMPLATES"
+	nucleiIgnoreFile   = ".nuclei-ignore"
+)
+
 // ProtectCurrentProcess prevents same-UID scanner descendants from inspecting
 // the Scout's memory or /proc environment through ptrace access checks.
 func ProtectCurrentProcess() error {
@@ -56,7 +61,11 @@ func Execute(args []string, stdout, stderr io.Writer) int {
 	if err := cmd.Run(); err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
-			return exitErr.ExitCode()
+			code, signal := normalizedExitCode(exitErr)
+			if signal != "" {
+				fmt.Fprintf(stderr, "scanner-sandbox: command terminated by signal %s\n", signal)
+			}
+			return code
 		}
 		fmt.Fprintln(stderr, "scanner-sandbox: execute:", err)
 		return 1
@@ -110,6 +119,35 @@ func prepareWorkspace(workspace string) error {
 				return err
 			}
 		}
+	}
+	return seedNucleiIgnore(workspace)
+}
+
+// seedNucleiIgnore preserves ProjectDiscovery's default template exclusions
+// when the immutable template pack and writable Nuclei config live in separate
+// trees. Without it Nuclei logs an error and silently runs templates that the
+// upstream pack excludes for weak matchers or unsafe/default-inapplicable tags.
+func seedNucleiIgnore(workspace string) error {
+	templatesDir := os.Getenv(nucleiTemplatesEnv)
+	if templatesDir == "" {
+		return nil
+	}
+	destination := filepath.Join(workspace, ".config", "nuclei", nucleiIgnoreFile)
+	if info, err := os.Stat(destination); err == nil && info.Mode().IsRegular() {
+		return nil
+	} else if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	source := filepath.Join(templatesDir, nucleiIgnoreFile)
+	data, err := os.ReadFile(source)
+	if err != nil {
+		return fmt.Errorf("read packaged Nuclei ignore policy: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(destination), 0o700); err != nil {
+		return err
+	}
+	if err := os.WriteFile(destination, data, 0o600); err != nil {
+		return fmt.Errorf("seed Nuclei ignore policy: %w", err)
 	}
 	return nil
 }
