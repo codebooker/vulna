@@ -31,6 +31,16 @@ const (
 	// to match against (without it, and with update checks disabled, nuclei loads
 	// zero templates and every scan finds nothing).
 	templatesEnv = "VULNA_NUCLEI_TEMPLATES"
+	// The standard Scout container is capped at 4 GiB. Nuclei's upstream
+	// defaults permit 25 hosts × 25 templates (plus payload/probe workers),
+	// which can exhaust that budget on a multi-subnet scan. These controls are
+	// further bounded by the signed job limits.
+	defaultConcurrency    = 4
+	maxConcurrency        = 10
+	maxRateLimit          = 150
+	maxHostErrors         = 10
+	requestTimeoutSeconds = 5
+	diagnosticOutputRunes = 1800
 )
 
 // Excluded template tags for the safe policy: anything intrusive or destructive.
@@ -43,7 +53,22 @@ var safeSeverities = []string{"low", "medium", "high", "critical"}
 // write JSONL to outPath, applying the safe template policy. When templatesDir is
 // non-empty it is passed via -templates so nuclei loads the bundled template set
 // instead of relying on an (update-disabled, possibly empty) default directory.
-func BuildArgs(outPath, targetFile, templatesDir string, severities []string) []string {
+func BuildArgs(
+	outPath, targetFile, templatesDir string,
+	severities []string,
+	limits policy.Limits,
+) []string {
+	concurrency := limits.MaxParallelHosts
+	if concurrency <= 0 {
+		concurrency = defaultConcurrency
+	}
+	if concurrency > maxConcurrency {
+		concurrency = maxConcurrency
+	}
+	rateLimit := limits.MaxPacketsPerSecond
+	if rateLimit <= 0 || rateLimit > maxRateLimit {
+		rateLimit = maxRateLimit
+	}
 	args := []string{
 		"-list", targetFile,
 		"-jsonl",
@@ -56,6 +81,14 @@ func BuildArgs(outPath, targetFile, templatesDir string, severities []string) []
 		"-no-color",
 		"-disable-update-check",
 		"-exclude-tags", strings.Join(excludedTags, ","),
+		"-rate-limit", strconv.Itoa(rateLimit),
+		"-bulk-size", strconv.Itoa(concurrency),
+		"-concurrency", strconv.Itoa(concurrency),
+		"-payload-concurrency", strconv.Itoa(concurrency),
+		"-probe-concurrency", strconv.Itoa(concurrency),
+		"-max-host-error", strconv.Itoa(maxHostErrors),
+		"-timeout", strconv.Itoa(requestTimeoutSeconds),
+		"-retries", "0",
 	}
 	if templatesDir != "" {
 		args = append(args, "-templates", templatesDir)
@@ -178,7 +211,7 @@ func (w *Worker) Run(ctx context.Context, job *policy.Job) ([]byte, error) {
 
 	outPath := filepath.Join(dir, "nuclei.jsonl")
 
-	args := BuildArgs(outPath, targetPath, w.TemplatesDir, w.Severities)
+	args := BuildArgs(outPath, targetPath, w.TemplatesDir, w.Severities, job.Limits)
 	// The agent's parent context carries the signed authorization expiry and the
 	// whole-job max duration. Do not reset either limit for every target chunk.
 	runCtx, cancel := w.runContext(ctx)
@@ -201,7 +234,11 @@ func (w *Worker) Run(ctx context.Context, job *policy.Job) ([]byte, error) {
 	// A non-zero exit (e.g. the binary is missing) is a real failure; nuclei
 	// exits 0 when it simply finds nothing.
 	if runErr != nil {
-		return data, fmt.Errorf("nuclei failed: %v: %s", runErr, strings.TrimSpace(stderr.String()))
+		return data, fmt.Errorf(
+			"nuclei failed: %v: %s",
+			runErr,
+			processutil.BoundedDiagnostic(stderr.String(), diagnosticOutputRunes),
+		)
 	}
 	// A zero exit with empty output can mean "clean" OR "nothing was actually
 	// scanned" (templates failed to load, every request errored). Those are not

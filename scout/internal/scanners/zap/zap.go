@@ -8,7 +8,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/codebooker/vulna/scout/internal/discovery"
@@ -20,10 +19,11 @@ const (
 	defaultBinary  = "zap.sh"
 	reportBaseName = "zap-report"
 	// Conservative defaults applied when the job config omits a limit.
-	defaultMaxDepth     = 5
-	defaultMaxChildren  = 10
-	defaultMaxDuration  = 10
-	defaultRequestsPerS = 10
+	defaultMaxDepth       = 5
+	defaultMaxChildren    = 10
+	defaultMaxDuration    = 10
+	defaultRequestsPerS   = 10
+	diagnosticOutputRunes = 1800
 )
 
 // safeExcludeURLs are always excluded from crawling/attack to avoid disrupting
@@ -85,8 +85,8 @@ func (w *Worker) runContext(ctx context.Context) (context.Context, context.Cance
 }
 
 // BuildArgs returns the allowlisted ZAP arguments to run an automation plan.
-func BuildArgs(planPath string) []string {
-	return []string{"-cmd", "-autorun", planPath}
+func BuildArgs(planPath, homeDir string) []string {
+	return []string{"-dir", homeDir, "-cmd", "-autorun", planPath}
 }
 
 // Run executes the web-assessment stage. It resolves the ZAP stage config from
@@ -122,6 +122,10 @@ func (w *Worker) Run(ctx context.Context, job *policy.Job) ([]byte, error) {
 		return nil, fmt.Errorf("create work dir: %w", err)
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
+	zapHome := filepath.Join(dir, "home")
+	if err := os.Mkdir(zapHome, 0o700); err != nil {
+		return nil, fmt.Errorf("create ZAP home: %w", err)
+	}
 
 	plan, err := BuildAutomationPlan(scope, dir, reportBaseName)
 	if err != nil {
@@ -136,7 +140,9 @@ func (w *Worker) Run(ctx context.Context, job *policy.Job) ([]byte, error) {
 	// whole-job max duration. Do not impose a hidden per-invocation deadline.
 	runCtx, cancel := w.runContext(ctx)
 	defer cancel()
-	cmd := processutil.ScannerCommandContext(runCtx, dir, w.binary(), BuildArgs(planPath)...)
+	cmd := processutil.ScannerCommandContext(
+		runCtx, dir, w.binary(), BuildArgs(planPath, zapHome)...,
+	)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	runErr := cmd.Run()
@@ -149,11 +155,17 @@ func (w *Worker) Run(ctx context.Context, job *policy.Job) ([]byte, error) {
 		return data, runCtx.Err()
 	}
 	if runErr != nil {
-		return data, fmt.Errorf("zap failed: %v: %s", runErr, strings.TrimSpace(stderr.String()))
+		return data, fmt.Errorf(
+			"zap failed: %v: %s",
+			runErr,
+			processutil.BoundedDiagnostic(stderr.String(), diagnosticOutputRunes),
+		)
 	}
 	if len(data) == 0 {
 		return nil, fmt.Errorf(
-			"zap produced no report: %v: %s", runErr, strings.TrimSpace(stderr.String()),
+			"zap produced no report: %v: %s",
+			runErr,
+			processutil.BoundedDiagnostic(stderr.String(), diagnosticOutputRunes),
 		)
 	}
 	return data, nil
