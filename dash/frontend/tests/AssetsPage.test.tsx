@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { AuthProvider } from '../src/auth/AuthProvider';
 import { AssetsPage } from '../src/pages/AssetsPage';
@@ -178,6 +178,9 @@ beforeEach(() => {
           memberships_removed: 0,
         });
       }
+      if (url.endsWith('/api/v1/assets/asset-1') && init?.method === 'DELETE') {
+        return new Response(null, { status: 204 });
+      }
       return jsonResponse({ detail: 'not found' }, 404);
     }),
   );
@@ -220,6 +223,33 @@ it('shows structured context and saves an audited bulk-compatible context edit',
         method: 'POST',
         body: expect.stringContaining('"department":"Risk"'),
       }),
+    ),
+  );
+});
+
+it('requires confirmation before permanently deleting an asset', async () => {
+  render(
+    <AuthProvider>
+      <AssetsPage />
+    </AuthProvider>,
+  );
+
+  fireEvent.click(await screen.findByText('payments-api'));
+  fireEvent.click(await screen.findByRole('button', { name: 'Delete asset' }));
+
+  const title = screen.getByText('Delete asset “payments-api”?');
+  expect(title).toBeInTheDocument();
+  expect(screen.getByText(/future scan or inventory run can add/)).toBeInTheDocument();
+  const confirmation = title.closest('[role="dialog"]');
+  expect(confirmation).not.toBeNull();
+  fireEvent.click(
+    within(confirmation as HTMLElement).getByRole('button', { name: 'Delete asset' }),
+  );
+
+  await waitFor(() =>
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/api/v1/assets/asset-1'),
+      expect.objectContaining({ method: 'DELETE' }),
     ),
   );
 });

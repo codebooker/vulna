@@ -392,6 +392,92 @@ async def test_asset_context_does_not_cross_organizations(
     assert filtered.json()["total"] == 0
 
 
+async def test_asset_deletion_is_permissioned_scoped_atomic_and_audited(
+    client: AsyncClient,
+    admin_headers: dict[str, str],
+    viewer_headers: dict[str, str],
+    db_session: AsyncSession,
+    organization: Organization,
+) -> None:
+    site, first, second = await _inventory(db_session, organization)
+    organization_id = organization.id
+    first_id = first.id
+    third = Asset(
+        organization_id=organization.id,
+        site_id=site.id,
+        canonical_name="payments-worker",
+        asset_type=AssetType.SERVER,
+    )
+    foreign_org = Organization(name="Foreign delete", slug=f"delete-{uuid.uuid4().hex[:8]}")
+    db_session.add_all([third, foreign_org])
+    await db_session.flush()
+    foreign_site = Site(
+        organization_id=foreign_org.id,
+        name="Foreign delete",
+        code=f"DELETE-{uuid.uuid4().hex[:6]}",
+        timezone="UTC",
+    )
+    db_session.add(foreign_site)
+    await db_session.flush()
+    foreign_asset = Asset(
+        organization_id=foreign_org.id,
+        site_id=foreign_site.id,
+        canonical_name="foreign-delete-target",
+        asset_type=AssetType.SERVER,
+    )
+    db_session.add(foreign_asset)
+    await db_session.commit()
+
+    denied = await client.delete(f"/api/v1/assets/{first.id}", headers=viewer_headers)
+    assert denied.status_code == 403
+    still_present = await client.get(f"/api/v1/assets/{first.id}", headers=admin_headers)
+    assert still_present.status_code == 200
+
+    deleted = await client.delete(f"/api/v1/assets/{first.id}", headers=admin_headers)
+    assert deleted.status_code == 204
+    missing = await client.get(f"/api/v1/assets/{first.id}", headers=admin_headers)
+    assert missing.status_code == 404
+
+    cross_org = await client.post(
+        "/api/v1/assets/bulk-delete",
+        json={"asset_ids": [str(second.id), str(foreign_asset.id)]},
+        headers=admin_headers,
+    )
+    assert cross_org.status_code == 404
+    still_atomic = await client.get(f"/api/v1/assets/{second.id}", headers=admin_headers)
+    assert still_atomic.status_code == 200
+
+    bulk = await client.post(
+        "/api/v1/assets/bulk-delete",
+        json={"asset_ids": [str(second.id), str(third.id), str(second.id)]},
+        headers=admin_headers,
+    )
+    assert bulk.status_code == 200, bulk.text
+    assert bulk.json() == {"deleted_assets": 2}
+
+    remaining = await client.get("/api/v1/assets", headers=admin_headers)
+    assert remaining.status_code == 200
+    assert remaining.json()["total"] == 0
+
+    db_session.expire_all()
+    audits = list(
+        (
+            await db_session.execute(
+                select(AuditEvent).where(
+                    AuditEvent.organization_id == organization_id,
+                    AuditEvent.action.in_(["asset.deleted", "asset.bulk_deleted"]),
+                )
+            )
+        ).scalars()
+    )
+    assert {event.action for event in audits} == {"asset.deleted", "asset.bulk_deleted"}
+    single_audit = next(event for event in audits if event.action == "asset.deleted")
+    assert single_audit.target_id == str(first_id)
+    assert single_audit.metadata_json["canonical_name"] == "payments-api"
+    bulk_audit = next(event for event in audits if event.action == "asset.bulk_deleted")
+    assert bulk_audit.metadata_json["deleted_assets"] == 2
+
+
 async def test_asset_management_requires_permission(
     client: AsyncClient, viewer_headers: dict[str, str]
 ) -> None:

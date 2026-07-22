@@ -138,6 +138,10 @@ export interface AssetBulkResult {
   memberships_removed: number;
 }
 
+export interface AssetBulkDeleteResult {
+  deleted_assets: number;
+}
+
 export interface AssetFilters {
   q?: string;
   tag_id?: string;
