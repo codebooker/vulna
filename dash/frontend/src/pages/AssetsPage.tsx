@@ -462,19 +462,32 @@ export function AssetsPage() {
     setDeleteBusy(true);
     setDeleteError(null);
     try {
+      let deletedCount = 1;
+      let skippedCount = 0;
       if (deleteTargets.length === 1) {
         await api.deleteAsset(token, deleteTargets[0].id);
       } else {
-        await api.bulkDeleteAssets(
+        const result = await api.bulkDeleteAssets(
           token,
           deleteTargets.map((asset) => asset.id),
         );
+        deletedCount = result.deleted_assets;
+        skippedCount = result.skipped_assets;
       }
-      const count = deleteTargets.length;
       setDeleteTargets([]);
       setSelected(null);
       setBulkAssets([]);
-      toast('success', `${count} ${count === 1 ? 'asset' : 'assets'} deleted.`);
+      if (skippedCount > 0) {
+        toast(
+          'warning',
+          deletedCount > 0
+            ? `${deletedCount} ${deletedCount === 1 ? 'asset' : 'assets'} deleted.`
+            : 'No assets needed deletion.',
+          `${skippedCount} ${skippedCount === 1 ? 'selection was' : 'selections were'} already missing or no longer accessible.`,
+        );
+      } else {
+        toast('success', `${deletedCount} ${deletedCount === 1 ? 'asset' : 'assets'} deleted.`);
+      }
       await load();
     } catch (deleteFailure) {
       setDeleteError(errorMessage(deleteFailure, 'Failed to delete assets.'));

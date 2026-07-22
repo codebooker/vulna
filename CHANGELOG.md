@@ -14,9 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   table. Destructive confirmation explains that associated findings and history
   are removed, append-only source observations and audits remain traceable, and a
   source can rediscover the asset later.
-- Single and bulk deletion are organization/site scoped, fail atomically when any
-  requested asset is inaccessible, and create tamper-evident audit events without
-  retaining source credentials or observation payloads.
+- Single and bulk deletion are organization/site scoped and create tamper-evident
+  audit events without retaining source credentials or observation payloads. Bulk
+  deletion is idempotent: stale or inaccessible selections are safely skipped and
+  reported without preventing accessible assets from being removed.
 
 ### Fixed — scanner sandbox runtimes
 

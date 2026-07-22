@@ -67,6 +67,17 @@ const asset = {
   updated_at: '2026-07-13T00:00:00Z',
 };
 
+const secondAsset = {
+  ...asset,
+  id: 'asset-2',
+  canonical_name: 'inventory-device',
+  ip_addresses: ['10.20.0.6'],
+  mac_addresses: ['00:11:22:33:44:66'],
+  hostnames: ['inventory-device'],
+  tags: [],
+  group_ids: [],
+};
+
 beforeEach(() => {
   localStorage.setItem('vulna.token', 'access-token');
   vi.stubGlobal(
@@ -85,7 +96,7 @@ beforeEach(() => {
         });
       }
       if (url.includes('/api/v1/assets?')) {
-        return jsonResponse({ items: [asset], total: 1, limit: 200, offset: 0 });
+        return jsonResponse({ items: [asset, secondAsset], total: 2, limit: 200, offset: 0 });
       }
       if (url.endsWith('/api/v1/sites')) {
         return jsonResponse({
@@ -181,6 +192,9 @@ beforeEach(() => {
       if (url.endsWith('/api/v1/assets/asset-1') && init?.method === 'DELETE') {
         return new Response(null, { status: 204 });
       }
+      if (url.endsWith('/api/v1/assets/bulk-delete') && init?.method === 'POST') {
+        return jsonResponse({ deleted_assets: 1, skipped_assets: 1 });
+      }
       return jsonResponse({ detail: 'not found' }, 404);
     }),
   );
@@ -250,6 +264,35 @@ it('requires confirmation before permanently deleting an asset', async () => {
     expect(fetch).toHaveBeenCalledWith(
       expect.stringContaining('/api/v1/assets/asset-1'),
       expect.objectContaining({ method: 'DELETE' }),
+    ),
+  );
+});
+
+it('submits bulk deletion without failing the batch when one selection is stale', async () => {
+  render(
+    <AuthProvider>
+      <AssetsPage />
+    </AuthProvider>,
+  );
+
+  await screen.findByText('payments-api');
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Select all rows on this page' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Delete 2' }));
+
+  const title = screen.getByText('Delete 2 assets?');
+  const confirmation = title.closest('[role="dialog"]');
+  expect(confirmation).not.toBeNull();
+  fireEvent.click(
+    within(confirmation as HTMLElement).getByRole('button', { name: 'Delete assets' }),
+  );
+
+  await waitFor(() =>
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/api/v1/assets/bulk-delete'),
+      expect.objectContaining({
+        method: 'POST',
+        body: expect.stringContaining('"asset_ids":["asset-1","asset-2"]'),
+      }),
     ),
   );
 });
