@@ -88,6 +88,11 @@ VULNA_SERVER=https://vulna.example.com:8443 \
 Do not reuse an example token. Enrollment tokens are short-lived, single-use,
 and assigned to the site chosen when the command is generated.
 
+When the appliance is configured with `VULNA_VERSION=latest`, the generated URL
+uses `/releases/latest/download/install-relay.sh`. The installer resolves the
+release's signed `VERSION` asset before selecting a binary; it never converts
+`latest` into a `vlatest` tag.
+
 ## Configure scope and scan
 
 For each Relay, enter comma-separated **Approved CIDRs** and optional
@@ -102,6 +107,15 @@ namespace, and matching traffic follows the WireGuard route.
 
 The tunnel must be enrolled, current, and up at dispatch and egress time. A down,
 killed, revoked, disabled, out-of-scope, or denied path fails closed.
+
+## Revoke or delete a Relay
+
+**Kill switch** is temporary and can be resumed. **Revoke** permanently
+invalidates the Relay identity, tears down egress, and removes its managed scan
+scope while retaining the audit-visible Relay record. After revocation, use
+**Delete** to remove that record from the appliance. Pending enrollment records
+that never connected can be deleted immediately; an enrolled or killed Relay
+must be revoked before deletion.
 
 ## Kill switch
 

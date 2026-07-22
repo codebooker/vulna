@@ -17,9 +17,9 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 
 from cryptography.hazmat.primitives import serialization
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.context import RequestContext, get_request_context
@@ -32,6 +32,7 @@ from app.models.enums import ActorType, ProbeStatus, RelayStatus
 from app.models.network import Network, NetworkScout
 from app.models.network_scope import NetworkScope
 from app.models.organization import Organization
+from app.models.pentest_session import PentestSession
 from app.models.probe import Probe
 from app.models.relay import Relay
 from app.models.user import User
@@ -711,21 +712,16 @@ async def resume(
     return _serialize(relay)
 
 
-@router.delete("/{relay_id}", summary="Revoke a relay (admin)")
-async def revoke(
-    relay_id: uuid.UUID,
-    admin: Annotated[User, Depends(require_permission("relays.manage"))],
-    session: Annotated[AsyncSession, Depends(get_session)],
-    context: Annotated[RequestContext, Depends(get_request_context)],
-) -> dict[str, Any]:
-    relay = await _get_relay(session, relay_id, admin, permission_key="relays.manage")
-    relay.status = RelayStatus.REVOKED
-    relay.tunnel_up = False
-    managed_ids = [
-        uuid.UUID(value)
-        for value in relay.metadata_json.get("managed_scope_ids", [])
-        if isinstance(value, str)
-    ]
+async def _remove_managed_scopes(session: AsyncSession, relay: Relay) -> None:
+    """Remove scan scopes materialized for a Relay and bump their policies."""
+    managed_ids: list[uuid.UUID] = []
+    for value in (relay.metadata_json or {}).get("managed_scope_ids", []):
+        if not isinstance(value, str):
+            continue
+        try:
+            managed_ids.append(uuid.UUID(value))
+        except ValueError:
+            continue
     if managed_ids:
         scopes = list(
             (
@@ -741,10 +737,23 @@ async def revoke(
     relay.approved_cidrs_json = []
     relay.denied_cidrs_json = []
     relay.metadata_json = {
-        **relay.metadata_json,
+        **(relay.metadata_json or {}),
         "managed_scope_ids": [],
         "allow_public_addresses": False,
     }
+
+
+@router.post("/{relay_id}/revoke", summary="Revoke a relay (admin)")
+async def revoke(
+    relay_id: uuid.UUID,
+    admin: Annotated[User, Depends(require_permission("relays.manage"))],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    context: Annotated[RequestContext, Depends(get_request_context)],
+) -> dict[str, Any]:
+    relay = await _get_relay(session, relay_id, admin, permission_key="relays.manage")
+    relay.status = RelayStatus.REVOKED
+    relay.tunnel_up = False
+    await _remove_managed_scopes(session, relay)
     record_audit(
         session,
         action="relay.revoked",
@@ -758,6 +767,52 @@ async def revoke(
     )
     await session.commit()
     return {"revoked": True}
+
+
+@router.delete(
+    "/{relay_id}",
+    summary="Permanently delete a pending or revoked relay (admin)",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_relay(
+    relay_id: uuid.UUID,
+    admin: Annotated[User, Depends(require_permission("relays.manage"))],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    context: Annotated[RequestContext, Depends(get_request_context)],
+) -> Response:
+    relay = await _get_relay(session, relay_id, admin, permission_key="relays.manage")
+    if relay.status not in {RelayStatus.PENDING_ENROLLMENT, RelayStatus.REVOKED}:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Revoke this Relay before permanently deleting it.",
+        )
+
+    await _remove_managed_scopes(session, relay)
+    # Keep historical pentest records while removing their live object link.
+    await session.execute(
+        update(PentestSession)
+        .where(PentestSession.authorized_relay_id == relay.id)
+        .values(authorized_relay_id=None)
+    )
+    record_audit(
+        session,
+        action="relay.deleted",
+        actor=admin,
+        organization_id=admin.organization_id,
+        target_type="relay",
+        target_id=relay.id,
+        source_ip=context.source_ip,
+        user_agent=context.user_agent,
+        request_id=context.request_id,
+        metadata={
+            "name": relay.name,
+            "status": relay.status.value,
+            "site_id": str(relay.site_id) if relay.site_id else None,
+        },
+    )
+    await session.delete(relay)
+    await session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 async def _get_relay(

@@ -45,6 +45,11 @@ identity. It does **not** authorize a target range.
    supplies the installed release tag, one-time token, and private-CA material
    when needed.
 
+   With `VULNA_VERSION=latest`, the dashboard uses GitHub's
+   `/releases/latest/download/install-scout.sh` route. The installer reads and
+   verifies the release's signed `VERSION` asset before selecting the Scout
+   binary; it does not construct a nonexistent `vlatest` tag.
+
 5. Wait for the appliance page to show the Scout as connected, then approve the
    site's network scope. Until that approval, the Scout refuses every target.
 

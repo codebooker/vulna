@@ -15,6 +15,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from app.core.config import Settings
+from app.services.endpoint_release import resolve_endpoint_release
 
 
 def scout_control_url(public_url: str) -> str:
@@ -36,11 +37,8 @@ def build_install_commands(
     scout auto-detects OS/architecture and installs the server CA itself.
     """
     base = scout_control_url(server_url.rstrip("/"))
-    version = settings.release_version or settings.version
-    tag = version if version.startswith("v") else f"v{version}"
-    bootstrap_url = (
-        f"https://github.com/codebooker/vulna/releases/download/{tag}/install-scout.sh"
-    )
+    release = resolve_endpoint_release(settings.release_version, settings.version)
+    bootstrap_url = release.installer_url("install-scout.sh")
     ca_env = ""
     ca_path = Path(settings.bootstrap_dir) / "orchestrator-ca.crt"
     try:
@@ -57,7 +55,7 @@ def build_install_commands(
         f"curl -fsSLo /tmp/install-scout.sh {shlex.quote(bootstrap_url)} && "
         f"VULNA_SERVER={shlex.quote(base)} "
         f"VULNA_ENROLL_TOKEN={shlex.quote(token)} {ca_env}"
-        f"VULNA_VERSION={shlex.quote(tag)} sh /tmp/install-scout.sh"
+        f"VULNA_VERSION={shlex.quote(release.version)} sh /tmp/install-scout.sh"
     )
 
     container = (

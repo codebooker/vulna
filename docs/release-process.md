@@ -45,6 +45,9 @@ Every release includes:
 
 - Signed binaries (`vulna`, `vulnascout`, and `vulnarelay`) for
   `linux/amd64` and `linux/arm64`.
+- A signed `VERSION` asset containing the release's `vX.Y.Z` tag. Scout and
+  Relay bootstraps use this to resolve the `latest` channel without inventing a
+  `vlatest` tag or trusting an unsigned binary name.
 - A **deployment bundle** (`vulna-deploy_<version>.tar.gz`) with the Compose files,
   the single-host overlay, `.env.example`, and the backup/restore scripts. The
   bootstrap downloads this for `install` so the operator gets a working deployment,
@@ -83,6 +86,11 @@ VULNA_RELEASE_KEY=release_ed25519.pem deploy/release/sign.sh dist/
 
 The hosted installers carry only the **public** key. Run `sign.sh` last so the
 final manifest covers every binary, bundle, SBOM, and installer file.
+
+The dashboard may generate `/releases/latest/download/...` commands when
+`VULNA_VERSION=latest`. Those commands work only after at least one signed
+GitHub release has been published with `VERSION`, the hosted installers, the
+endpoint binaries, `SHA256SUMS`, and `SHA256SUMS.sig` attached.
 
 ## Signing keys: rotation and compromise recovery
 

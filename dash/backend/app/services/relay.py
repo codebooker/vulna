@@ -32,6 +32,7 @@ from app.core.config import Settings
 from app.models.enums import RelayStatus
 from app.models.organization import Organization
 from app.models.relay import Relay
+from app.services.endpoint_release import resolve_endpoint_release
 from app.services.scopes import ScopeValidationError, validate_cidr
 
 RELAY_ENABLED_FLAG = "relay_mode_enabled"
@@ -243,9 +244,8 @@ def build_relay_install(settings: Settings, token: str, name: str) -> dict[str, 
     not linger in process listings.
     """
     base = relay_control_url(settings)
-    version = settings.release_version or settings.version
-    tag = version if version.startswith("v") else f"v{version}"
-    installer = f"https://github.com/codebooker/vulna/releases/download/{tag}/install-relay.sh"
+    release = resolve_endpoint_release(settings.release_version, settings.version)
+    installer = release.installer_url("install-relay.sh")
     ca_env = ""
     ca_path = Path(settings.bootstrap_dir) / "orchestrator-ca.crt"
     try:
@@ -257,7 +257,8 @@ def build_relay_install(settings: Settings, token: str, name: str) -> dict[str, 
     one_liner = (
         f"curl -fsSLo /tmp/install-relay.sh {shlex.quote(installer)} && "
         f"VULNA_SERVER={shlex.quote(base)} VULNA_RELAY_TOKEN={shlex.quote(token)} "
-        f"VULNA_RELAY_NAME={shlex.quote(name)} {ca_env}VULNA_VERSION={shlex.quote(tag)} "
+        f"VULNA_RELAY_NAME={shlex.quote(name)} {ca_env}"
+        f"VULNA_VERSION={shlex.quote(release.version)} "
         "sh /tmp/install-relay.sh"
     )
     return {
@@ -265,6 +266,7 @@ def build_relay_install(settings: Settings, token: str, name: str) -> dict[str, 
         "command": one_liner,
         "note": (
             "Run as root. Installs the signed scanner-free WireGuard relay agent. The "
-            "relay never receives job-signing keys or scanner credentials."
+            "relay never receives job-signing keys or scanner credentials. The 'latest' "
+            "channel selects the newest published, signed endpoint release."
         ),
     }

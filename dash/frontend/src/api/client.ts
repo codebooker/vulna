@@ -1758,7 +1758,13 @@ export const api = {
     return request<Relay>(`/api/v1/relays/${id}/resume`, { method: 'POST', token });
   },
   revokeRelay(token: string, id: string): Promise<{ revoked: boolean }> {
-    return request<{ revoked: boolean }>(`/api/v1/relays/${id}`, { method: 'DELETE', token });
+    return request<{ revoked: boolean }>(`/api/v1/relays/${id}/revoke`, {
+      method: 'POST',
+      token,
+    });
+  },
+  deleteRelay(token: string, id: string): Promise<void> {
+    return request<void>(`/api/v1/relays/${id}`, { method: 'DELETE', token });
   },
 
   // --- Networking assistant (Phase 23) ---

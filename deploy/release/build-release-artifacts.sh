@@ -18,6 +18,7 @@ esac
 
 mkdir -p "$OUT_DIR"
 OUT_DIR="$(cd "$OUT_DIR" && pwd)"
+printf '%s\n' "$VERSION" >"$OUT_DIR/VERSION"
 
 for arch in amd64 arm64; do
 	echo "release-build: linux/$arch" >&2

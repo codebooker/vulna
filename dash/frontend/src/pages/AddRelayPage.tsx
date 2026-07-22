@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Plus, ShieldOff } from 'lucide-react';
+import { Copy, Plus, ShieldOff } from 'lucide-react';
 import { ApiError, api } from '../api/client';
 import { useAuth } from '../auth/useAuth';
+import { useToast } from '../lib/toast';
 import { Button } from '../components/ui/button';
 import { Field, Input, Select } from '../components/ui/input';
 import { CodeBlock } from '../components/ui/misc';
@@ -13,12 +14,14 @@ import type { Site } from '../types/inventory';
  *  command for a scanner-free WireGuard relay endpoint. */
 export function AddRelayPage({ onEnrolled }: { onEnrolled?: () => void }) {
   const { token } = useAuth();
+  const { toast } = useToast();
   const [sites, setSites] = useState<Site[]>([]);
   const [name, setName] = useState('');
   const [siteId, setSiteId] = useState('');
   const [enrollment, setEnrollment] = useState<RelayEnrollment | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -40,6 +43,7 @@ export function AddRelayPage({ onEnrolled }: { onEnrolled?: () => void }) {
     if (!token || !name || !siteId) return;
     setBusy(true);
     setError(null);
+    setCopied(false);
     try {
       setEnrollment(await api.relayEnrollmentCommand(token, name, siteId));
       setName('');
@@ -48,6 +52,17 @@ export function AddRelayPage({ onEnrolled }: { onEnrolled?: () => void }) {
       setError(err instanceof Error ? err.message : 'Failed to create enrollment command.');
     } finally {
       setBusy(false);
+    }
+  };
+
+  const copyCommand = async (command: string) => {
+    try {
+      await navigator.clipboard.writeText(command);
+      setCopied(true);
+      toast('success', 'Relay install command copied to clipboard.');
+    } catch {
+      setCopied(false);
+      setError('Could not access the clipboard. Select the command and copy it manually.');
     }
   };
 
@@ -102,7 +117,17 @@ export function AddRelayPage({ onEnrolled }: { onEnrolled?: () => void }) {
           {enrollment && (
             <div className="rounded-lg border border-border bg-surface-2 p-3">
               <p className="mb-1.5 text-xs text-muted">Run this on the relay host (shown once):</p>
-              <CodeBlock>{enrollment.install.command}</CodeBlock>
+              <CodeBlock className="max-h-48 whitespace-pre-wrap break-all">
+                {enrollment.install.command}
+              </CodeBlock>
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-2.5"
+                onClick={() => void copyCommand(enrollment.install.command)}
+              >
+                <Copy size={12} aria-hidden /> {copied ? 'Copied' : 'Copy command'}
+              </Button>
               <p className="mt-1.5 text-xs text-muted">{enrollment.install.note}</p>
             </div>
           )}

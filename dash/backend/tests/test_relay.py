@@ -13,6 +13,7 @@ import pytest
 pytestmark = pytest.mark.release_gate
 
 from app.auth.password import hash_password
+from app.core.config import Settings
 from app.models.enums import RelayStatus, UserRole
 from app.models.network import NetworkScout
 from app.models.network_scope import NetworkScope
@@ -34,6 +35,21 @@ ENROLLED = RelayStatus.ENROLLED
 
 
 # --- pure egress decision (fail-closed) ------------------------------------- #
+
+
+def test_relay_install_command_uses_latest_release_without_vlatest() -> None:
+    settings = Settings().model_copy(
+        update={
+            "release_version": "latest",
+            "relay_control_url": "https://vulna.example.com:8443",
+        }
+    )
+
+    install = relay_svc.build_relay_install(settings, "vscout_secret", "branch-relay")
+
+    assert "/releases/latest/download/install-relay.sh" in install["command"]
+    assert "VULNA_VERSION=latest" in install["command"]
+    assert "vlatest" not in install["command"]
 
 
 def test_egress_allows_in_scope_when_up() -> None:
@@ -429,9 +445,41 @@ async def test_enroll_scope_and_egress_and_killswitch(
     resumed = await client.post(f"/api/v1/relays/{relay_id}/resume", headers=admin_headers)
     assert resumed.json()["status"] == "enrolled"
 
-    revoked = await client.delete(f"/api/v1/relays/{relay_id}", headers=admin_headers)
+    active_delete = await client.delete(f"/api/v1/relays/{relay_id}", headers=admin_headers)
+    assert active_delete.status_code == 409
+    assert "revoke" in active_delete.json()["detail"].lower()
+
+    revoked = await client.post(f"/api/v1/relays/{relay_id}/revoke", headers=admin_headers)
     assert revoked.status_code == 200 and revoked.json()["revoked"] is True
     assert await db_session.scalar(select(func.count()).select_from(NetworkScope)) == 0
+
+    deleted = await client.delete(f"/api/v1/relays/{relay_id}", headers=admin_headers)
+    assert deleted.status_code == 204
+    assert await db_session.get(Relay, uuid.UUID(relay_id)) is None
+
+
+async def test_pending_relay_can_be_deleted_without_revocation(
+    client: AsyncClient, admin_headers: dict[str, str], db_session: AsyncSession
+) -> None:
+    await client.post("/api/v1/relays/settings", json={"enabled": True}, headers=admin_headers)
+    site = (
+        await client.post(
+            "/api/v1/sites",
+            json={"name": "Unused relay site", "code": "RELAY-UNUSED"},
+            headers=admin_headers,
+        )
+    ).json()
+    command = await client.post(
+        "/api/v1/relays/enrollment-command",
+        json={"name": "unused-relay", "site_id": site["id"]},
+        headers=admin_headers,
+    )
+    relay_id = command.json()["relay_id"]
+
+    deleted = await client.delete(f"/api/v1/relays/{relay_id}", headers=admin_headers)
+
+    assert deleted.status_code == 204
+    assert await db_session.get(Relay, uuid.UUID(relay_id)) is None
 
 
 async def test_disabling_relay_mode_fails_closed(

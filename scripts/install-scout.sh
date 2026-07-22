@@ -14,8 +14,8 @@
 # VULNA_BASE_URL and VULNA_RELEASE_PUBKEY.
 set -eu
 
-VULNA_VERSION="${VULNA_VERSION:-v0.1.0}"
-VULNA_BASE_URL="${VULNA_BASE_URL:-https://github.com/codebooker/vulna/releases/download/${VULNA_VERSION}}"
+VULNA_VERSION="${VULNA_VERSION:-latest}"
+VULNA_BASE_URL="${VULNA_BASE_URL:-}"
 VULNA_RELEASE_PUBKEY="${VULNA_RELEASE_PUBKEY:-}"
 VULNA_BIN_DIR="${VULNA_BIN_DIR:-/usr/local/bin}"
 VULNA_SERVER="${VULNA_SERVER:-}"
@@ -29,6 +29,27 @@ VULNA_EMBEDDED_PUBKEY='__VULNA_RELEASE_PUBKEY_PEM__'
 log() { echo "install-scout: $*" >&2; }
 die() { echo "install-scout: $*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || die "required tool not found: $1"; }
+
+resolve_release() {
+	work="$1"
+	if [ -z "$VULNA_BASE_URL" ]; then
+		if [ "$VULNA_VERSION" = "latest" ]; then
+			VULNA_BASE_URL="https://github.com/codebooker/vulna/releases/latest/download"
+		else
+			VULNA_BASE_URL="https://github.com/codebooker/vulna/releases/download/${VULNA_VERSION}"
+		fi
+	fi
+	if [ "$VULNA_VERSION" = "latest" ]; then
+		fetch "$VULNA_BASE_URL/VERSION" "$work/VERSION"
+		resolved="$(tr -d '\r\n' <"$work/VERSION")"
+		printf '%s\n' "$resolved" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$' ||
+			die "latest release VERSION is invalid"
+		VULNA_VERSION="$resolved"
+	fi
+	printf '%s\n' "$VULNA_VERSION" |
+		grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$' ||
+		die "VULNA_VERSION must be latest or a v-prefixed semantic version"
+}
 
 resolve_pubkey() {
 	out="$1"
@@ -83,13 +104,13 @@ main() {
 		die "need curl or wget to download the release"
 	fi
 
-	asset="$(detect_asset)"
 	work="$(mktemp -d)"
 	trap 'rm -rf "$work"' EXIT
 	resolve_pubkey "$work/release.pub"
+	requested_version="$VULNA_VERSION"
+	resolve_release "$work"
+	asset="$(detect_asset)"
 
-	log "downloading $asset ($VULNA_VERSION)"
-	( cd "$work" && fetch "$VULNA_BASE_URL/$asset" "$asset" )
 	fetch "$VULNA_BASE_URL/SHA256SUMS" "$work/SHA256SUMS"
 	fetch "$VULNA_BASE_URL/SHA256SUMS.sig" "$work/SHA256SUMS.sig"
 
@@ -98,7 +119,16 @@ main() {
 		-in "$work/SHA256SUMS" -sigfile "$work/SHA256SUMS.sig" >/dev/null 2>&1; then
 		die "SIGNATURE INVALID for SHA256SUMS — refusing to install"
 	fi
+	# The latest channel is resolved by an initially untrusted VERSION hint. Only
+	# use it after proving that the release manifest signs that exact file.
+	if [ "$requested_version" = "latest" ]; then
+		if ! (cd "$work" && grep ' VERSION$' SHA256SUMS | sha256sum -c - >/dev/null 2>&1); then
+			die "CHECKSUM MISMATCH for VERSION — refusing to install"
+		fi
+	fi
 	# 2) Integrity: the asset matches the now-trusted manifest.
+	log "downloading $asset ($VULNA_VERSION)"
+	( cd "$work" && fetch "$VULNA_BASE_URL/$asset" "$asset" )
 	if ! (cd "$work" && grep " $asset\$" SHA256SUMS | sha256sum -c - >/dev/null 2>&1); then
 		die "CHECKSUM MISMATCH for $asset — refusing to install"
 	fi
