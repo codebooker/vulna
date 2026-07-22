@@ -321,9 +321,7 @@ async def _merge_observation_identifiers(
                 last_seen_at=observation.observed_at,
             )
         )
-        changes["added"].append(
-            {"identifier_type": kind.value, "identifier_value": item["value"]}
-        )
+        changes["added"].append({"identifier_type": kind.value, "identifier_value": item["value"]})
     return changes
 
 
@@ -347,14 +345,9 @@ async def merge_candidate(
     )
     if observation is None or asset is None:
         raise ReconciliationError("reconciliation source no longer exists")
-    if (
-        observation.organization_id != asset.organization_id
-        or observation.site_id != asset.site_id
-    ):
+    if observation.organization_id != asset.organization_id or observation.site_id != asset.site_id:
         raise ReconciliationError("reconciliation source and asset scopes do not match")
-    current_score, _, current_conflicts = score_asset(
-        observation.identifiers_json, asset
-    )
+    current_score, _, current_conflicts = score_asset(observation.identifiers_json, asset)
     if current_conflicts:
         raise ReconciliationError("conflicting immutable identifiers block this merge")
     if current_score < REVIEW_THRESHOLD:
@@ -428,10 +421,10 @@ async def reconcile_observation(
                     Asset.site_id == observation.site_id,
                     or_(*predicates),
                 )
-                .distinct()
             )
         )
         .scalars()
+        .unique()
         .all()
     )
     scored: list[tuple[Asset, float, list[dict[str, Any]], list[dict[str, Any]]]] = []

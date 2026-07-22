@@ -7,7 +7,7 @@ from collections import Counter
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -32,6 +32,17 @@ CLOSED_STATUSES = frozenset(
     }
 )
 CACHE_TTL_SECONDS = 60
+
+
+async def invalidate_dashboard_cache(session: AsyncSession, organization_id: uuid.UUID) -> None:
+    """Invalidate every permission-scope variant after inventory state changes."""
+
+    await session.execute(
+        delete(AnalyticsCacheEntry).where(
+            AnalyticsCacheEntry.organization_id == organization_id,
+            AnalyticsCacheEntry.cache_key.like("dashboard:v1:%"),
+        )
+    )
 
 
 def _scope_filters(column: Any, site_ids: set[uuid.UUID] | None) -> list[Any]:

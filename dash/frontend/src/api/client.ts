@@ -1589,7 +1589,10 @@ export const api = {
 
   // --- Passive inventory, reconciliation, analytics, and report builder (Phase 44) ---
   inventoryDashboard(token: string): Promise<InventoryDashboard> {
-    return request<InventoryDashboard>('/api/v1/analytics/dashboard', { token });
+    return request<InventoryDashboard>('/api/v1/analytics/dashboard', {
+      token,
+      headers: { 'Cache-Control': 'no-cache' },
+    });
   },
   listInventoryConnectors(token: string): Promise<InventoryConnector[]> {
     return request<InventoryConnector[]>('/api/v1/inventory/connectors', { token });

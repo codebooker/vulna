@@ -258,6 +258,8 @@ async def test_connector_secret_worker_observation_and_audit(
         json={"enabled": True},
     )
     assert enabled.status_code == 200, enabled.text
+    cached_before_run = await client.get("/api/v1/analytics/dashboard", headers=admin_headers)
+    assert cached_before_run.json()["inventory"]["total"] == 0
     queued = await client.post(
         f"/api/v1/inventory/connectors/{connector_id}/runs",
         headers={**admin_headers, "Idempotency-Key": "phase44-collect"},
@@ -284,6 +286,9 @@ async def test_connector_secret_worker_observation_and_audit(
     assert observation is not None and observation.matched_asset_id is not None
     assert observation.identifiers_json == [{"type": "cloud_instance_id", "value": "i-phase44"}]
     assert secret not in str(observation.attributes_json)
+    refreshed_dashboard = await client.get("/api/v1/analytics/dashboard", headers=admin_headers)
+    assert refreshed_dashboard.json()["cache"] == "miss"
+    assert refreshed_dashboard.json()["inventory"]["total"] == 1
     actions = set(
         (
             await db_session.execute(

@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { AuthProvider } from '../src/auth/AuthProvider';
 import { PassiveInventoryPage } from '../src/pages/PassiveInventoryPage';
+import type { ConnectorRun, InventoryConnector } from '../src/types/passive-inventory';
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -10,7 +11,7 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-const connector = {
+const connector: InventoryConnector = {
   id: 'connector-1',
   organization_id: 'org-1',
   site_id: 'site-1',
@@ -34,7 +35,12 @@ const connector = {
   updated_at: '2026-07-13T00:00:00Z',
 };
 
+let inventoryConnectors: InventoryConnector[] = [connector];
+let inventoryRuns: ConnectorRun[] = [];
+
 beforeEach(() => {
+  inventoryConnectors = [connector];
+  inventoryRuns = [];
   localStorage.setItem('vulna.token', 'access-token');
   vi.stubGlobal(
     'fetch',
@@ -97,7 +103,8 @@ beforeEach(() => {
           source_uploaded_at: '2026-07-13T00:01:00Z',
         });
       }
-      if (url.endsWith('/api/v1/inventory/connectors')) return jsonResponse([connector]);
+      if (url.endsWith('/api/v1/inventory/connectors')) return jsonResponse(inventoryConnectors);
+      if (url.endsWith('/api/v1/inventory/runs')) return jsonResponse(inventoryRuns);
       if (url.endsWith('/api/v1/inventory/reconciliation')) {
         return jsonResponse([
           {
@@ -594,4 +601,43 @@ it('clears one-way credentials when the provider type changes', async () => {
   fireEvent.change(screen.getByLabelText('Type'), { target: { value: 'proxmox' } });
   expect(screen.getByLabelText('Proxmox token secret')).toHaveValue('');
   expect(screen.getByLabelText('Proxmox API origin')).toHaveValue('');
+});
+
+it('shows the connector site name and a visible failed run', async () => {
+  inventoryConnectors = [
+    {
+      ...connector,
+      enabled: true,
+      successful_test_at: '2026-07-13T00:01:00Z',
+    },
+  ];
+  inventoryRuns = [
+    {
+      id: 'run-1',
+      organization_id: 'org-1',
+      site_id: 'site-1',
+      connector_id: 'connector-1',
+      background_task_id: 'task-1',
+      status: 'failed',
+      started_at: '2026-07-13T00:02:00Z',
+      finished_at: '2026-07-13T00:02:05Z',
+      records_read: 0,
+      observations_created: 0,
+      error: 'PostgreSQL reconciliation failed safely.',
+      has_cursor: false,
+      created_at: '2026-07-13T00:02:00Z',
+    },
+  ];
+
+  render(
+    <AuthProvider>
+      <PassiveInventoryPage />
+    </AuthProvider>,
+  );
+
+  expect(await screen.findByText('42')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('tab', { name: /Sources/ }));
+  expect((await screen.findAllByText('Main')).length).toBeGreaterThanOrEqual(2);
+  expect(screen.getByText('Failed')).toBeInTheDocument();
+  expect(screen.getByText('PostgreSQL reconciliation failed safely.')).toBeInTheDocument();
 });
