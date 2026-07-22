@@ -144,6 +144,7 @@ import type {
   ReconciliationCandidate,
   ReportTemplate,
   ReportTemplateRun,
+  UnifiSite,
 } from '../types/passive-inventory';
 
 // In development, Vite proxies /api to the backend (see vite.config.ts).
@@ -1613,6 +1614,13 @@ export const api = {
       method: 'POST',
       token,
       body,
+    });
+  },
+  discoverUnifiSites(token: string, apiKey: string): Promise<UnifiSite[]> {
+    return request<UnifiSite[]>('/api/v1/inventory/unifi/sites', {
+      method: 'POST',
+      token,
+      body: { api_key: apiKey },
     });
   },
   uploadInventoryCsv(token: string, connectorId: string, file: File): Promise<InventoryConnector> {

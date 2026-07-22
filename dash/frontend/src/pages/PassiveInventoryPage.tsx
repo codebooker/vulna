@@ -21,6 +21,7 @@ import type {
   PassiveConnectorType,
   ReconciliationCandidate,
   ReportTemplate,
+  UnifiSite,
 } from '../types/passive-inventory';
 
 const CONNECTOR_TYPES: PassiveConnectorType[] = [
@@ -68,7 +69,8 @@ export function PassiveInventoryPage() {
     entraTenantId: '',
     entraClientId: '',
     entraCloud: 'global',
-    unifiHostIds: '',
+    unifiHostId: '',
+    unifiSiteId: '',
     proxmoxTokenId: '',
     awsPartition: 'aws',
     awsRegions: '',
@@ -83,6 +85,8 @@ export function PassiveInventoryPage() {
     googleProjectIds: '',
   });
   const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [unifiSites, setUnifiSites] = useState<UnifiSite[]>([]);
+  const [editingUnifiConnectorId, setEditingUnifiConnectorId] = useState<string | null>(null);
   const [googleCredentialFilename, setGoogleCredentialFilename] = useState('');
   const [templateForm, setTemplateForm] = useState({
     name: '',
@@ -159,6 +163,73 @@ export function PassiveInventoryPage() {
 
   const siteNameById = useMemo(() => new Map(sites.map((site) => [site.id, site.name])), [sites]);
 
+  const loadUnifiSites = useCallback(async () => {
+    if (!token || !connectorForm.secret) return;
+    setBusy('unifi-sites');
+    setError(null);
+    try {
+      const discovered = await api.discoverUnifiSites(token, connectorForm.secret);
+      setUnifiSites(discovered);
+      setConnectorForm((current) => ({
+        ...current,
+        unifiHostId: discovered[0]?.host_id ?? '',
+        unifiSiteId: discovered[0]?.site_id ?? '',
+      }));
+      if (discovered.length === 0) {
+        setError('The API key did not return any UniFi Network sites.');
+      } else {
+        toast(
+          'success',
+          `Loaded ${discovered.length} UniFi Network site${discovered.length === 1 ? '' : 's'}.`,
+        );
+      }
+    } catch (err) {
+      setUnifiSites([]);
+      setConnectorForm((current) => ({ ...current, unifiHostId: '', unifiSiteId: '' }));
+      setError(err instanceof Error ? err.message : 'UniFi sites could not be loaded.');
+    } finally {
+      setBusy(null);
+    }
+  }, [connectorForm.secret, toast, token]);
+
+  const saveUnifiMapping = useCallback(async () => {
+    if (
+      !token ||
+      !editingUnifiConnectorId ||
+      !connectorForm.secret ||
+      !connectorForm.unifiHostId ||
+      !connectorForm.unifiSiteId
+    ) {
+      return;
+    }
+    setBusy('connector');
+    setError(null);
+    try {
+      await api.updateInventoryConnector(token, editingUnifiConnectorId, {
+        secret: connectorForm.secret,
+        config: {
+          host_id: connectorForm.unifiHostId,
+          site_id: connectorForm.unifiSiteId,
+        },
+      });
+      setEditingUnifiConnectorId(null);
+      setUnifiSites([]);
+      setConnectorForm((current) => ({
+        ...current,
+        name: '',
+        secret: '',
+        unifiHostId: '',
+        unifiSiteId: '',
+      }));
+      toast('success', 'UniFi site mapping updated. Test it before enabling collection.');
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'UniFi site mapping could not be updated.');
+    } finally {
+      setBusy(null);
+    }
+  }, [connectorForm, editingUnifiConnectorId, load, toast, token]);
+
   const createConnector = useCallback(async () => {
     if (!token || !connectorForm.name || !connectorForm.siteId) return;
     const dnsZones = connectorForm.dnsZones
@@ -176,10 +247,6 @@ export function PassiveInventoryPage() {
     const googleProjectIds = connectorForm.googleProjectIds
       .split(/[\n,]/)
       .map((project) => project.trim())
-      .filter(Boolean);
-    const unifiHostIds = connectorForm.unifiHostIds
-      .split(/[\n,]/)
-      .map((host) => host.trim())
       .filter(Boolean);
     if (connectorForm.type === 'csv' && !csvFile) {
       setError('Select a CSV file before saving this source.');
@@ -222,8 +289,11 @@ export function PassiveInventoryPage() {
       setError('Microsoft Entra sources require a tenant ID, application client ID, and secret.');
       return;
     }
-    if (connectorForm.type === 'unifi' && !connectorForm.secret) {
-      setError('UniFi sources require a Site Manager API key.');
+    if (
+      connectorForm.type === 'unifi' &&
+      (!connectorForm.secret || !connectorForm.unifiHostId || !connectorForm.unifiSiteId)
+    ) {
+      setError('Load and select one UniFi Network site before saving the source.');
       return;
     }
     if (
@@ -353,7 +423,8 @@ export function PassiveInventoryPage() {
         ...(connectorForm.type === 'unifi'
           ? {
               config: {
-                ...(unifiHostIds.length > 0 ? { host_ids: unifiHostIds } : {}),
+                host_id: connectorForm.unifiHostId,
+                site_id: connectorForm.unifiSiteId,
               },
             }
           : {}),
@@ -442,7 +513,8 @@ export function PassiveInventoryPage() {
         entraTenantId: '',
         entraClientId: '',
         entraCloud: 'global',
-        unifiHostIds: '',
+        unifiHostId: '',
+        unifiSiteId: '',
         proxmoxTokenId: '',
         awsPartition: 'aws',
         awsRegions: '',
@@ -457,6 +529,7 @@ export function PassiveInventoryPage() {
         googleProjectIds: '',
       }));
       setCsvFile(null);
+      setUnifiSites([]);
       setGoogleCredentialFilename('');
       toast('success', 'Inventory source saved disabled. Test it before enabling collection.');
       await load();
@@ -572,6 +645,22 @@ export function PassiveInventoryPage() {
       setBusy(null);
     }
   }, [load, templateForm, toast, token]);
+
+  const configureUnifi = useCallback((connector: InventoryConnector) => {
+    setEditingUnifiConnectorId(connector.id);
+    setUnifiSites([]);
+    setError(null);
+    setConnectorForm((current) => ({
+      ...current,
+      name: connector.name,
+      siteId: connector.site_id,
+      type: 'unifi',
+      baseUrl: '',
+      secret: '',
+      unifiHostId: '',
+      unifiSiteId: '',
+    }));
+  }, []);
 
   const connectorColumns: ColumnDef<InventoryConnector>[] = useMemo(
     () => [
@@ -695,6 +784,16 @@ export function PassiveInventoryPage() {
                 Clear file
               </Button>
             )}
+            {canManageConnectors && row.connector_type === 'unifi' && (
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => configureUnifi(row)}
+                disabled={busy === row.id}
+              >
+                Map site
+              </Button>
+            )}
             {canManageConnectors && row.connector_type === 'csv' && (
               <Input
                 aria-label={`Replace CSV for ${row.name}`}
@@ -718,6 +817,7 @@ export function PassiveInventoryPage() {
       busy,
       canManageConnectors,
       canRunConnectors,
+      configureUnifi,
       latestRunByConnector,
       replaceCsv,
       siteNameById,
@@ -822,6 +922,7 @@ export function PassiveInventoryPage() {
                   <Input
                     aria-label="Name"
                     value={connectorForm.name}
+                    disabled={editingUnifiConnectorId !== null}
                     onChange={(event) =>
                       setConnectorForm((current) => ({ ...current, name: event.target.value }))
                     }
@@ -831,6 +932,7 @@ export function PassiveInventoryPage() {
                   <Select
                     aria-label="Site"
                     value={connectorForm.siteId}
+                    disabled={editingUnifiConnectorId !== null}
                     onChange={(event) =>
                       setConnectorForm((current) => ({ ...current, siteId: event.target.value }))
                     }
@@ -846,6 +948,7 @@ export function PassiveInventoryPage() {
                   <Select
                     aria-label="Type"
                     value={connectorForm.type}
+                    disabled={editingUnifiConnectorId !== null}
                     onChange={(event) => {
                       setConnectorForm((current) => ({
                         ...current,
@@ -863,7 +966,8 @@ export function PassiveInventoryPage() {
                         entraTenantId: '',
                         entraClientId: '',
                         entraCloud: 'global',
-                        unifiHostIds: '',
+                        unifiHostId: '',
+                        unifiSiteId: '',
                         proxmoxTokenId: '',
                         awsPartition: 'aws',
                         awsRegions: '',
@@ -878,6 +982,7 @@ export function PassiveInventoryPage() {
                         googleProjectIds: '',
                       }));
                       setCsvFile(null);
+                      setUnifiSites([]);
                       setGoogleCredentialFilename('');
                     }}
                   >
@@ -1030,26 +1135,69 @@ export function PassiveInventoryPage() {
                     )}
                     {connectorForm.type === 'unifi' && (
                       <>
-                        <Field label="Site Manager API endpoint">
+                        <Field label="UniFi API endpoint">
                           <Input
-                            aria-label="Site Manager API endpoint"
-                            value="https://api.ui.com/v1/devices"
+                            aria-label="UniFi API endpoint"
+                            value="https://api.ui.com (Site Manager and Network)"
                             readOnly
                             disabled
                           />
                         </Field>
-                        <Field label="UniFi host IDs (optional)">
-                          <Textarea
-                            aria-label="UniFi host IDs (optional)"
-                            placeholder="One host ID per line, or leave blank for every authorized host"
-                            value={connectorForm.unifiHostIds}
-                            onChange={(event) =>
+                        <Field label="UniFi Site Manager API key">
+                          <Input
+                            aria-label="UniFi Site Manager API key"
+                            type="password"
+                            value={connectorForm.secret}
+                            onChange={(event) => {
+                              setUnifiSites([]);
                               setConnectorForm((current) => ({
                                 ...current,
-                                unifiHostIds: event.target.value,
-                              }))
-                            }
+                                secret: event.target.value,
+                                unifiHostId: '',
+                                unifiSiteId: '',
+                              }));
+                            }}
                           />
+                        </Field>
+                        <div className="flex items-end">
+                          <Button
+                            variant="secondary"
+                            onClick={() => void loadUnifiSites()}
+                            disabled={!connectorForm.secret || busy === 'unifi-sites'}
+                          >
+                            <RefreshCw size={14} /> Load UniFi sites
+                          </Button>
+                        </div>
+                        <Field label="UniFi Network site">
+                          <Select
+                            aria-label="UniFi Network site"
+                            value={
+                              connectorForm.unifiHostId && connectorForm.unifiSiteId
+                                ? `${connectorForm.unifiHostId}|${connectorForm.unifiSiteId}`
+                                : ''
+                            }
+                            disabled={unifiSites.length === 0}
+                            onChange={(event) => {
+                              const selected = unifiSites.find(
+                                (site) => `${site.host_id}|${site.site_id}` === event.target.value,
+                              );
+                              setConnectorForm((current) => ({
+                                ...current,
+                                unifiHostId: selected?.host_id ?? '',
+                                unifiSiteId: selected?.site_id ?? '',
+                              }));
+                            }}
+                          >
+                            {unifiSites.length === 0 && <option value="">Load sites first</option>}
+                            {unifiSites.map((site) => (
+                              <option
+                                key={`${site.host_id}:${site.site_id}`}
+                                value={`${site.host_id}|${site.site_id}`}
+                              >
+                                {site.name} ({site.site_id})
+                              </option>
+                            ))}
+                          </Select>
                         </Field>
                       </>
                     )}
@@ -1461,19 +1609,19 @@ export function PassiveInventoryPage() {
                         </Field>
                       </>
                     )}
-                    {connectorForm.type !== 'aws' && connectorForm.type !== 'google_cloud' && (
-                      <Field
-                        label={
-                          connectorForm.type === 'dhcp'
-                            ? 'Kea password'
-                            : connectorForm.type === 'dns'
-                              ? 'TSIG secret (base64)'
-                              : connectorForm.type === 'active_directory'
-                                ? 'Bind password'
-                                : connectorForm.type === 'entra'
-                                  ? 'Application client secret'
-                                  : connectorForm.type === 'unifi'
-                                    ? 'UniFi Site Manager API key'
+                    {connectorForm.type !== 'aws' &&
+                      connectorForm.type !== 'google_cloud' &&
+                      connectorForm.type !== 'unifi' && (
+                        <Field
+                          label={
+                            connectorForm.type === 'dhcp'
+                              ? 'Kea password'
+                              : connectorForm.type === 'dns'
+                                ? 'TSIG secret (base64)'
+                                : connectorForm.type === 'active_directory'
+                                  ? 'Bind password'
+                                  : connectorForm.type === 'entra'
+                                    ? 'Application client secret'
                                     : connectorForm.type === 'vcenter'
                                       ? 'vCenter password'
                                       : connectorForm.type === 'proxmox'
@@ -1483,20 +1631,18 @@ export function PassiveInventoryPage() {
                                           : connectorForm.type === 'azure'
                                             ? 'Azure client secret'
                                             : 'Secret (optional)'
-                        }
-                      >
-                        <Input
-                          aria-label={
-                            connectorForm.type === 'dhcp'
-                              ? 'Kea password'
-                              : connectorForm.type === 'dns'
-                                ? 'TSIG secret (base64)'
-                                : connectorForm.type === 'active_directory'
-                                  ? 'Bind password'
-                                  : connectorForm.type === 'entra'
-                                    ? 'Application client secret'
-                                    : connectorForm.type === 'unifi'
-                                      ? 'UniFi Site Manager API key'
+                          }
+                        >
+                          <Input
+                            aria-label={
+                              connectorForm.type === 'dhcp'
+                                ? 'Kea password'
+                                : connectorForm.type === 'dns'
+                                  ? 'TSIG secret (base64)'
+                                  : connectorForm.type === 'active_directory'
+                                    ? 'Bind password'
+                                    : connectorForm.type === 'entra'
+                                      ? 'Application client secret'
                                       : connectorForm.type === 'vcenter'
                                         ? 'vCenter password'
                                         : connectorForm.type === 'proxmox'
@@ -1506,23 +1652,25 @@ export function PassiveInventoryPage() {
                                             : connectorForm.type === 'azure'
                                               ? 'Azure client secret'
                                               : 'Secret (optional)'
-                          }
-                          type="password"
-                          value={connectorForm.secret}
-                          onChange={(event) =>
-                            setConnectorForm((current) => ({
-                              ...current,
-                              secret: event.target.value,
-                            }))
-                          }
-                        />
-                      </Field>
-                    )}
+                            }
+                            type="password"
+                            value={connectorForm.secret}
+                            onChange={(event) =>
+                              setConnectorForm((current) => ({
+                                ...current,
+                                secret: event.target.value,
+                              }))
+                            }
+                          />
+                        </Field>
+                      )}
                   </>
                 )}
-                <div className="flex items-end">
+                <div className="flex items-end gap-2">
                   <Button
-                    onClick={() => void createConnector()}
+                    onClick={() =>
+                      void (editingUnifiConnectorId ? saveUnifiMapping() : createConnector())
+                    }
                     disabled={
                       busy === 'connector' ||
                       (connectorForm.type === 'csv' && !csvFile) ||
@@ -1546,7 +1694,10 @@ export function PassiveInventoryPage() {
                         (!connectorForm.entraTenantId ||
                           !connectorForm.entraClientId ||
                           !connectorForm.secret)) ||
-                      (connectorForm.type === 'unifi' && !connectorForm.secret) ||
+                      (connectorForm.type === 'unifi' &&
+                        (!connectorForm.secret ||
+                          !connectorForm.unifiHostId ||
+                          !connectorForm.unifiSiteId)) ||
                       (connectorForm.type === 'vcenter' &&
                         (!connectorForm.baseUrl ||
                           !connectorForm.username ||
@@ -1569,8 +1720,27 @@ export function PassiveInventoryPage() {
                       (connectorForm.type === 'google_cloud' && !connectorForm.secret)
                     }
                   >
-                    <Plus size={14} /> Save source
+                    <Plus size={14} />
+                    {editingUnifiConnectorId ? 'Save mapping' : 'Save source'}
                   </Button>
+                  {editingUnifiConnectorId && (
+                    <Button
+                      variant="secondary"
+                      onClick={() => {
+                        setEditingUnifiConnectorId(null);
+                        setUnifiSites([]);
+                        setConnectorForm((current) => ({
+                          ...current,
+                          name: '',
+                          secret: '',
+                          unifiHostId: '',
+                          unifiSiteId: '',
+                        }));
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                  )}
                 </div>
               </CardBody>
             </Card>

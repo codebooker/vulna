@@ -42,11 +42,45 @@ from app.schemas.passive_inventory import (
     InventoryConnectorUpdate,
     ReconciliationCandidateRead,
     ReconciliationDecision,
+    UnifiSiteDiscoveryRequest,
+    UnifiSiteRead,
 )
 from app.services import passive_inventory, reconciliation
 from app.services.audit import record_audit
+from app.services.inventory_unifi import UnifiInventoryAdapter
 
 router = APIRouter(prefix="/inventory", tags=["passive inventory"])
+
+
+@router.post("/unifi/sites", response_model=list[UnifiSiteRead])
+async def discover_unifi_sites(
+    payload: UnifiSiteDiscoveryRequest,
+    identity: Annotated[
+        AuthenticatedIdentity, Depends(require_step_up_permission("connectors.manage"))
+    ],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    context: Annotated[RequestContext, Depends(get_request_context)],
+) -> list[UnifiSiteRead]:
+    """Discover selectable UniFi sites without persisting or returning the API key."""
+
+    actor = identity.user
+    try:
+        sites = await UnifiInventoryAdapter().discover_sites(payload.api_key)
+    except (passive_inventory.InventoryConnectorError, OSError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    record_audit(
+        session,
+        action="inventory_connector.unifi_sites_discovered",
+        actor=actor,
+        organization_id=actor.organization_id,
+        target_type="inventory_connector",
+        target_id=None,
+        source_ip=context.source_ip,
+        user_agent=context.user_agent,
+        request_id=context.request_id,
+        metadata={"sites_returned": len(sites)},
+    )
+    return [UnifiSiteRead.model_validate(site) for site in sites]
 
 
 async def _owned_connector(

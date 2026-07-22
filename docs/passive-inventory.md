@@ -150,30 +150,32 @@ validated IP/FQDN/hostname/SMB identifiers.
 
 ### UniFi Network importer
 
-The UniFi source reads infrastructure devices through Ubiquiti's official
-[Site Manager API](https://developer.ui.com/site-manager/v1.0.0/gettingstarted).
+The UniFi source discovers sites through Ubiquiti's official
+[Site Manager API](https://developer.ui.com/site-manager/v1.0.0/gettingstarted)
+and reads site inventory through the official remote Network API.
 Create an API key from the
 [UniFi Site Manager API-key settings](https://unifi.ui.com/settings/api-keys)
-for the UI account that owns or super-administers the required hosts. Vulna always
-calls the fixed
-`https://api.ui.com/v1/devices` endpoint; controller URLs, Network site UUIDs,
-arbitrary paths, credentials in URLs, redirects, and private-network access are not
-part of the connector contract.
+for the UI account that owns or super-administers the required hosts. Use **Load
+UniFi sites** and select exactly one Network site for each connector. That site is
+mapped to the Vulna site selected in the same form; create or remap one connector
+per required mapping. An unscoped or legacy all-host configuration fails closed.
 
-By default the API key's complete authorized device inventory is collected. An
-optional bounded `host_ids` list maps to Site Manager's `hostIds[]` filter. The
-adapter follows only provider-returned `nextToken` values, caps page size at 200,
-each run at 10,000 devices and 1,000 pages, and each JSON response at 1 MiB. Host
-and device IDs, IP addresses, MAC addresses, names, status, model, firmware, and
-bounded host context are validated before becoming observations. The variable
-`uidb` payload is intentionally ignored.
+Vulna calls only fixed `api.ui.com` resources: `GET /v1/sites` for bounded discovery,
+then the selected console's remote Network `GET /sites/{siteId}/devices` and
+`GET /sites/{siteId}/clients` resources. The latter returns currently connected
+physical and VPN clients. Both offset pagers cap page size at 200, each combined run
+at 10,000 records and 1,000 pages per resource, and each JSON response at 1 MiB.
+Console, site, device, and client IDs plus bounded identity/state fields are
+validated before becoming observations. Arbitrary controller URLs, paths,
+credentials in URLs, redirects, and private-network access are not configurable.
 
 The API key is a one-way connector secret sent only in `X-API-Key`; requests are
 read-only, DNS-pinned, and restricted to the fixed public API host. Provider object
 IDs remain provenance only: reconciliation uses MAC, IP, and valid host names so a
-UniFi record cannot fabricate another provider's immutable cloud identity. Site
-Manager v1's device resource does not expose Network connected clients, so this
-connector no longer imports client observations.
+UniFi record cannot fabricate another provider's immutable cloud identity. Adopted
+infrastructure is classified as a network device; client type and access metadata
+remain provenance while the endpoint starts as unknown until stronger evidence
+classifies it.
 
 ### Microsoft Entra importer
 
@@ -400,8 +402,8 @@ For CSV sources this includes only presence, filename, SHA-256, size, and upload
 time. DNS connectors export the server, explicit zones, public TSIG metadata, and
 `has_secret`, but never the TSIG value or ciphertext. Active Directory connectors
 likewise export public server/base/trust configuration and `has_secret`, never the
-bind password or ciphertext. UniFi connectors export only optional host filters,
-bounds, and `has_secret`; the API key and ciphertext are excluded. It excludes
+bind password or ciphertext. UniFi connectors export only their console/site
+mapping, bounds, and `has_secret`; the API key and ciphertext are excluded. It excludes
 connector and source ciphertext. vCenter connectors export only their public HTTPS
 origin, username, resource selectors, limits, public CA trust, private-network
 opt-in, and `has_secret`; passwords, Basic credentials, API session tokens, and

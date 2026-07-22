@@ -82,6 +82,16 @@ class InventoryConnectorTestRead(BaseModel):
     error: str | None = None
 
 
+class UnifiSiteDiscoveryRequest(BaseModel):
+    api_key: str = Field(min_length=1, max_length=4096)
+
+
+class UnifiSiteRead(BaseModel):
+    host_id: str = Field(min_length=1, max_length=255)
+    site_id: str = Field(min_length=1, max_length=255)
+    name: str = Field(min_length=1, max_length=256)
+
+
 class ConnectorRunRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
