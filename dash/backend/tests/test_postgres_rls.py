@@ -241,11 +241,12 @@ async def test_postgres_connector_failure_survives_statement_abort(
                 )
                 session.add(run)
                 await session.flush()
+                run_id = run.id
                 task, created = await background_tasks.enqueue_task(
                     session,
                     task_type="inventory.collect",
-                    idempotency_key=f"postgres-connector-failure:{run.id}",
-                    payload={"run_id": str(run.id)},
+                    idempotency_key=f"postgres-connector-failure:{run_id}",
+                    payload={"run_id": str(run_id)},
                     organization_id=organization_id,
                 )
                 assert created is True
@@ -283,7 +284,7 @@ async def test_postgres_connector_failure_survives_statement_abort(
                 await session.commit()
                 session.expire_all()
 
-                stored_run = await session.get(ConnectorRun, run.id)
+                stored_run = await session.get(ConnectorRun, run_id)
                 assert stored_run is not None
                 assert stored_run.status == ConnectorRunStatus.FAILED
                 assert stored_run.finished_at is not None
@@ -292,7 +293,7 @@ async def test_postgres_connector_failure_survives_statement_abort(
                     await session.scalar(
                         select(func.count())
                         .select_from(AssetObservation)
-                        .where(AssetObservation.run_id == run.id)
+                        .where(AssetObservation.run_id == run_id)
                     )
                     == 0
                 )
