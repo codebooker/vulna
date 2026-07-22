@@ -261,6 +261,7 @@ class AssetBulkDelete(BaseModel):
 
 class AssetBulkDeleteResult(BaseModel):
     deleted_assets: int
+    skipped_assets: int
 
 
 class DepartmentOwnerUpsert(BaseModel):

@@ -416,7 +416,7 @@ async def bulk_delete_assets(
     session: Annotated[AsyncSession, Depends(get_session)],
     context: Annotated[RequestContext, Depends(get_request_context)],
 ) -> AssetBulkDeleteResult:
-    """Permanently remove an accessible set of assets as one atomic request."""
+    """Remove every accessible asset while treating stale IDs as already absent."""
     asset_ids = list(dict.fromkeys(payload.asset_ids))
     assets = list(
         (
@@ -431,11 +431,9 @@ async def bulk_delete_assets(
             )
         ).scalars()
     )
-    if len(assets) != len(asset_ids):
-        raise HTTPException(status_code=404, detail="One or more assets were not found")
-
     for asset in assets:
         await session.delete(asset)
+    skipped_assets = len(asset_ids) - len(assets)
     _audit(
         session,
         action="asset.bulk_deleted",
@@ -444,11 +442,18 @@ async def bulk_delete_assets(
         target_type="asset_batch",
         target_id=None,
         metadata={
-            "asset_ids": [str(value) for value in asset_ids],
+            # Record only assets the caller could access. A supplied ID from a
+            # different tenant or site remains indistinguishable from a stale ID.
+            "asset_ids": [str(asset.id) for asset in assets],
+            "requested_assets": len(asset_ids),
             "deleted_assets": len(assets),
+            "skipped_assets": skipped_assets,
         },
     )
-    return AssetBulkDeleteResult(deleted_assets=len(assets))
+    return AssetBulkDeleteResult(
+        deleted_assets=len(assets),
+        skipped_assets=skipped_assets,
+    )
 
 
 @asset_router.get("/{asset_id}/tags", response_model=list[AssetTagAssignmentRead])

@@ -140,6 +140,7 @@ export interface AssetBulkResult {
 
 export interface AssetBulkDeleteResult {
   deleted_assets: number;
+  skipped_assets: number;
 }
 
 export interface AssetFilters {

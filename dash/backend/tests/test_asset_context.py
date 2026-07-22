@@ -392,7 +392,7 @@ async def test_asset_context_does_not_cross_organizations(
     assert filtered.json()["total"] == 0
 
 
-async def test_asset_deletion_is_permissioned_scoped_atomic_and_audited(
+async def test_asset_deletion_is_permissioned_scoped_idempotent_and_audited(
     client: AsyncClient,
     admin_headers: dict[str, str],
     viewer_headers: dict[str, str],
@@ -427,6 +427,7 @@ async def test_asset_deletion_is_permissioned_scoped_atomic_and_audited(
     )
     db_session.add(foreign_asset)
     await db_session.commit()
+    foreign_asset_id = foreign_asset.id
 
     denied = await client.delete(f"/api/v1/assets/{first.id}", headers=viewer_headers)
     assert denied.status_code == 403
@@ -443,9 +444,10 @@ async def test_asset_deletion_is_permissioned_scoped_atomic_and_audited(
         json={"asset_ids": [str(second.id), str(foreign_asset.id)]},
         headers=admin_headers,
     )
-    assert cross_org.status_code == 404
-    still_atomic = await client.get(f"/api/v1/assets/{second.id}", headers=admin_headers)
-    assert still_atomic.status_code == 200
+    assert cross_org.status_code == 200
+    assert cross_org.json() == {"deleted_assets": 1, "skipped_assets": 1}
+    deleted_accessible = await client.get(f"/api/v1/assets/{second.id}", headers=admin_headers)
+    assert deleted_accessible.status_code == 404
 
     bulk = await client.post(
         "/api/v1/assets/bulk-delete",
@@ -453,7 +455,7 @@ async def test_asset_deletion_is_permissioned_scoped_atomic_and_audited(
         headers=admin_headers,
     )
     assert bulk.status_code == 200, bulk.text
-    assert bulk.json() == {"deleted_assets": 2}
+    assert bulk.json() == {"deleted_assets": 1, "skipped_assets": 1}
 
     remaining = await client.get("/api/v1/assets", headers=admin_headers)
     assert remaining.status_code == 200
@@ -474,8 +476,15 @@ async def test_asset_deletion_is_permissioned_scoped_atomic_and_audited(
     single_audit = next(event for event in audits if event.action == "asset.deleted")
     assert single_audit.target_id == str(first_id)
     assert single_audit.metadata_json["canonical_name"] == "payments-api"
-    bulk_audit = next(event for event in audits if event.action == "asset.bulk_deleted")
-    assert bulk_audit.metadata_json["deleted_assets"] == 2
+    bulk_audits = [event for event in audits if event.action == "asset.bulk_deleted"]
+    assert len(bulk_audits) == 2
+    assert {
+        (event.metadata_json["deleted_assets"], event.metadata_json["skipped_assets"])
+        for event in bulk_audits
+    } == {(1, 1)}
+    assert all(
+        str(foreign_asset_id) not in event.metadata_json["asset_ids"] for event in bulk_audits
+    )
 
 
 async def test_asset_management_requires_permission(
