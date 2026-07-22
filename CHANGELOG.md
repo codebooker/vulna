@@ -80,16 +80,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   distinction so GO-2026-5932 cannot be mistaken for a reachable call or silently
   ignored if an affected function enters the graph.
 
-### Changed — UniFi Site Manager inventory
+### Fixed — UniFi site mapping and client inventory
 
-- The read-only UniFi importer now collects infrastructure devices account-wide
-  through the official Site Manager `GET /v1/devices` API. The endpoint is fixed in
-  code, optional host-ID filters narrow the result, and continuation-token paging
-  is bounded and validated.
-- Controller URLs, Network site UUIDs, private-network access, and connected-client
-  reads are removed from the connector contract. Site Manager API keys remain
-  one-way secrets and never enter results, cursors, observations, logs, tasks, or
-  portability exports.
+- UniFi connectors now map exactly one discovered Network site to the selected
+  Vulna site instead of aggregating every Site Manager host into one scope. Existing
+  connectors can be remapped in place and are disabled until the new mapping tests
+  successfully.
+- Collection uses the official remote Network API to read both adopted UniFi
+  infrastructure and connected wired, wireless, VPN, and Teleport clients for the
+  selected site. Site discovery and both resource pagers are bounded, read-only,
+  fixed to `api.ui.com`, and keep the API key one-way.
 
 ### Added — Phase 44 connector: Microsoft Entra
 

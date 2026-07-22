@@ -75,6 +75,20 @@ beforeEach(() => {
           cache: 'miss',
         });
       }
+      if (url.endsWith('/api/v1/inventory/unifi/sites') && init?.method === 'POST') {
+        return jsonResponse([
+          {
+            host_id: 'host-01:region',
+            site_id: '7d80b1f5-48e0-4bde-b476-2a8f288130a2',
+            name: 'Headquarters',
+          },
+          {
+            host_id: 'host-02:region',
+            site_id: 'b69298f7-d2f5-4c47-bd91-5115f0d02fdd',
+            name: 'Branch',
+          },
+        ]);
+      }
       if (url.endsWith('/api/v1/inventory/connectors') && init?.method === 'POST') {
         return jsonResponse(
           {
@@ -101,6 +115,13 @@ beforeEach(() => {
           source_sha256: 'csv-sha256',
           source_size_bytes: 32,
           source_uploaded_at: '2026-07-13T00:01:00Z',
+        });
+      }
+      if (url.endsWith('/api/v1/inventory/connectors/connector-1') && init?.method === 'PATCH') {
+        return jsonResponse({
+          ...inventoryConnectors[0],
+          successful_test_at: null,
+          enabled: false,
         });
       }
       if (url.endsWith('/api/v1/inventory/connectors')) return jsonResponse(inventoryConnectors);
@@ -334,14 +355,27 @@ it('shows scoped analytics and keeps connector secrets one-way', async () => {
 
   fireEvent.change(screen.getByLabelText('Type'), { target: { value: 'unifi' } });
   fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'UniFi inventory' } });
-  expect(screen.getByLabelText('Site Manager API endpoint')).toHaveValue(
-    'https://api.ui.com/v1/devices',
+  expect(screen.getByLabelText('UniFi API endpoint')).toHaveValue(
+    'https://api.ui.com (Site Manager and Network)',
   );
-  fireEvent.change(screen.getByLabelText('UniFi host IDs (optional)'), {
-    target: { value: 'host-01:region\nhost-02:region' },
-  });
   fireEvent.change(screen.getByLabelText('UniFi Site Manager API key'), {
     target: { value: 'unifi-api-key' },
+  });
+  expect(screen.getByRole('button', { name: 'Save source' })).toBeDisabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Load UniFi sites' }));
+  await waitFor(() => {
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/api/v1/inventory/unifi/sites'),
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ api_key: 'unifi-api-key' }),
+      }),
+    );
+  });
+  fireEvent.change(await screen.findByLabelText('UniFi Network site'), {
+    target: {
+      value: 'host-02:region|b69298f7-d2f5-4c47-bd91-5115f0d02fdd',
+    },
   });
   fireEvent.click(screen.getByRole('button', { name: 'Save source' }));
   await waitFor(() => {
@@ -355,7 +389,8 @@ it('shows scoped analytics and keeps connector secrets one-way', async () => {
       connector_type: 'unifi',
       secret: 'unifi-api-key',
       config: {
-        host_ids: ['host-01:region', 'host-02:region'],
+        host_id: 'host-02:region',
+        site_id: 'b69298f7-d2f5-4c47-bd91-5115f0d02fdd',
       },
     });
     expect(payload).not.toHaveProperty('base_url');
@@ -640,4 +675,50 @@ it('shows the connector site name and a visible failed run', async () => {
   expect((await screen.findAllByText('Main')).length).toBeGreaterThanOrEqual(2);
   expect(screen.getByText('Failed')).toBeInTheDocument();
   expect(screen.getByText('PostgreSQL reconciliation failed safely.')).toBeInTheDocument();
+});
+
+it('remaps an existing UniFi connector to exactly one discovered site', async () => {
+  inventoryConnectors = [
+    {
+      ...connector,
+      connector_type: 'unifi',
+      name: 'Existing UniFi',
+      config_json: { host_ids: [] },
+      enabled: true,
+      successful_test_at: '2026-07-21T00:00:00Z',
+    },
+  ];
+  render(
+    <AuthProvider>
+      <PassiveInventoryPage />
+    </AuthProvider>,
+  );
+  fireEvent.click(await screen.findByRole('tab', { name: /Sources/ }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Map site' }));
+  expect(screen.getByLabelText('Name')).toBeDisabled();
+  expect(screen.getByLabelText('Site')).toBeDisabled();
+  fireEvent.change(screen.getByLabelText('UniFi Site Manager API key'), {
+    target: { value: 'replacement-api-key' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Load UniFi sites' }));
+  await waitFor(() => expect(screen.getByLabelText('UniFi Network site')).not.toBeDisabled());
+  fireEvent.change(screen.getByLabelText('UniFi Network site'), {
+    target: { value: 'host-01:region|7d80b1f5-48e0-4bde-b476-2a8f288130a2' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save mapping' }));
+  await waitFor(() => {
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/api/v1/inventory/connectors/connector-1'),
+      expect.objectContaining({
+        method: 'PATCH',
+        body: JSON.stringify({
+          secret: 'replacement-api-key',
+          config: {
+            host_id: 'host-01:region',
+            site_id: '7d80b1f5-48e0-4bde-b476-2a8f288130a2',
+          },
+        }),
+      }),
+    );
+  });
 });

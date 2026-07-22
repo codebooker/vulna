@@ -37,6 +37,12 @@ export interface InventoryConnector {
   updated_at: string;
 }
 
+export interface UnifiSite {
+  host_id: string;
+  site_id: string;
+  name: string;
+}
+
 export interface ConnectorRun {
   id: string;
   organization_id: string;

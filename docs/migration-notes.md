@@ -93,14 +93,15 @@ step is needed for schema changes unless noted.
   are unchanged and none is enabled automatically. Portability excludes the
   password and ephemeral session, so full continuity requires an encrypted backup.
 
-- **UniFi Site Manager inventory conversion.** No database schema migration is
-  required, but an existing Network Integration API connector must be replaced or
-  reconfigured before its next test/run: clear `base_url`, remove `site_id`,
-  `allow_private`, and resource selectors, optionally set `host_ids`, and replace
-  the credential with a Site Manager API key. The importer now reads only the fixed
-  public `GET https://api.ui.com/v1/devices` resource; connected clients are no
-  longer returned. Portability omits the API key, and full credential continuity
-  still requires an encrypted backup.
+- **UniFi one-to-one site mapping and client inventory.** No database schema
+  migration is required. Existing UniFi connectors must use **Map site**, re-enter
+  the Site Manager API key, select one discovered Network site, test, and re-enable
+  collection. Updating the mapping disables the connector until that test passes.
+  Legacy `host_ids` configurations fail closed instead of aggregating authorized
+  sites. New runs read both adopted devices and currently connected clients for the
+  selected site through fixed public remote Network API resources. Portability
+  omits the API key, and full credential continuity still requires an encrypted
+  backup.
 
 - **GO-2026-5932 dependency hardening.** No schema or operator action is required.
   Vulna does not use the affected OpenPGP package; CI now fails if it enters a
