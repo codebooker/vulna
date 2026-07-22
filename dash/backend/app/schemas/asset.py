@@ -255,6 +255,14 @@ class AssetBulkResult(BaseModel):
     memberships_removed: int
 
 
+class AssetBulkDelete(BaseModel):
+    asset_ids: list[uuid.UUID] = Field(min_length=1, max_length=500)
+
+
+class AssetBulkDeleteResult(BaseModel):
+    deleted_assets: int
+
+
 class DepartmentOwnerUpsert(BaseModel):
     department: str = Field(min_length=1, max_length=255)
     owner_user_id: uuid.UUID

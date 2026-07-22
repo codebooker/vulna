@@ -28,6 +28,8 @@ from app.models.finding import Finding
 from app.models.scim import ScimGroup
 from app.models.user import User
 from app.schemas.asset import (
+    AssetBulkDelete,
+    AssetBulkDeleteResult,
     AssetBulkResult,
     AssetBulkUpdate,
     AssetContextUpdate,
@@ -380,6 +382,73 @@ async def bulk_update_assets(
         memberships_added=memberships_added,
         memberships_removed=memberships_removed,
     )
+
+
+@asset_router.delete("/{asset_id}", status_code=204, response_model=None)
+async def delete_asset(
+    asset_id: uuid.UUID,
+    manager: Annotated[User, Depends(require_permission("assets.manage"))],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    context: Annotated[RequestContext, Depends(get_request_context)],
+) -> None:
+    """Permanently remove one accessible asset and its dependent inventory."""
+    asset = await _get_asset(session, asset_id, manager, permission_key="assets.manage")
+    metadata = {
+        "canonical_name": asset.canonical_name,
+        "site_id": str(asset.site_id),
+    }
+    await session.delete(asset)
+    _audit(
+        session,
+        action="asset.deleted",
+        actor=manager,
+        context=context,
+        target_type="asset",
+        target_id=asset_id,
+        metadata=metadata,
+    )
+
+
+@asset_router.post("/bulk-delete", response_model=AssetBulkDeleteResult)
+async def bulk_delete_assets(
+    payload: AssetBulkDelete,
+    manager: Annotated[User, Depends(require_permission("assets.manage"))],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    context: Annotated[RequestContext, Depends(get_request_context)],
+) -> AssetBulkDeleteResult:
+    """Permanently remove an accessible set of assets as one atomic request."""
+    asset_ids = list(dict.fromkeys(payload.asset_ids))
+    assets = list(
+        (
+            await session.execute(
+                select(Asset).where(
+                    Asset.id.in_(asset_ids),
+                    Asset.organization_id == manager.organization_id,
+                    site_scope.site_scope_clause(
+                        manager, Asset.site_id, permission_key="assets.manage"
+                    ),
+                )
+            )
+        ).scalars()
+    )
+    if len(assets) != len(asset_ids):
+        raise HTTPException(status_code=404, detail="One or more assets were not found")
+
+    for asset in assets:
+        await session.delete(asset)
+    _audit(
+        session,
+        action="asset.bulk_deleted",
+        actor=manager,
+        context=context,
+        target_type="asset_batch",
+        target_id=None,
+        metadata={
+            "asset_ids": [str(value) for value in asset_ids],
+            "deleted_assets": len(assets),
+        },
+    )
+    return AssetBulkDeleteResult(deleted_assets=len(assets))
 
 
 @asset_router.get("/{asset_id}/tags", response_model=list[AssetTagAssignmentRead])

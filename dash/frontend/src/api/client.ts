@@ -24,6 +24,7 @@ import type {
 import type { Experience, ExperienceChange, ExperiencePreview } from '../types/experience';
 import type {
   Asset,
+  AssetBulkDeleteResult,
   AssetBulkPayload,
   AssetBulkResult,
   AssetContextPatch,
@@ -840,6 +841,19 @@ export const api = {
       method: 'POST',
       token,
       body: payload,
+    });
+  },
+  deleteAsset(token: string, assetId: string): Promise<void> {
+    return request<void>(`/api/v1/assets/${encodeURIComponent(assetId)}`, {
+      method: 'DELETE',
+      token,
+    });
+  },
+  bulkDeleteAssets(token: string, assetIds: string[]): Promise<AssetBulkDeleteResult> {
+    return request<AssetBulkDeleteResult>('/api/v1/assets/bulk-delete', {
+      method: 'POST',
+      token,
+      body: { asset_ids: assetIds },
     });
   },
   assetOwnership(token: string, assetId: string): Promise<OwnershipResolution> {

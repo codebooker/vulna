@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — asset deletion
+
+- Administrators and scoped asset managers can now permanently delete one asset
+  from its detail drawer or delete up to 500 selected assets from the inventory
+  table. Destructive confirmation explains that associated findings and history
+  are removed, append-only source observations and audits remain traceable, and a
+  source can rediscover the asset later.
+- Single and bulk deletion are organization/site scoped, fail atomically when any
+  requested asset is inaccessible, and create tamper-evident audit events without
+  retaining source credentials or observation payloads.
+
 ### Fixed — scanner sandbox runtimes
 
 - Sandboxed ZAP runs now receive an explicit disposable home directory, allowing

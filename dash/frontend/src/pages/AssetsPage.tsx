@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronRight, FolderTree, Pencil, Server, Tag } from 'lucide-react';
+import { ChevronRight, FolderTree, Pencil, Server, Tag, Trash2 } from 'lucide-react';
 import { ApiError, api } from '../api/client';
 import { useAuth } from '../auth/useAuth';
 import { useNav } from '../lib/nav';
@@ -13,7 +13,7 @@ import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Field, Input, Select, Textarea } from '../components/ui/input';
 import { DetailRow } from '../components/ui/misc';
-import { Drawer, Modal } from '../components/ui/overlay';
+import { ConfirmDialog, Drawer, Modal } from '../components/ui/overlay';
 import { InlineError } from '../components/ui/states';
 import type {
   Asset,
@@ -59,6 +59,9 @@ export function AssetsPage() {
   const [departmentOwners, setDepartmentOwners] = useState<DepartmentOwner[]>([]);
   const [editAsset, setEditAsset] = useState<AssetRow | null>(null);
   const [bulkAssets, setBulkAssets] = useState<AssetRow[]>([]);
+  const [deleteTargets, setDeleteTargets] = useState<AssetRow[]>([]);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [tagOpen, setTagOpen] = useState(false);
   const [groupOpen, setGroupOpen] = useState(false);
   const [ownershipRulesOpen, setOwnershipRulesOpen] = useState(false);
@@ -449,6 +452,37 @@ export function AssetsPage() {
   const identifierText = (values: string[]) =>
     !detailReady ? 'Loading…' : values.length ? values.join(', ') : '—';
 
+  const requestDelete = (targets: AssetRow[]) => {
+    setDeleteError(null);
+    setDeleteTargets(targets);
+  };
+
+  const removeAssets = async () => {
+    if (!token || deleteTargets.length === 0) return;
+    setDeleteBusy(true);
+    setDeleteError(null);
+    try {
+      if (deleteTargets.length === 1) {
+        await api.deleteAsset(token, deleteTargets[0].id);
+      } else {
+        await api.bulkDeleteAssets(
+          token,
+          deleteTargets.map((asset) => asset.id),
+        );
+      }
+      const count = deleteTargets.length;
+      setDeleteTargets([]);
+      setSelected(null);
+      setBulkAssets([]);
+      toast('success', `${count} ${count === 1 ? 'asset' : 'assets'} deleted.`);
+      await load();
+    } catch (deleteFailure) {
+      setDeleteError(errorMessage(deleteFailure, 'Failed to delete assets.'));
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
+
   return (
     <div aria-label="Assets">
       <PageHeader
@@ -485,9 +519,14 @@ export function AssetsPage() {
         selectable
         toolbar={({ selected: selectedRows }) =>
           canManage && selectedRows.length > 0 ? (
-            <Button size="sm" variant="outline" onClick={() => setBulkAssets(selectedRows)}>
-              <Pencil size={12} aria-hidden /> Edit {selectedRows.length}
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="outline" onClick={() => setBulkAssets(selectedRows)}>
+                <Pencil size={12} aria-hidden /> Edit {selectedRows.length}
+              </Button>
+              <Button size="sm" variant="destructive" onClick={() => requestDelete(selectedRows)}>
+                <Trash2 size={12} aria-hidden /> Delete {selectedRows.length}
+              </Button>
+            </div>
           ) : null
         }
         loading={loading}
@@ -517,9 +556,14 @@ export function AssetsPage() {
         description={selected ? siteName(selected.site_id) : undefined}
         footer={
           selected && canManage ? (
-            <Button variant="primary" onClick={() => setEditAsset(selected)}>
-              <Pencil size={13} aria-hidden /> Edit context
-            </Button>
+            <>
+              <Button variant="destructive" onClick={() => requestDelete([selected])}>
+                <Trash2 size={13} aria-hidden /> Delete asset
+              </Button>
+              <Button variant="primary" onClick={() => setEditAsset(selected)}>
+                <Pencil size={13} aria-hidden /> Edit context
+              </Button>
+            </>
           ) : undefined
         }
       >
@@ -679,6 +723,37 @@ export function AssetsPage() {
         users={users}
         onClose={() => setOwnershipRulesOpen(false)}
         onChanged={() => void load()}
+      />
+      <ConfirmDialog
+        open={deleteTargets.length > 0}
+        onClose={() => {
+          if (!deleteBusy) setDeleteTargets([]);
+        }}
+        onConfirm={() => void removeAssets()}
+        destructive
+        busy={deleteBusy}
+        title={
+          deleteTargets.length === 1
+            ? `Delete asset “${deleteTargets[0].canonical_name}”?`
+            : `Delete ${deleteTargets.length} assets?`
+        }
+        confirmLabel={deleteTargets.length === 1 ? 'Delete asset' : 'Delete assets'}
+        body={
+          <div className="flex flex-col gap-3">
+            <p>
+              This permanently removes the selected{' '}
+              {deleteTargets.length === 1 ? 'asset' : 'assets'} and associated services, findings,
+              current inventory links, lifecycle history, and context. Source observations and audit
+              records remain for security traceability. This cannot be undone.
+            </p>
+            <p>
+              A future scan or inventory run can add the{' '}
+              {deleteTargets.length === 1 ? 'asset' : 'assets'} again if the source still reports
+              them.
+            </p>
+            {deleteError && <InlineError message={deleteError} />}
+          </div>
+        }
       />
 
       {/* A vulnerability opens in a slider on this page; the back arrow returns
