@@ -19,7 +19,12 @@ KEY="$(cd "$(dirname "$KEY")" && pwd)/$(basename "$KEY")"
 cd "$DIR"
 # Checksum every artifact except the manifest/signature themselves.
 find . -type f ! -name 'SHA256SUMS' ! -name 'SHA256SUMS.sig' -print0 \
-	| sort -z | xargs -0 sha256sum > SHA256SUMS
+	| sort -z \
+	| while IFS= read -r -d '' file; do
+		# Consumers select manifest entries by their release-asset basename. Strip
+		# find's leading "./" so the signed manifest uses the same names.
+		sha256sum "${file#./}"
+	done >SHA256SUMS
 
 "$OPENSSL" pkeyutl -sign -inkey "$KEY" -rawin -in SHA256SUMS -out SHA256SUMS.sig
 

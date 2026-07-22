@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Power, ShieldOff, Trash2 } from 'lucide-react';
+import { Ban, Power, ShieldOff, Trash2 } from 'lucide-react';
 import { ApiError, api } from '../api/client';
 import { useAuth } from '../auth/useAuth';
 import { useToast } from '../lib/toast';
@@ -29,6 +29,7 @@ export function RelayPage({ refreshKey }: { refreshKey?: number }) {
   const [error, setError] = useState<string | null>(null);
   const [killTarget, setKillTarget] = useState<Relay | null>(null);
   const [revokeTarget, setRevokeTarget] = useState<Relay | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Relay | null>(null);
   const [busy, setBusy] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
@@ -126,6 +127,21 @@ export function RelayPage({ refreshKey }: { refreshKey?: number }) {
     }
   };
 
+  const deleteRelay = async (relay: Relay) => {
+    if (!token) return;
+    setBusy(true);
+    try {
+      await api.deleteRelay(token, relay.id);
+      setDeleteTarget(null);
+      await load();
+      toast('success', `${relay.name} was permanently deleted.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Relay deletion failed.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const kill = async (relay: Relay) => {
     if (!token) return;
     setBusy(true);
@@ -188,7 +204,7 @@ export function RelayPage({ refreshKey }: { refreshKey?: number }) {
                   {sites.find((site) => site.id === r.site_id)?.name ?? 'Unknown site'}
                 </span>
                 <span className="ml-auto flex items-center gap-1.5">
-                  {isAdmin && r.status !== 'killed' && (
+                  {isAdmin && r.status === 'enrolled' && (
                     <Button size="sm" variant="destructive" onClick={() => setKillTarget(r)}>
                       Kill switch
                     </Button>
@@ -198,15 +214,26 @@ export function RelayPage({ refreshKey }: { refreshKey?: number }) {
                       Resume
                     </Button>
                   )}
-                  {isAdmin && r.status !== 'revoked' && (
+                  {isAdmin && (r.status === 'enrolled' || r.status === 'killed') && (
                     <Button
                       size="sm"
                       variant="ghost"
                       aria-label={`Revoke ${r.name}`}
                       onClick={() => setRevokeTarget(r)}
                     >
-                      <Trash2 className="h-3.5 w-3.5" />
+                      <Ban className="h-3.5 w-3.5" />
                       Revoke
+                    </Button>
+                  )}
+                  {isAdmin && (r.status === 'pending_enrollment' || r.status === 'revoked') && (
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      aria-label={`Delete ${r.name}`}
+                      onClick={() => setDeleteTarget(r)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Delete
                     </Button>
                   )}
                 </span>
@@ -294,6 +321,18 @@ export function RelayPage({ refreshKey }: { refreshKey?: number }) {
         confirmLabel="Revoke relay"
         onConfirm={() => {
           if (revokeTarget) void revoke(revokeTarget);
+        }}
+      />
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onClose={() => setDeleteTarget(null)}
+        destructive
+        busy={busy}
+        title={`Permanently delete “${deleteTarget?.name}”?`}
+        body="This removes the Relay record from Vulna. This cannot be undone. Enrolled or killed Relays must be revoked first so their certificate, tunnel, and managed scope are invalidated safely."
+        confirmLabel="Delete permanently"
+        onConfirm={() => {
+          if (deleteTarget) void deleteRelay(deleteTarget);
         }}
       />
     </div>

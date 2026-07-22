@@ -47,6 +47,20 @@ def test_build_install_commands_use_deployment_version(monkeypatch) -> None:
         get_settings.cache_clear()
 
 
+def test_build_install_commands_use_latest_release_channel(monkeypatch) -> None:
+    monkeypatch.setenv("VULNA_VERSION", "latest")
+    get_settings.cache_clear()
+    try:
+        cmds = build_install_commands(
+            get_settings(), "https://vulna.example.com", "vscout_secret", "remote-1"
+        )
+        assert "/releases/latest/download/install-scout.sh" in cmds["universal"]
+        assert "VULNA_VERSION=latest" in cmds["universal"]
+        assert "vlatest" not in cmds["universal"]
+    finally:
+        get_settings.cache_clear()
+
+
 # --------------------------------------------------------------------------- #
 # Add VulnaScout command endpoint
 # --------------------------------------------------------------------------- #

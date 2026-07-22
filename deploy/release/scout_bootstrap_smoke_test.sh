@@ -27,9 +27,10 @@ mkdir -p "$rel" "$bindir"
 
 echo "smoke: building VulnaScout as release asset $asset"
 (cd "$ROOT/scout" && go build -o "$rel/$asset" ./cmd/vulnascout)
+printf '%s\n' "$VER" >"$rel/VERSION"
 
 echo "smoke: creating signed checksum manifest"
-(cd "$rel" && sha256sum "$asset" >SHA256SUMS)
+(cd "$rel" && sha256sum "$asset" VERSION >SHA256SUMS)
 "$OPENSSL" genpkey -algorithm ed25519 -out "$work/key.pem" 2>/dev/null
 "$OPENSSL" pkey -in "$work/key.pem" -pubout -out "$work/pub.pem" 2>/dev/null
 "$OPENSSL" pkeyutl -sign -inkey "$work/key.pem" -rawin \
@@ -37,6 +38,14 @@ echo "smoke: creating signed checksum manifest"
 
 run_bootstrap() {
 	VULNA_VERSION="$VER" \
+		VULNA_BASE_URL="file://$rel" \
+		VULNA_RELEASE_PUBKEY="$work/pub.pem" \
+		VULNA_BIN_DIR="$bindir" \
+		sh "$SCRIPT"
+}
+
+run_latest_bootstrap() {
+	VULNA_VERSION=latest \
 		VULNA_BASE_URL="file://$rel" \
 		VULNA_RELEASE_PUBKEY="$work/pub.pem" \
 		VULNA_BIN_DIR="$bindir" \
@@ -51,6 +60,10 @@ run_bootstrap
 }
 echo "smoke:   ok — verified and installed"
 
+echo "smoke: (1b) latest channel must resolve the signed VERSION asset"
+run_latest_bootstrap
+echo "smoke:   ok — latest resolved to $VER"
+
 echo "smoke: (2) tampered artifact must be refused"
 echo "malicious" >>"$rel/$asset"
 if run_bootstrap >/dev/null 2>&1; then
@@ -60,7 +73,7 @@ fi
 echo "smoke:   ok — checksum mismatch refused"
 
 echo "smoke: (3) invalid signature must be refused"
-(cd "$rel" && sha256sum "$asset" >SHA256SUMS)
+(cd "$rel" && sha256sum "$asset" VERSION >SHA256SUMS)
 printf 'corrupt' >"$rel/SHA256SUMS.sig"
 if run_bootstrap >/dev/null 2>&1; then
 	echo "smoke: FAIL — invalid signature was NOT refused" >&2

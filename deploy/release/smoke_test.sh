@@ -26,6 +26,7 @@ DIST="$WORK/dist"
 mkdir -p "$DIST"
 echo "vulnascout-binary" > "$DIST/vulnascout_1.0.0_amd64.deb"
 echo "probe-image-digest" > "$DIST/image-digest.txt"
+echo "v1.0.0" > "$DIST/VERSION"
 
 echo "== generate ephemeral release key =="
 "$OPENSSL" genpkey -algorithm ed25519 -out "$WORK/key.pem"
@@ -35,6 +36,14 @@ echo "== sign =="
 VULNA_RELEASE_KEY="$WORK/key.pem" bash "$HERE/sign.sh" "$DIST"
 if [ ! -f "$DIST/SHA256SUMS" ] || [ ! -f "$DIST/SHA256SUMS.sig" ]; then
 	echo "FAIL: manifest/sig missing" >&2
+	exit 1
+fi
+grep -q ' VERSION$' "$DIST/SHA256SUMS" || {
+	echo "FAIL: VERSION is not listed by release-asset name" >&2
+	exit 1
+}
+if grep -q ' \./' "$DIST/SHA256SUMS"; then
+	echo "FAIL: manifest contains find-style ./ paths that installers cannot select" >&2
 	exit 1
 fi
 

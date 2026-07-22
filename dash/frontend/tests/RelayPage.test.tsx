@@ -134,4 +134,74 @@ describe('RelayPage', () => {
       }),
     );
   });
+
+  it('permanently deletes a revoked relay after confirmation', async () => {
+    let deleted = false;
+    let deleteMethod: string | undefined;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/api/v1/auth/me')) {
+          return jsonResponse({
+            id: 'u1',
+            email: 'a@example.com',
+            full_name: null,
+            role: 'administrator',
+            organization_id: 'o1',
+            is_active: true,
+          });
+        }
+        if (url.endsWith('/api/v1/relays/settings')) return jsonResponse({ enabled: true });
+        if (url.includes('/api/v1/sites')) {
+          return jsonResponse({
+            items: [{ id: 's1', organization_id: 'o1', name: 'HQ', code: 'HQ' }],
+            total: 1,
+            limit: 50,
+            offset: 0,
+          });
+        }
+        if (url.endsWith('/api/v1/relays/r1') && init?.method === 'DELETE') {
+          deleted = true;
+          deleteMethod = init.method;
+          return new Response(null, { status: 204 });
+        }
+        if (url.endsWith('/api/v1/relays')) {
+          return jsonResponse({
+            relays: deleted
+              ? []
+              : [
+                  {
+                    id: 'r1',
+                    name: 'Retired relay',
+                    site_id: 's1',
+                    status: 'revoked',
+                    tunnel_up: false,
+                    tunnel_address: '10.254.0.2',
+                    approved_cidrs: [],
+                    denied_cidrs: [],
+                    allow_public_addresses: false,
+                    certificate_fingerprint: 'fp',
+                    last_seen_at: null,
+                    enrolled_at: null,
+                  },
+                ],
+          });
+        }
+        return jsonResponse({ detail: 'not found' }, 404);
+      }),
+    );
+
+    render(
+      <AuthProvider>
+        <RelayPage />
+      </AuthProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete Retired relay' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete permanently' }));
+
+    await waitFor(() => expect(deleteMethod).toBe('DELETE'));
+    await waitFor(() => expect(screen.getByText(/No relays enrolled yet/)).toBeInTheDocument());
+  });
 });

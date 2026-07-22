@@ -19,7 +19,8 @@ rel="$work/release"
 bindir="$work/bin"
 mkdir -p "$rel" "$bindir"
 (cd "$ROOT/scout" && go build -o "$rel/$asset" ./cmd/vulnarelay)
-(cd "$rel" && sha256sum "$asset" >SHA256SUMS)
+printf '%s\n' "$VER" >"$rel/VERSION"
+(cd "$rel" && sha256sum "$asset" VERSION >SHA256SUMS)
 "$OPENSSL" genpkey -algorithm ed25519 -out "$work/key.pem" 2>/dev/null
 "$OPENSSL" pkey -in "$work/key.pem" -pubout -out "$work/pub.pem" 2>/dev/null
 "$OPENSSL" pkeyutl -sign -inkey "$work/key.pem" -rawin \
@@ -31,9 +32,17 @@ run_bootstrap() {
 		VULNA_RELAY_INSTALL_ONLY=1 VULNA_RELAY_SKIP_RUNTIME_CHECK=1 sh "$SCRIPT"
 }
 
+run_latest_bootstrap() {
+	VULNA_VERSION=latest VULNA_BASE_URL="file://$rel" \
+		VULNA_RELEASE_PUBKEY="$work/pub.pem" VULNA_BIN_DIR="$bindir" \
+		VULNA_RELAY_INSTALL_ONLY=1 VULNA_RELAY_SKIP_RUNTIME_CHECK=1 sh "$SCRIPT"
+}
+
 echo "relay-smoke: valid release"
 run_bootstrap
 "$bindir/vulnarelay" version | grep -q '^vulnarelay '
+echo "relay-smoke: latest channel"
+run_latest_bootstrap
 echo malicious >>"$rel/$asset"
 if run_bootstrap >/dev/null 2>&1; then
 	echo "relay-smoke: tampered artifact accepted" >&2
