@@ -39,12 +39,17 @@ export interface InventoryConnector {
 
 export interface ConnectorRun {
   id: string;
+  organization_id: string;
   connector_id: string;
   site_id: string;
+  background_task_id: string | null;
   status: 'queued' | 'running' | 'succeeded' | 'partial' | 'failed' | 'cancelled';
+  started_at: string | null;
+  finished_at: string | null;
   records_read: number;
   observations_created: number;
   error: string | null;
+  has_cursor: boolean;
   created_at: string;
 }
 

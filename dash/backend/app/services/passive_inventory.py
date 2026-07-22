@@ -18,7 +18,7 @@ from app.core.config import Settings
 from app.models.background_task import BackgroundTask
 from app.models.enums import ConnectorRunStatus, PassiveConnectorType
 from app.models.passive_inventory import AssetObservation, ConnectorRun, InventoryConnector
-from app.services import background_tasks, reconciliation
+from app.services import analytics, background_tasks, reconciliation
 from app.services.secret_crypto import SecretPurpose, decrypt_secret, encrypt_secret
 
 _SECRET_FRAGMENTS = {
@@ -363,6 +363,11 @@ async def execute_connector_task(
     run.started_at = run.started_at or now
     run.finished_at = None
     run.error = None
+    # Keep collection writes inside a savepoint. PostgreSQL aborts the current
+    # transaction after a statement error; rolling back the savepoint leaves the
+    # outer task transaction usable so the run's failure state can still be
+    # persisted and shown to the operator.
+    collection = await session.begin_nested()
     try:
         if not connector.enabled or connector.successful_test_at is None:
             raise InventoryConnectorError("connector must be tested and enabled before collection")
@@ -424,12 +429,15 @@ async def execute_connector_task(
             existing_source_ids.add(source_id)
             created += 1
     except Exception as exc:  # noqa: BLE001 - persist bounded connector failure history
+        await collection.rollback()
         run.status = ConnectorRunStatus.FAILED
         run.finished_at = now
         run.error = _safe_error(exc, locals().get("connector_secret"))[:2048]
         connector.last_run_at = now
+        await analytics.invalidate_dashboard_cache(session, connector.organization_id)
         await session.flush()
         raise background_tasks.PersistedTaskFailure(run.error) from exc
+    await collection.commit()
     run.status = ConnectorRunStatus.SUCCEEDED
     run.finished_at = now
     run.records_read = len(observations)
@@ -439,6 +447,7 @@ async def execute_connector_task(
     connector.last_run_at = now
     if connector.interval_minutes:
         connector.next_run_at = now + timedelta(minutes=connector.interval_minutes)
+    await analytics.invalidate_dashboard_cache(session, connector.organization_id)
     return {
         "run_id": str(run.id),
         "observations": run.observations_created,

@@ -12,9 +12,10 @@ import { Field, Input, Select, Textarea } from '../components/ui/input';
 import { InlineError } from '../components/ui/states';
 import { Tabs } from '../components/ui/tabs';
 import { useToast } from '../lib/toast';
-import { humanize } from '../lib/utils';
+import { formatRelative, humanize } from '../lib/utils';
 import type { Site } from '../types/inventory';
 import type {
+  ConnectorRun,
   InventoryConnector,
   InventoryDashboard,
   PassiveConnectorType,
@@ -44,6 +45,7 @@ export function PassiveInventoryPage() {
   const [tab, setTab] = useState('overview');
   const [dashboard, setDashboard] = useState<InventoryDashboard | null>(null);
   const [connectors, setConnectors] = useState<InventoryConnector[]>([]);
+  const [runs, setRuns] = useState<ConnectorRun[]>([]);
   const [candidates, setCandidates] = useState<ReconciliationCandidate[]>([]);
   const [templates, setTemplates] = useState<ReportTemplate[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
@@ -105,11 +107,13 @@ export function PassiveInventoryPage() {
       api.listReconciliationCandidates(token),
       api.listReportTemplates(token),
       api.listSites(token),
+      api.listConnectorRuns(token),
     ]);
     if (results[0].status === 'fulfilled') setDashboard(results[0].value);
     if (results[1].status === 'fulfilled') setConnectors(results[1].value);
     if (results[2].status === 'fulfilled') setCandidates(results[2].value);
     if (results[3].status === 'fulfilled') setTemplates(results[3].value);
+    if (results[5].status === 'fulfilled') setRuns(results[5].value);
     const siteResult = results[4];
     if (siteResult.status === 'fulfilled') {
       const loadedSites = siteResult.value.items;
@@ -134,6 +138,26 @@ export function PassiveInventoryPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const latestRunByConnector = useMemo(() => {
+    const latest = new Map<string, ConnectorRun>();
+    for (const run of runs) {
+      if (!latest.has(run.connector_id)) latest.set(run.connector_id, run);
+    }
+    return latest;
+  }, [runs]);
+
+  const hasActiveRuns = [...latestRunByConnector.values()].some(
+    (run) => run.status === 'queued' || run.status === 'running',
+  );
+
+  useEffect(() => {
+    if (!hasActiveRuns) return undefined;
+    const interval = window.setInterval(() => void load(), 2_000);
+    return () => window.clearInterval(interval);
+  }, [hasActiveRuns, load]);
+
+  const siteNameById = useMemo(() => new Map(sites.map((site) => [site.id, site.name])), [sites]);
 
   const createConnector = useCallback(async () => {
     if (!token || !connectorForm.name || !connectorForm.siteId) return;
@@ -566,7 +590,11 @@ export function PassiveInventoryPage() {
           </div>
         ),
       },
-      { id: 'site', header: 'Site', cell: (row) => row.site_id },
+      {
+        id: 'site',
+        header: 'Site',
+        cell: (row) => siteNameById.get(row.site_id) ?? row.site_id,
+      },
       {
         id: 'test',
         header: 'Qualification',
@@ -584,6 +612,44 @@ export function PassiveInventoryPage() {
             {row.enabled ? 'Enabled' : 'Disabled'}
           </Badge>
         ),
+      },
+      {
+        id: 'last-run',
+        header: 'Last run',
+        cell: (row) => {
+          const run = latestRunByConnector.get(row.id);
+          if (!run) return <span className="text-xs text-muted">Not run</span>;
+          const tone =
+            run.status === 'succeeded'
+              ? 'ok'
+              : run.status === 'failed' || run.status === 'cancelled'
+                ? 'bad'
+                : run.status === 'partial'
+                  ? 'warn'
+                  : 'accent';
+          return (
+            <div className="max-w-72 space-y-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge tone={tone} dot={run.status === 'queued' || run.status === 'running'}>
+                  {humanize(run.status)}
+                </Badge>
+                <span className="text-[11px] text-muted">
+                  {formatRelative(run.finished_at ?? run.started_at ?? run.created_at)}
+                </span>
+              </div>
+              {run.status === 'succeeded' && (
+                <p className="text-[11px] text-muted">
+                  {run.records_read} read · {run.observations_created} stored
+                </p>
+              )}
+              {run.error && (
+                <p className="line-clamp-2 text-[11px] text-bad" title={run.error}>
+                  {run.error}
+                </p>
+              )}
+            </div>
+          );
+        },
       },
       {
         id: 'actions',
@@ -647,7 +713,15 @@ export function PassiveInventoryPage() {
         ),
       },
     ],
-    [actOnConnector, busy, canManageConnectors, canRunConnectors, replaceCsv],
+    [
+      actOnConnector,
+      busy,
+      canManageConnectors,
+      canRunConnectors,
+      latestRunByConnector,
+      replaceCsv,
+      siteNameById,
+    ],
   );
 
   const candidateColumns: ColumnDef<ReconciliationCandidate>[] = useMemo(
