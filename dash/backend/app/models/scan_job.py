@@ -116,3 +116,9 @@ class ScanJob(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     failure_log_json: Mapped[list[dict[str, Any]]] = mapped_column(
         JSON, nullable=False, default=list
     )
+
+    @property
+    def max_duration_seconds(self) -> int:
+        """The non-secret execution budget carried by the signed job."""
+        value = (self.limits_json or {}).get("max_duration_seconds", 0)
+        return int(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else 0

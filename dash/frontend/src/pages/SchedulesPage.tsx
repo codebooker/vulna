@@ -61,6 +61,20 @@ function elapsedLabel(job: Job): string {
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m elapsed`;
 }
 
+function durationLabel(seconds: number | undefined): string | null {
+  if (!seconds || !Number.isFinite(seconds) || seconds <= 0) return null;
+  const hours = seconds / 3600;
+  return Number.isInteger(hours) ? `${hours}h` : `${Math.round(seconds / 60)}m`;
+}
+
+function executionDeadline(job: Job): string | null {
+  if (!job.started_at || !job.max_duration_seconds || job.max_duration_seconds <= 0) return null;
+  const signedExpiry = new Date(job.expires_at).getTime();
+  const durationExpiry =
+    new Date(job.started_at).getTime() + job.max_duration_seconds * 1000;
+  return new Date(Math.min(signedExpiry, durationExpiry)).toISOString();
+}
+
 /** Scans: one-off scan jobs (Running / Completed / Failed) and recurring
  *  Schedules, in tabs. A manual scan runs immediately on a chosen Scout; a
  *  schedule runs recurring assessments of a network's bound Scout. */
@@ -270,6 +284,8 @@ export function ScansPage() {
           const completed = stats.stages_completed ?? 0;
           const total = stats.stages_total ?? 0;
           const remaining = remainingLabel(j.estimated_completion_at);
+          const deadline = executionDeadline(j);
+          const signedLimit = durationLabel(j.max_duration_seconds);
           return (
             <div className="w-52" aria-label={`Scan ${j.progress_percent}% complete`}>
               <div className="mb-1 flex items-center justify-between gap-2 text-[11px]">
@@ -294,6 +310,12 @@ export function ScansPage() {
                     : 'es'} · {elapsedLabel(j)}
                 </div>
                 {remaining && <div>{remaining}</div>}
+                {signedLimit && (
+                  <div>
+                    Signed limit {signedLimit}
+                    {deadline ? ` · deadline ${formatWhen(deadline)}` : ''}
+                  </div>
+                )}
                 {(stats.stages_failed ?? 0) + (stats.stages_skipped ?? 0) > 0 && (
                   <div className="text-warn">
                     {stats.stages_failed ?? 0} failed · {stats.stages_skipped ?? 0} skipped

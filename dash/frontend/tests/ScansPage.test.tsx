@@ -15,6 +15,7 @@ const baseJob = {
   probe_id: 'probe-1',
   mode: 'vulnerability_assessment',
   requested_targets_json: ['192.0.2.0/24'],
+  max_duration_seconds: 8 * 60 * 60,
   not_before: '2026-07-13T00:00:00Z',
   expires_at: '2026-07-13T03:00:00Z',
   created_by: 'admin-1',
@@ -136,6 +137,7 @@ it('shows live percent, stage statistics, ETA, and operator failure diagnostics'
   expect(screen.getByText('1 of 3 stages')).toBeInTheDocument();
   expect(screen.getByText(/256 addresses · .* elapsed/)).toBeInTheDocument();
   expect(screen.getByText('about 5 min remaining')).toBeInTheDocument();
+  expect(screen.getByText(/Signed limit 8h · deadline/)).toBeInTheDocument();
   expect(screen.getByRole('progressbar', { name: 'Scan progress: 33%' })).toHaveAttribute(
     'aria-valuenow',
     '33',

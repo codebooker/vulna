@@ -237,10 +237,11 @@ async def test_large_job_gets_target_scaled_runtime_and_authorization_window(
     assert created.status_code == 201
     job = await db_session.get(ScanJob, uuid.UUID(created.json()["id"]))
     assert job is not None
-    # Five /24 work units receive five three-hour blocks, while the signed
-    # authorization window includes an additional hour for queueing/finalize.
-    assert job.limits_json["max_duration_seconds"] == 15 * 60 * 60
-    assert job.expires_at - job.not_before == timedelta(hours=16)
+    # Standard includes Nuclei, so five /24 work units receive five eight-hour
+    # blocks. The signed authorization window adds one hour for queue/finalize.
+    assert job.limits_json["max_duration_seconds"] == 40 * 60 * 60
+    assert job.expires_at - job.not_before == timedelta(hours=41)
+    assert created.json()["max_duration_seconds"] == 40 * 60 * 60
 
 
 async def test_create_job_out_of_scope_rejected(
@@ -307,6 +308,9 @@ async def test_jobs_next_delivers_signed_envelope(
     envelope = resp.json()
     assert envelope["job_id"] == job_id
     assert envelope["targets"] == ["10.20.0.5/32"]
+    assert envelope["profile_version"] == 3
+    nmap_stage = next(stage for stage in envelope["workflow"] if stage["plugin"] == "nmap")
+    assert nmap_stage["config"]["discovery_strategy"] == "responsive_hosts"
     assert get_signer().verify_document(envelope) is True
 
     # The job is now marked offered; a second poll returns nothing.

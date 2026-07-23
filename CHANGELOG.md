@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — scan duration and discovery performance
+
+- Standard and Deep Safe scans now receive a preset- and scanner-aware signed
+  execution budget instead of the discovery-only three-hours-per-/24 budget.
+  Nuclei workflows receive eight hours per 256 addresses, bounded by a 48-hour
+  hard ceiling; lighter profiles retain smaller limits. Scan rows expose the
+  actual signed limit and deadline so long-running work no longer ends at a
+  hidden, undersized cutoff.
+- Standard v3 discovery now performs a bounded, unprivileged TCP responsiveness
+  pass before broad port, service, and safe-script detection. The thorough pass
+  runs only against addresses that actually answer; a failed or malformed fast
+  pass falls back to exhaustive discovery. Earlier Standard versions and Deep
+  Safe retain their original exhaustive behavior.
+
 ### Added — asset deletion
 
 - Administrators and scoped asset managers can now permanently delete one asset

@@ -11,6 +11,7 @@ Everything here is pure and unit-testable: no database, no scanner invocation.
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from dataclasses import dataclass, field, replace
 
 # --------------------------------------------------------------------------- #
@@ -185,6 +186,22 @@ BUILTIN_PRESETS += (
     ),
 )
 
+# Standard v3 splits discovery into a compact TCP-connect responsiveness pass
+# followed by the existing broad service scan for hosts that answered. The
+# signed packet-rate ceiling and unprivileged Scout boundary are unchanged.
+# Standard v1/v2 remain available so pinned schedules keep their exact behavior.
+BUILTIN_PRESETS += (
+    replace(
+        BUILTIN_PRESETS[6],
+        version=3,
+        description=(
+            "Fast host discovery followed by broader service detection on responsive "
+            "hosts, non-intrusive vulnerability checks, TLS review, and passive web "
+            "analysis. No intrusive tests, active web attacks, or credentials."
+        ),
+    ),
+)
+
 
 class PresetError(ValueError):
     """Raised when a preset lookup or custom-preset validation fails."""
@@ -261,6 +278,45 @@ def resolve_stages(preset: Preset, available: set[str], *, allow_downgrade: bool
 # Estimates (ranges / workload classes, never false precision)
 # --------------------------------------------------------------------------- #
 
+_DURATION_HOST_BLOCK = 256
+_QUICK_BLOCK_SECONDS = 3 * 60 * 60
+_SERVICE_BLOCK_SECONDS = 4 * 60 * 60
+_VULNERABILITY_BLOCK_SECONDS = 8 * 60 * 60
+_ORDINARY_CAP_SECONDS = 24 * 60 * 60
+_HEAVY_CAP_SECONDS = 48 * 60 * 60
+
+
+def duration_limit_seconds(
+    preset: Preset,
+    host_count: int,
+    *,
+    scanners: Collection[str] | None = None,
+) -> int:
+    """Return a bounded execution budget for the scanners a job will run.
+
+    Discovery-only jobs retain the original three-hour-per-/24 allowance.
+    Service analysis receives four hours per block, while any Nuclei workflow
+    receives eight because template volume scales with both discovered targets
+    and technologies rather than address count alone. The local signed policy
+    independently clamps this recommendation.
+    """
+    selected = (
+        set(scanners)
+        if scanners is not None
+        else {stage.scanner for stage in preset.stages()}
+    )
+    if "nuclei" in selected:
+        per_block = _VULNERABILITY_BLOCK_SECONDS
+        cap = _HEAVY_CAP_SECONDS
+    elif preset.key == "fragile" or selected.intersection({"testssl", "zap"}):
+        per_block = _SERVICE_BLOCK_SECONDS
+        cap = _HEAVY_CAP_SECONDS if preset.key == "fragile" else _ORDINARY_CAP_SECONDS
+    else:
+        per_block = _QUICK_BLOCK_SECONDS
+        cap = _ORDINARY_CAP_SECONDS
+    blocks = max(1, (max(1, host_count) + _DURATION_HOST_BLOCK - 1) // _DURATION_HOST_BLOCK)
+    return min(cap, per_block * blocks)
+
 
 def estimate(preset: Preset, host_count: int) -> dict[str, str]:
     """Return a coarse workload/duration estimate as ranges, not exact numbers."""
@@ -276,10 +332,10 @@ def estimate(preset: Preset, host_count: int) -> dict[str, str]:
         ("light", "large"): "several minutes",
         ("moderate", "small"): "a few minutes",
         ("moderate", "medium"): "several to tens of minutes",
-        ("moderate", "large"): "tens of minutes or more",
+        ("moderate", "large"): "hours for multi-subnet scopes",
         ("heavy", "small"): "several minutes",
         ("heavy", "medium"): "tens of minutes",
-        ("heavy", "large"): "up to a few hours",
+        ("heavy", "large"): "hours to more than a day",
     }.get((preset.workload_class, size), "varies")
     return {
         "workload_class": preset.workload_class,

@@ -65,6 +65,7 @@ export interface Job {
   mode: string;
   status: string;
   requested_targets_json: string[];
+  max_duration_seconds?: number;
   not_before: string;
   expires_at: string;
   created_by: string | null;
