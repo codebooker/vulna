@@ -48,6 +48,7 @@ class JobRead(BaseModel):
     status: JobStatus
     requested_targets_json: list[str]
     policy_version: int
+    max_duration_seconds: int = Field(ge=1)
     not_before: datetime
     expires_at: datetime
     created_by: uuid.UUID | None

@@ -33,18 +33,20 @@ _DEFAULT_LIMITS = {
 }
 
 _DURATION_HOST_STEP = 256
-_MAX_DURATION_SECONDS = 24 * 60 * 60
+_MAX_DURATION_PER_HOST_STEP_SECONDS = 8 * 60 * 60
+_MAX_DURATION_SECONDS = 48 * 60 * 60
 
 
 def duration_limit_for_hosts(hosts: int) -> int:
-    """Scale the signed workflow budget with explicitly approved scope size.
+    """Return the largest safe workflow budget the local policy may authorize.
 
-    Three hours remains the conservative budget for up to one /24. Larger host
-    limits get another three-hour block per 256 addresses, capped at 24 hours so
-    an abandoned job never becomes open-ended.
+    The policy must permit the heaviest built-in safe preset, while each job signs
+    the smaller budget justified by its actual scanners. Eight hours per /24
+    covers discovery plus Nuclei's template workload without making authorization
+    open-ended; the independent 48-hour ceiling remains the absolute boundary.
     """
     steps = max(1, (max(1, hosts) + _DURATION_HOST_STEP - 1) // _DURATION_HOST_STEP)
-    return min(_MAX_DURATION_SECONDS, _DEFAULT_LIMITS["max_duration_seconds"] * steps)
+    return min(_MAX_DURATION_SECONDS, _MAX_DURATION_PER_HOST_STEP_SECONDS * steps)
 
 
 async def _probe_scopes(session: AsyncSession, probe: Probe) -> list[NetworkScope]:

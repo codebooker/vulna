@@ -33,6 +33,8 @@ def test_builtin_presets_present_and_safe() -> None:
 def test_get_preset_version_pinning() -> None:
     p = ps.get_preset("standard", version=1)
     assert p.version == 1
+    assert ps.get_preset("standard", version=2).version == 2
+    assert ps.get_preset("standard").version == 3
     with pytest.raises(ps.PresetError):
         ps.get_preset("standard", version=999)
     with pytest.raises(ps.PresetError):
@@ -67,6 +69,19 @@ def test_estimate_is_ranges_not_precision() -> None:
     est = ps.estimate(ps.get_preset("standard"), host_count=300)
     assert est["size_class"] == "large"
     assert "minute" in est["duration_range"] or "hour" in est["duration_range"]
+
+
+def test_duration_budget_matches_actual_scanner_workload() -> None:
+    standard = ps.get_preset("standard")
+    quick = ps.get_preset("quick")
+
+    assert ps.duration_limit_seconds(standard, 5 * 256) == 40 * 60 * 60
+    assert ps.duration_limit_seconds(quick, 5 * 256) == 15 * 60 * 60
+    assert (
+        ps.duration_limit_seconds(standard, 5 * 256, scanners={"nmap", "testssl", "zap"})
+        == 20 * 60 * 60
+    )
+    assert ps.duration_limit_seconds(standard, 20 * 256) == 48 * 60 * 60
 
 
 def test_tuning_never_exceeds_policy_limits() -> None:

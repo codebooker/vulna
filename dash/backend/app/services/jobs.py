@@ -36,7 +36,7 @@ from app.models.probe import Probe
 from app.models.scan_job import ScanJob
 from app.services import credentials as credential_service
 from app.services import presets as preset_service
-from app.services.policy import build_policy_document, duration_limit_for_hosts
+from app.services.policy import build_policy_document
 from app.services.scopes import ScopeValidationError, normalize_cidr
 from app.services.signing import get_signer
 
@@ -59,9 +59,9 @@ _AUTO_ZAP_MAX_DURATION_MINUTES = 10
 _AUTO_ZAP_MAX_REQUESTS_PER_SECOND = 10
 
 
-def _nmap_stage_config(preset_key: str) -> dict[str, Any]:
+def _nmap_stage_config(preset: preset_service.Preset) -> dict[str, Any]:
     """Typed, signed discovery tuning for the selected safe preset."""
-    if preset_key == "quick":
+    if preset.key == "quick":
         return {
             "port_profile": "quick",
             "timing": 4,
@@ -69,7 +69,7 @@ def _nmap_stage_config(preset_key: str) -> dict[str, Any]:
             "host_timeout": "5m",
             "max_duration_seconds": 30 * 60,
         }
-    if preset_key == "fragile":
+    if preset.key == "fragile":
         return {
             "port_profile": "standard",
             "timing": 3,
@@ -77,13 +77,16 @@ def _nmap_stage_config(preset_key: str) -> dict[str, Any]:
             "host_timeout": "15m",
             "max_duration_seconds": 3 * 60 * 60,
         }
-    return {
+    config: dict[str, Any] = {
         "port_profile": "standard",
         "timing": 4,
         "max_retries": 1,
         "host_timeout": "5m",
-        "max_duration_seconds": 60 * 60 if preset_key == "standard" else 90 * 60,
+        "max_duration_seconds": 60 * 60 if preset.key == "standard" else 90 * 60,
     }
+    if preset.key == "standard" and preset.version >= 3:
+        config["discovery_strategy"] = "responsive_hosts"
+    return config
 
 
 def _workflow_for_preset(
@@ -99,7 +102,7 @@ def _workflow_for_preset(
             {
                 "stage": "discovery",
                 "plugin": "nmap",
-                "config": _nmap_stage_config(preset.key),
+                "config": _nmap_stage_config(preset),
             }
         )
     if "vuln" in selected:
@@ -410,13 +413,7 @@ async def create_scan_job(
         allow_public=bool(policy["allow_public_addresses"]),
     )
     _enforce_host_limit(normalized_targets, policy["limits"])
-    # The policy carries the maximum duration permitted by the approved host
-    # limit. Sign only the smaller budget justified by this specific job.
     limits = dict(policy["limits"])
-    limits["max_duration_seconds"] = min(
-        int(limits["max_duration_seconds"]),
-        duration_limit_for_hosts(_count_hosts(normalized_targets)),
-    )
     try:
         preset = preset_service.get_preset(preset_key or "standard", preset_version)
     except preset_service.PresetError as exc:
@@ -503,6 +500,23 @@ async def create_scan_job(
                 },
             }
         )
+
+    # The local policy carries the largest duration permitted for this scope.
+    # Sign the smaller, preset- and scanner-aware budget for this specific job.
+    # Nuclei needs materially more time than discovery because its work scales
+    # with discovered services and thousands of templates, not addresses alone.
+    limits["max_duration_seconds"] = min(
+        int(limits["max_duration_seconds"]),
+        preset_service.duration_limit_seconds(
+            preset,
+            _count_hosts(normalized_targets),
+            scanners={
+                str(stage.get("plugin", ""))
+                for stage in workflow
+                if stage.get("plugin")
+            },
+        ),
+    )
 
     now = datetime.now(UTC)
     start = not_before or now

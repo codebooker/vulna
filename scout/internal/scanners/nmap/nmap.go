@@ -10,7 +10,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
+	"log"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -24,8 +26,10 @@ import (
 )
 
 const (
-	defaultBinary = "nmap"
-	maxTopPorts   = 65535
+	defaultBinary             = "nmap"
+	maxTopPorts               = 65535
+	responsiveHostsStrategy   = "responsive_hosts"
+	responsivenessHostTimeout = "2m"
 )
 
 // portSpecRE bounds an nmap -p spec to digits, commas and ranges, so a port set
@@ -251,15 +255,23 @@ func (w *Worker) Run(ctx context.Context, job *policy.Job) ([]byte, error) {
 		return nil, fmt.Errorf("create temp workspace: %w", err)
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
-	outPath := filepath.Join(dir, "nmap.xml")
 
 	profile := w.planRun(job)
-	args, err := BuildArgs(profile, outPath, job.Targets)
+	runCtx, cancel := w.runContext(ctx, job)
+	defer cancel()
+	targets, err := w.discoveryTargets(runCtx, dir, job, profile)
 	if err != nil {
 		return nil, err
 	}
-	runCtx, cancel := w.runContext(ctx, job)
-	defer cancel()
+	if len(targets) == 0 {
+		return wrapHosts(nil), nil
+	}
+
+	outPath := filepath.Join(dir, "nmap.xml")
+	args, err := BuildArgs(profile, outPath, targets)
+	if err != nil {
+		return nil, err
+	}
 	cmd := processutil.ScannerCommandContext(runCtx, dir, w.binary(), args...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -281,6 +293,138 @@ func (w *Worker) Run(ctx context.Context, job *policy.Job) ([]byte, error) {
 		)
 	}
 	return xml, nil
+}
+
+// responsivenessProfile produces a compact, unprivileged TCP-connect pass.
+// Open and explicitly closed ports both prove that an address answered. The
+// pass intentionally omits service probes and NSE scripts; those run only once,
+// in the thorough scan of the responsive addresses.
+func responsivenessProfile(profile Profile) Profile {
+	profile.Ports = QuickPorts
+	profile.TopPorts = 0
+	profile.Timing = 4
+	profile.MaxRetries = 1
+	profile.HostTimeout = responsivenessHostTimeout
+	profile.ServiceDetection = false
+	profile.Scripts = nil
+	return profile
+}
+
+// discoveryTargets returns the original signed targets unless the signed
+// workflow selects two-pass discovery. If the fast pass itself fails, it falls
+// back to the original exhaustive targets so a probe problem cannot turn into
+// a false-successful empty scan.
+func (w *Worker) discoveryTargets(
+	ctx context.Context,
+	dir string,
+	job *policy.Job,
+	profile Profile,
+) ([]string, error) {
+	config := stageConfig(job)
+	strategy, _ := config["discovery_strategy"].(string)
+	if strategy != responsiveHostsStrategy {
+		return job.Targets, nil
+	}
+
+	outPath := filepath.Join(dir, "nmap-responsive.xml")
+	args, err := BuildArgs(responsivenessProfile(profile), outPath, job.Targets)
+	if err != nil {
+		return nil, err
+	}
+	cmd := processutil.ScannerCommandContext(ctx, dir, w.binary(), args...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	runErr := cmd.Run()
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	raw, readErr := os.ReadFile(outPath)
+	if runErr != nil || readErr != nil || len(raw) == 0 {
+		log.Printf(
+			"nmap responsiveness pass failed; using exhaustive targets: run=%v read=%v stderr=%s",
+			runErr,
+			readErr,
+			strings.TrimSpace(stderr.String()),
+		)
+		return job.Targets, nil
+	}
+	targets, parseErr := responsiveTargets(raw)
+	if parseErr != nil {
+		log.Printf(
+			"nmap responsiveness output was invalid; using exhaustive targets: %v",
+			parseErr,
+		)
+		return job.Targets, nil
+	}
+	return targets, nil
+}
+
+type responsivenessRun struct {
+	Hosts []responsivenessHost `xml:"host"`
+}
+
+type responsivenessHost struct {
+	Status    responsivenessState     `xml:"status"`
+	Addresses []responsivenessAddress `xml:"address"`
+	Ports     []responsivenessPort    `xml:"ports>port"`
+}
+
+type responsivenessState struct {
+	State string `xml:"state,attr"`
+}
+
+type responsivenessAddress struct {
+	Addr string `xml:"addr,attr"`
+	Type string `xml:"addrtype,attr"`
+}
+
+type responsivenessPort struct {
+	State responsivenessState `xml:"state"`
+}
+
+// responsiveTargets extracts addresses that returned a TCP answer. Because the
+// liveness pass uses -Pn, <status state="up"> alone is not evidence; Nmap sets it
+// for every requested address. An open, closed, or unfiltered port is evidence
+// of a real response, while an all-filtered host is not.
+func responsiveTargets(raw []byte) ([]string, error) {
+	var run responsivenessRun
+	if err := xml.Unmarshal(raw, &run); err != nil {
+		return nil, fmt.Errorf("parse responsiveness XML: %w", err)
+	}
+	seen := make(map[string]struct{}, len(run.Hosts))
+	targets := make([]string, 0, len(run.Hosts))
+	for _, host := range run.Hosts {
+		if host.Status.State != "up" || !hostAnswered(host.Ports) {
+			continue
+		}
+		for _, address := range host.Addresses {
+			if address.Type != "ipv4" && address.Type != "ipv6" {
+				continue
+			}
+			parsed, err := netip.ParseAddr(address.Addr)
+			if err != nil {
+				continue
+			}
+			target := parsed.String()
+			if _, ok := seen[target]; ok {
+				break
+			}
+			seen[target] = struct{}{}
+			targets = append(targets, target)
+			break
+		}
+	}
+	return targets, nil
+}
+
+func hostAnswered(ports []responsivenessPort) bool {
+	for _, port := range ports {
+		switch port.State.State {
+		case "open", "closed", "unfiltered":
+			return true
+		}
+	}
+	return false
 }
 
 // planRun derives the effective profile with the job's packet-rate limit and a
@@ -363,15 +507,23 @@ func (w *Worker) Stream(
 		return fmt.Errorf("create temp workspace: %w", err)
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
-	outPath := filepath.Join(dir, "nmap.xml")
 
 	profile := w.planRun(job)
-	args, err := BuildArgs(profile, outPath, job.Targets)
+	runCtx, cancel := w.runContext(ctx, job)
+	defer cancel()
+	targets, err := w.discoveryTargets(runCtx, dir, job, profile)
 	if err != nil {
 		return err
 	}
-	runCtx, cancel := w.runContext(ctx, job)
-	defer cancel()
+	if len(targets) == 0 {
+		return nil
+	}
+
+	outPath := filepath.Join(dir, "nmap.xml")
+	args, err := BuildArgs(profile, outPath, targets)
+	if err != nil {
+		return err
+	}
 	cmd := processutil.ScannerCommandContext(runCtx, dir, w.binary(), args...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
