@@ -70,8 +70,7 @@ function durationLabel(seconds: number | undefined): string | null {
 function executionDeadline(job: Job): string | null {
   if (!job.started_at || !job.max_duration_seconds || job.max_duration_seconds <= 0) return null;
   const signedExpiry = new Date(job.expires_at).getTime();
-  const durationExpiry =
-    new Date(job.started_at).getTime() + job.max_duration_seconds * 1000;
+  const durationExpiry = new Date(job.started_at).getTime() + job.max_duration_seconds * 1000;
   return new Date(Math.min(signedExpiry, durationExpiry)).toISOString();
 }
 
